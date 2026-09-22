@@ -1,7 +1,7 @@
 # 阶段 0 交接文档：Relay 重构前测试基线
 
 > 本文档供**后续会话（阶段 1 起）**阅读，替代上一会话的对话上下文。
-> 上一会话只做了一件事：建立 `internal/relay` 的测试基线，**未改动任何生产代码，未 commit**。
+> 上一会话只做了一件事：建立 `internal/relay` 的测试基线，**未改动任何生产代码**；6 个文件随后经用户授权提交到本地 `test`（见 §1）。
 > 计划原文见同目录 `plan/v1.0plan.md`。
 
 ---
@@ -20,10 +20,14 @@
 | `git branch -a` | 本地 `master`、`test`；远端 `origin/master` |
 | `master` | **未提交、未推送、未写入**，HEAD 仍是 `4a54b59 build: :rocket: v0.13.6` |
 | `beta` | **不存在**（未创建 / 未切换 / 未合并） |
-| `test` 上的提交 | **无**。全部改动为未跟踪文件 |
-| `git status --short` | `?? internal/relay/failover_test.go`、`?? retry_test.go`、`?? stream_test.go`、`?? testsupport_test.go`、`?? plan/` |
+| `test` 上的提交 | **1 个**：`3a4437e test: :white_check_mark: 建立 Relay 重构前测试基线`（6 files, +2395） |
+| 工作区 | 提交后**干净** |
 
-**未授权动作（后续会话同样不得自行执行）**：commit、merge、rebase、cherry-pick、push、pull、fetch、tag、PR/MR、远端状态变更、分支增删改、`git stash` / `reset` / `clean` / `checkout --`、改写历史、写任何东西到 `master` 或 `beta`。进入阶段 1 前若还需 commit，**要先问用户**。
+> 本节描述的是阶段 0 结束时的状态。**后续会话以 `git log --oneline -3` 和 `git status --short` 实测为准**，不要依赖本节记录。
+
+`3a4437e` 的内容：4 个测试文件 + `plan/v1.0plan.md` + `plan/phase0-baseline.md`。**不含任何生产代码改动**（提交前 `git diff` 为空，新增文件全部为 `A`）。
+
+**未授权动作（后续会话同样不得自行执行）**：merge、rebase、cherry-pick、push、pull、fetch、tag、PR/MR、远端状态变更、分支增删改、`git stash` / `reset` / `clean` / `checkout --`、改写历史、写任何东西到 `master` 或 `beta`。阶段内 commit 需**用户逐次授权**（阶段 0 的基线提交已获授权）。
 
 ---
 
@@ -171,7 +175,7 @@ go test ./... -count=1                   # exit 0（除 relay 外均 no test fil
 go vet ./...                             # exit 0，无输出
 gofmt -l internal/relay/                 # 见 §6.5：既有 CRLF 文件会被列出
 git diff --check                         # 无空白错误
-git diff --stat ; git diff               # 均为空（改动全为未跟踪文件）
+git diff --stat ; git diff               # 阶段 0 验证时均为空（当时改动全为未跟踪文件）
 git status --short ; git branch --show-current ; git log -1 --oneline
 ```
 
@@ -219,7 +223,6 @@ git status --short ; git branch --show-current ; git log -1 --oneline
 
 ## 11. 阶段 1 开工前需要用户确认的动作
 
-- 是否为上述 4 个测试文件做**首次 commit**（上一会话按门禁未 commit）
 - 是否安装 C 工具链以启用 `-race`（环境变更，须单独授权）
 - 是否统一前后端 Relay 默认值（§9 的两个差异）
 - 阶段 1 的具体实现范围与验收标准
