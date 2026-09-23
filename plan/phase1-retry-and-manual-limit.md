@@ -6,7 +6,7 @@
 
 ## 0. 一句话状态
 
-阶段 1 功能与代码复审已完成，后端检查和前端生产构建（含 TypeScript 检查）通过；全量前端 lint 仍有 3 个基线错误，安排独立的小修复提交。本文档随阶段 1 一并提交到本地 `test`，记录的是清理基线 lint 之前的验收快照。阶段 2 尚未开始。
+阶段 1 功能与代码复审已完成，后端检查、前端 lint 和生产构建（含 TypeScript 检查）通过。阶段 1 初始提交为本地 `test` 上的 `4ed9cea`；随后独立清理了 3 个基线 lint 错误。下文 §1 至 §10 保留阶段 1 初始提交时的验收快照，最新收尾结果见 §11。阶段 2 尚未开始。
 代码坐标：`internal/model/group.go`、`internal/relay/{retry.go,handler.go,state.go}`、`web/src/api/group.ts`、`web/src/components/modules/group/{Editor.tsx,Card.tsx}`、三份 locale。
 
 ## 1. 分支与 Git 现状（纪律约束）
@@ -112,6 +112,10 @@ node -e "..."                         # locale 解析与三份 key 对齐（脚�
 - 阶段 2 会重整 `route.go` 的状态机；届时注意坑 #2 与 #4。
 - `web/src/api/group.ts` 里 `member_affinity_seconds` 已标注为"后端保留字段"，若阶段 2 决定彻底移除亲和，前后端要一起删（`MemberStatus.tsx` 与 `RouteState.AffinityUntil` 是仅存的使用点）。
 
-## 11. 后续安排
+## 11. 基线 lint 清理与最终复审
 
-阶段 1 提交后单独清理上述 3 个 lint 基线错误，由主代理审阅改动并运行前端 lint / build。用户要求本轮不进入阶段 2。
+阶段 1 提交 `4ed9cea` 完成后，用户确认由 `gpt-6-luna` 以 `max` 推理强度执行小修复。源码仅修改两处：`ItemList.tsx` 移除 `MemberItem` 内未使用的翻译 hook；`chart.tsx` 从 Recharts 显式重导出 `Tooltip as ChartTooltip` 与 `Legend as ChartLegend`，保留原组件对象、公开名称和类型。
+
+修复代理执行 `pnpm lint` 和 `pnpm build --outDir <系统临时目录> --emptyOutDir false`，退出码均为 0，生产构建包含的 TypeScript 检查通过。主代理已审阅完整差异，确认没有关闭 lint 规则、修改依赖或引入组件包装层；`git diff --check` 通过。此次小修复与本文档更新单独提交，阶段 1 原提交保留。
+
+阶段 1 及其基线 lint 清理已完成，用户要求本轮不进入阶段 2。
