@@ -317,7 +317,8 @@
             "empty": "No rules",
             "activate": "Set as active",
             "cooling": "Cooling {seconds}s",
-            "affinity": "Affinity {seconds}s"
+            "normal": "Normal",
+            "waitingRecovery": "Waiting for recovery"
         },
         "detail": {
             "actions": {

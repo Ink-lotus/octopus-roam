@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { type Group, type GroupUpdateRequest, useDeleteGroup, useUpdateGroup } from '@/api/group';
 import { useTranslations } from 'use-intl';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import { IconButton } from '@/components/common/IconButton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -58,6 +59,12 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [members, setMembers] = useState<SelectedMember[]>([]);
     const isDragging = useRef(false);
+    const availableItems = group.items.filter((item) => item.available);
+    const waitingForRecovery = group.mode === 'failover' && group.items.length > 0 && group.runtime.current_item_id === 0 && (
+        group.runtime.probe_item_id !== 0 ||
+        availableItems.length === 0 ||
+        availableItems.every((item) => (group.runtime.cooldowns[item.id] ?? 0) > now)
+    );
 
     // 成员的名称, 所属渠道与可用性由后端随分组给出, 此处只做展示形状的转换。
     // 不可用的成员同样列出: 否则用户看不到它的存在也就无法移除。
@@ -158,6 +165,12 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                         </TooltipContent>
                     </Tooltip>
                 </div>
+
+                {waitingForRecovery && (
+                    <Badge variant="outline" className="mr-2 shrink-0 border-orange-500/30 bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-medium text-orange-600 dark:text-orange-400">
+                        {t('card.waitingRecovery')}
+                    </Badge>
+                )}
 
                 <div className="flex items-center gap-1 shrink-0">
                     <MorphingDialog>

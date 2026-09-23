@@ -76,18 +76,22 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		// 登记进程内请求状态, 返回的记录是后续全部状态写入和前端可视化推送的入口。
 		request := newRequestState(c.Request.Context(), metadata.Model, group.ID, requestProtocol, string(raw.Body), c.GetInt("api_key_id"))
 		ctx := request.requestCtx
-		failedItemID := 0 // 当前累计连续失败次数的成员 ID。
-		failures := 0     // 该成员包含首次请求的连续失败次数。
+		failedItemID := 0             // 当前累计连续失败次数的成员 ID。
+		failures := 0                 // 该成员包含首次请求的连续失败次数。
+		failedGeneration := uint64(0) // 路由改变或恢复探测重新开始时重置成员尝试预算。
+		probeToken := uint64(0)       // 本请求持有的恢复探测令牌, 取消时必须归还。
+		var activeProbe struct {
+			group      model.Group
+			itemID     int
+			generation uint64
+			token      uint64
+		}
+		defer func() {
+			releaseRouteProbe(activeProbe.group, activeProbe.itemID, activeProbe.generation, activeProbe.token)
+		}()
 
-		// 循环内有且只有两类等待, 不可混用:
-		// 上游失败后的重试等待: 按 retry_mode 走固定或指数退避, 计数 failures 为"每请求内每成员"的连续失败次数,
-		//   换成员即归 1, 故退避在每个成员上各自从初始间隔重新开始(手动模式没有成员切换, 才会一直递增到最大间隔)。
-		// 未发出上游请求的等待(分组缺失, 无可用成员, 授权缺失, 渠道缺失, 出站转换无法构造): 一律固定间隔。
-		//   这类等待发生在选中成员之前或构造出站之前, 本轮没有成员可换, 既无重试计数也无重置点, 指数化只会让
-		//   "等冷却到期/等配置改回"在冷却较大时产生最长约 600 秒的迟滞, 故不参与退避。
-		// 阶段 1 临时: 第二类等待全部是固定间隔轮询。plan 阶段 2 任务 8 与契约 §三.3.9 要求"全部成员处于冷却时
-		// 等待最早一个冷却时间到期, 不使用固定轮询代替冷却等待", 届时"无可用成员"那处会被该截止时间等待取代;
-		// 其余几处的等待形态在阶段 2 重整路由状态机时一并复核。
+		// 上游失败后的重试等待按 retry_mode 使用 RetryDelay; 同一请求开始恢复探测后会保留该成员的预算。
+		// 故障转移无可用成员时按 routeSelection 的最早冷却截止时间或状态变更信号等待。
 
 		for {
 			if ctx.Err() != nil {
@@ -95,8 +99,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				return
 			}
 
-			// 分组配置和成员随时可改, 故每轮重新读取; 分组被删除时等待它重新出现。
-			// 阶段 1 临时: 固定间隔等待, 属"未发出上游请求的等待", 理由与范围见循环入口的注释。
+			// 分组配置和成员随时可改, 故每轮重新读取; 分组被删除时保持原有间隔等待。
 			group, err = op.GroupGetByName(metadata.Model)
 			if err != nil {
 				if !request.wait(ctx, model.DefaultGroupRelayConfig().MemberRetryIntervalSeconds) {
@@ -105,36 +108,53 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				continue
 			}
 
-			// 手动模式取人工指定的成员, 故障转移模式按优先级选择未禁用且不在冷却中的成员。
-			// 没有目标时等待重新选择, 期间人工切换渠道, 补齐成员或成员冷却到期即可让请求继续。
-			// 阶段 1 临时: 此处固定间隔轮询。故障转移模式下"没有目标"即全部成员处于冷却, 阶段 2 任务 8 会改为
-			// 等待最早一个冷却截止时间; 在那之前不要把它当成终局设计, 也不要顺手改成指数退避。
-			item := pickGroupItem(group)
-			if item.ID == 0 {
-				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+			// 手动模式取人工指定成员; 故障转移按优先级扫描, 当前健康成员保持固定。
+			selection := pickGroupItem(group, probeToken)
+			if selection.Wait || selection.Item.ID == 0 {
+				if group.Mode == model.GroupModeFailover {
+					if !waitRoute(ctx.Done(), selection) {
+						request.markCanceled(ctx.Err(), "", nil)
+						return
+					}
+				} else if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
 					return
 				}
 				continue
+			}
+			item := selection.Item
+			probeToken = selection.ProbeToken
+			if probeToken != 0 {
+				activeProbe.group = group
+				activeProbe.itemID = item.ID
+				activeProbe.generation = selection.Generation
+				activeProbe.token = probeToken
+			} else {
+				activeProbe.token = 0
 			}
 
 			// 成员指向的授权缺失, 凭据被停用或两侧已被删除时等待, 该成员可能很快被改回可用配置。
 			// ChannelGrantGet 一次校验齐这几种情况, 取到的授权必然可直接转发, 无需再逐项检查。
-			// 阶段 1 临时: 固定间隔等待, 属"未发出上游请求的等待", 理由与范围见循环入口的注释。
 			grant, err := op.ChannelGrantGet(item.ChannelGrantID)
 			if err != nil {
-				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+				if group.Mode == model.GroupModeFailover {
+					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken)
+					probeToken = 0
+				} else if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
 					return
 				}
 				continue
 			}
+			model.NormalizeGroupRelayConfig(&group.RelayConfig)
 			channelModel := grant.ChannelModel
 			channelKey := grant.ChannelKey
 
 			// 成员指向的渠道已被删除时同样等待, 该成员可能很快被改回可用渠道。
-			// 阶段 1 临时: 固定间隔等待, 属"未发出上游请求的等待", 理由与范围见循环入口的注释。
 			channel, err := op.ChannelGet(channelModel.ChannelID)
 			if err != nil {
-				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+				if group.Mode == model.GroupModeFailover {
+					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken)
+					probeToken = 0
+				} else if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
 					return
 				}
 				continue
@@ -215,13 +235,17 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				request.finishRound(err.Error())
 				// 父上下文结束说明客户端已经取消, 归还探测占用并以取消终态结束请求。
 				if ctx.Err() != nil {
-					releaseRouteProbe(group, item.ID)
+					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					probeToken = 0
+					activeProbe.token = 0
 					request.markCanceled(ctx.Err(), "", nil)
 					return
 				}
 				// 仅人工中止本轮时不计失败也不等待; 响应超时属于真实失败并消耗尝试次数。
 				if context.Cause(roundCtx) == context.Canceled {
-					releaseRouteProbe(group, item.ID)
+					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					probeToken = 0
+					activeProbe.token = 0
 					continue
 				}
 				// 本轮真实失败只计入当前渠道和成员, 客户端取消与人工中止不计为渠道故障。
@@ -235,20 +259,25 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				// 但故障转移模式仍须让它让出路由: 该失败由渠道配置决定, 重试同一成员不会改变结果,
 				// 不让出路由会让请求永久停在这个成员上而永不切换到后续成员。手动模式没有路由可让, 只会重试当前成员。
 				if !sent {
-					if group.Mode != model.GroupModeManual && recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts) {
+					if group.Mode != model.GroupModeManual && recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken) {
+						probeToken = 0
+						activeProbe.token = 0
 						continue
 					}
-					// 阶段 1 临时: 手动模式下的固定间隔等待, 属"未发出上游请求的等待", 见循环入口的注释。
+					// 手动模式没有可让出的路由, 未发送错误仍按配置间隔等待后重试。
 					if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+						activeProbe.token = 0
 						return
 					}
 					continue
 				}
-				// 成员改变时重新开始累计该成员在本请求内的失败次数, 即该成员在本请求内的尝试次数。
-				if failedItemID == item.ID {
+				// 路由版本或成员变化时重置预算, 同一成员重新进入恢复探测也从第 1 次尝试开始。
+				if failedGeneration == selection.Generation && failedItemID == item.ID {
 					failures++
 				} else {
 					failedItemID = item.ID
+					failedGeneration = selection.Generation
 					failures = 1
 				}
 				// 手动模式的预算由 manual_max_attempts 给出, 0 表示不限额; 故障转移模式仍由
@@ -259,13 +288,21 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 						rejectUpstream(c, inbound, err)
 						return
 					}
-				} else if recordRouteFailure(group, item.ID, failures) {
+				} else if recordRouteFailure(group, item.ID, failures, selection.Generation, selection.ProbeToken) {
 					// 成员耗尽自身尝试次数并进入冷却, 立即重新选路而不消耗额外等待。
+					probeToken = 0
+					activeProbe.token = 0
 					continue
 				}
 				// 同一成员的重试按配置的退避策略等待: 第 failures 次失败后等待的是第 failures 次重试。
 				// failures 随成员更换归 1, 故指数退避在成员之间不累积, 每个成员都从初始间隔重新开始。
-				if !request.waitDuration(ctx, RetryDelay(group.RelayConfig, failures)) {
+				if group.Mode == model.GroupModeFailover {
+					if !request.waitRetry(ctx, RetryDelay(group.RelayConfig, failures), selection.Changed) {
+						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+						activeProbe.token = 0
+						return
+					}
+				} else if !request.waitDuration(ctx, RetryDelay(group.RelayConfig, failures)) {
 					return
 				}
 				continue
@@ -274,13 +311,16 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			request.finishRound("")
 			// 请求级取消可能与上游成功同时到达, 此时不应提交响应或继续重试。
 			if ctx.Err() != nil {
-				releaseRouteProbe(group, item.ID)
+				releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+				activeProbe.token = 0
 				request.markCanceled(ctx.Err(), "", result.usage)
 				return
 			}
 			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 流式响应只统计等待首帧的时间。
-			// 上游成功后解除该成员的冷却与探测占用, 并按路由配置开始亲和。
-			recordRouteSuccess(group, item.ID)
+			// 上游成功后解除该成员冷却; 当前成员继续固定使用。
+			recordRouteSuccess(group, item.ID, selection.Generation, selection.ProbeToken)
+			probeToken = 0
+			activeProbe.token = 0
 			// 同协议透传时原样返回上游响应头; 跨协议响应没有需要透传的响应头。
 			for key, values := range result.header {
 				c.Writer.Header()[key] = values

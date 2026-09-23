@@ -317,7 +317,8 @@
             "empty": "暂无规则",
             "activate": "设为活动项",
             "cooling": "冷却 {seconds}s",
-            "affinity": "亲和 {seconds}s"
+            "normal": "正常",
+            "waitingRecovery": "等待恢复"
         },
         "detail": {
             "actions": {

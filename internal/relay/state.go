@@ -32,13 +32,13 @@ type RequestState struct {
 	FirstTokenDuration time.Duration  `json:"first_token_duration"` // 流式正确响应轮次开始到首字节提交的耗时, 非流式响应为零。
 	StreamDuration     time.Duration  `json:"stream_duration"`      // 流式响应从首字节提交到响应结束的耗时, 非流式响应为零。
 	ResponseDuration   time.Duration  `json:"response_duration"`    // 非流式正确响应轮次开始到完整响应提交的耗时, 流式响应为零。
-	Model       string         `json:"model"`        // 客户端请求的模型名称, 即分组名称。
-	Protocol    model.Protocol `json:"protocol"`     // 客户端请求使用的协议, 由入站格式定出, 单个协议位而非掩码组合。
-	GroupID     int            `json:"group_id"`     // 承载本请求的分组 ID, 供界面按主键直接定位分组而不必按名称回查。
-	APIKeyName  string         `json:"api_key_name"` // 发起请求时的 API Key 名称。
-	Usage       llm.Usage      `json:"usage"`        // 请求结束时写入的展示用量。
-	Cost        float64        `json:"cost"`         // 请求结束时写入的累计费用。
-	OutputChars int            `json:"output_chars"` // 流式过程中按事件数量估算并实时累计的输出字符数, 仅用于界面展示, 不参与结算。
+	Model              string         `json:"model"`                // 客户端请求的模型名称, 即分组名称。
+	Protocol           model.Protocol `json:"protocol"`             // 客户端请求使用的协议, 由入站格式定出, 单个协议位而非掩码组合。
+	GroupID            int            `json:"group_id"`             // 承载本请求的分组 ID, 供界面按主键直接定位分组而不必按名称回查。
+	APIKeyName         string         `json:"api_key_name"`         // 发起请求时的 API Key 名称。
+	Usage              llm.Usage      `json:"usage"`                // 请求结束时写入的展示用量。
+	Cost               float64        `json:"cost"`                 // 请求结束时写入的累计费用。
+	OutputChars        int            `json:"output_chars"`         // 流式过程中按事件数量估算并实时累计的输出字符数, 仅用于界面展示, 不参与结算。
 
 	Round          int            `json:"round"`            // 最新一轮循环的递增序号, 人工中止按此匹配以免误杀下一轮。
 	RoundStartedAt time.Time      `json:"round_started_at"` // 最新一轮上游请求的开始时间。
@@ -188,6 +188,21 @@ func (r *RequestState) waitDuration(ctx context.Context, delay time.Duration) bo
 		r.markCanceled(ctx.Err(), "", nil)
 		return false
 	case <-time.After(delay):
+		return true
+	}
+}
+
+// waitRetry 在同成员退避期间也监听路由变化; 选路版本失效时立即回到循环读取新状态。
+func (r *RequestState) waitRetry(ctx context.Context, delay time.Duration, changed <-chan struct{}) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		r.markCanceled(ctx.Err(), "", nil)
+		return false
+	case <-changed:
+		return true
+	case <-timer.C:
 		return true
 	}
 }

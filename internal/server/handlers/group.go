@@ -62,7 +62,7 @@ type groupResponse struct {
 
 // 分组变更事件, SSE 收到后按事件名原样转发。
 type groupEvent struct {
-	Name string // SSE 事件名: changed 表示分组配置或成员发生变更, deleted 表示分组已删除。
+	Name string // SSE 事件名: changed 表示分组或其渠道成员状态发生变更, deleted 表示分组已删除。
 	Data any    // changed 携带完整的 groupResponse, deleted 携带分组 ID。
 }
 
@@ -87,6 +87,15 @@ func publishGroupEvent(event groupEvent) {
 			close(stream)
 		}
 	}
+}
+
+// publishGroupSnapshot 发布分组的完整当前快照, 包含渠道派生的成员可用性和 Relay 运行状态。
+// 渠道变更会影响分组读取结果, 即使分组数据库行没有变化, 也要通知现有会话刷新。
+func publishGroupSnapshot(group model.Group) {
+	publishGroupEvent(groupEvent{
+		Name: "changed",
+		Data: groupResponse{Group: group, Runtime: relay.RouteStateOf(group)},
+	})
 }
 
 // streamGroupEvents 向前端发送分组的变更事件与实时运行状态。
@@ -181,6 +190,7 @@ func createGroup(c *gin.Context) {
 		return
 	}
 	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
+	relay.SetRouteConfig(*group)
 	publishGroupEvent(groupEvent{Name: "changed", Data: response})
 	resp.Success(c, response)
 }
@@ -209,13 +219,36 @@ func updateGroup(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// 选择模式变化后进程内路由不再适用, 丢弃它以免旧的冷却与亲和在切回故障转移时复活。
-	if oldGroup.Mode != group.Mode {
-		relay.ResetRouteState(id)
+	// 模式、完整成员顺序或任一 Relay 策略变化都会使旧运行时状态失效, 并唤醒在旧状态上等待的请求。
+	if routeConfigChanged(oldGroup, *group) {
+		relay.ResetRouteStateForGroup(*group)
+	} else {
+		relay.SetRouteConfig(*group)
+		if oldGroup.Name != group.Name {
+			relay.NotifyRouteStateChanged(*group)
+		}
 	}
 	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
 	publishGroupEvent(groupEvent{Name: "changed", Data: response})
 	resp.Success(c, response)
+}
+
+func routeConfigChanged(oldGroup, newGroup model.Group) bool {
+	oldRelayConfig, newRelayConfig := oldGroup.RelayConfig, newGroup.RelayConfig
+	oldRelayConfig.MemberAffinitySeconds = 0
+	newRelayConfig.MemberAffinitySeconds = 0
+	if oldGroup.Mode != newGroup.Mode || oldRelayConfig != newRelayConfig ||
+		(oldGroup.Mode == model.GroupModeManual && oldGroup.ActiveItemID != newGroup.ActiveItemID) ||
+		len(oldGroup.Items) != len(newGroup.Items) {
+		return true
+	}
+	for i := range oldGroup.Items {
+		oldItem, newItem := oldGroup.Items[i], newGroup.Items[i]
+		if oldItem.ID != newItem.ID || oldItem.ChannelGrantID != newItem.ChannelGrantID || oldItem.Priority != newItem.Priority {
+			return true
+		}
+	}
+	return false
 }
 
 func deleteGroup(c *gin.Context) {

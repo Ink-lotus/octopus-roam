@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 )
 
 // TestFailoverSwitchesToNextMemberAfterAttemptsExhausted 锁定成员耗尽尝试次数后切换:
@@ -136,5 +137,138 @@ func TestFailoverSkipsMemberWhoseOutboundCannotBeBuilt(t *testing.T) {
 	}
 	if got := broken.requestCount(); got != 0 {
 		t.Fatalf("无法构造出站转换器的成员收到了 %d 次上游请求, 期望 0", got)
+	}
+}
+
+// TestFailoverCooldownWaitStopsOnRequestCancellation 验证全员冷却期间不继续固定轮询,
+// 且请求取消会立即打断最早冷却截止时间等待。
+func TestFailoverCooldownWaitStopsOnRequestCancellation(t *testing.T) {
+	log := &upstreamCallLog{}
+	upstream := newFakeUpstream(t, "cooling", log, http.StatusInternalServerError)
+	grant := newTestChannel(t, testName(t, "channel-cooling"), upstream.server.URL, "model-cooling")
+	config := testRelayConfig(1)
+	config.MemberCooldownSeconds = 30
+	groupName := newTestGroup(t, model.GroupModeFailover, config, grant)
+	group, err := op.GroupGetByName(groupName)
+	if err != nil {
+		t.Fatalf("读取测试分组失败: %v", err)
+	}
+
+	stream := OpenRouteStream()
+	defer CloseRouteStream(stream)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	engine := newRelayEngine()
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		engine.ServeHTTP(recorder, chatRequest(t, groupName, false).WithContext(ctx))
+	}()
+
+	upstream.awaitRequests(t, 1, 5*time.Second)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case state := <-stream:
+			if state.GroupID == group.ID && state.CurrentItemID == 0 && state.Cooldowns[group.Items[0].ID] > time.Now().UnixMilli() {
+				goto cooling
+			}
+		case <-deadline:
+			t.Fatal("成员失败后未进入冷却等待")
+		}
+	}
+
+cooling:
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消未打断全员冷却等待")
+	}
+	if got := upstream.requestCount(); got != 1 {
+		t.Fatalf("冷却期间重复请求上游 %d 次, 期望 1 次", got)
+	}
+}
+
+// TestFailoverRecoveryProbeGetsFreshAttemptBudget 验证同一成员再次成为探测候选时,
+// 恢复探测仍拥有完整 member_max_attempts 预算。
+func TestFailoverRecoveryProbeGetsFreshAttemptBudget(t *testing.T) {
+	log := &upstreamCallLog{}
+	upstream := newFakeUpstream(t, "recovering", log,
+		http.StatusInternalServerError,
+		http.StatusInternalServerError,
+		http.StatusInternalServerError,
+	)
+	grant := newTestChannel(t, testName(t, "channel-recovering"), upstream.server.URL, "model-recovering")
+	config := testRelayConfig(2)
+	config.MemberCooldownSeconds = 1
+	groupName := newTestGroup(t, model.GroupModeFailover, config, grant)
+
+	engine := newRelayEngine()
+	recorder := httptest.NewRecorder()
+	serveWithTimeout(t, engine, recorder, chatRequest(t, groupName, false))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("恢复探测最终状态码 = %d, 期望 200; 正文 %s", recorder.Code, recorder.Body.String())
+	}
+	if got := upstream.requestCount(); got != 4 {
+		t.Fatalf("上游请求次数 = %d, 期望首轮 2 次加恢复探测 2 次", got)
+	}
+}
+
+func TestFailoverCanceledProbeBackoffReleasesLease(t *testing.T) {
+	log := &upstreamCallLog{}
+	upstream := newFakeUpstream(t, "probe-cancel", log,
+		http.StatusInternalServerError,
+		http.StatusInternalServerError,
+		http.StatusInternalServerError,
+	)
+	grant := newTestChannel(t, testName(t, "channel-probe-cancel"), upstream.server.URL, "model-probe-cancel")
+	config := testRelayConfig(2)
+	config.MemberCooldownSeconds = 1
+	groupName := newTestGroup(t, model.GroupModeFailover, config, grant)
+	group, err := op.GroupGetByName(groupName)
+	if err != nil {
+		t.Fatalf("读取测试分组失败: %v", err)
+	}
+	_, requestStream := OpenRequestStream()
+	defer CloseRequestStream(requestStream)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := newRelayEngine()
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		engine.ServeHTTP(recorder, chatRequest(t, groupName, false).WithContext(ctx))
+	}()
+	upstream.awaitRequests(t, 3, 8*time.Second)
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case state := <-requestStream:
+			if state.GroupID == group.ID && state.Round == 3 && !state.Sending && state.Error != "" {
+				goto probeBackoff
+			}
+		case <-deadline:
+			cancel()
+			t.Fatal("恢复探测失败后未进入退避")
+		}
+	}
+
+probeBackoff:
+	if state := RouteStateOf(group); state.ProbeItemID != group.Items[0].ID {
+		cancel()
+		t.Fatalf("退避期间探测令牌已提前释放: %+v", state)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消未结束恢复探测请求")
+	}
+	if state := RouteStateOf(group); state.ProbeItemID != 0 {
+		t.Fatalf("取消退避后未释放探测占用: %+v", state)
 	}
 }

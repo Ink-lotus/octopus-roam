@@ -45,7 +45,6 @@ export interface GroupRuntime {
     group_id: number;
     current_item_id: number;
     probe_item_id: number;
-    affinity_until: number;
     cooldowns: Record<number, number>;
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -157,6 +158,8 @@ func importDB(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	relay.ResetAllRouteStates()
+	relay.SetAllRouteConfigs(op.GroupList())
 
 	resp.Success(c, result)
 }

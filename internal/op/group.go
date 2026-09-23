@@ -53,8 +53,8 @@ func GroupListModel() []string {
 	return models
 }
 
-// GroupGetByName 返回客户端模型名称对应的分组配置, 供转发选路使用。
-// 渠道或凭据被禁用及授权两侧缺失的成员不参与选路, 重新可用后会在下一轮读取时自动恢复。
+// GroupGetByName 返回客户端模型名称对应的完整分组配置, 供转发选路使用。
+// Relay 根据 Available 跳过暂不可用成员, 保留完整成员集合供路由版本检测与恢复通知使用。
 func GroupGetByName(name string) (model.Group, error) {
 	groupID, ok := groupNameIndex.Get(name)
 	if !ok {
@@ -65,7 +65,7 @@ func GroupGetByName(name string) (model.Group, error) {
 		return model.Group{}, fmt.Errorf("group not found")
 	}
 	group = groupSnapshot(group)
-	group.Items = slices.DeleteFunc(group.Items, func(item model.GroupItem) bool { return !item.Available })
+	model.NormalizeGroupRelayConfig(&group.RelayConfig)
 	return group, nil
 }
 
@@ -268,6 +268,7 @@ func sortGroupItems(items []model.GroupItem) {
 // 可用性在此一次定稿: 渠道与凭据均启用且模型, 凭据均存在时可转发, 否则仍列出该成员但标记不可用,
 // 由此界面无需再按渠道列表回查, 也不会出现前后端各判一套的分歧。
 func groupSnapshot(group model.Group) model.Group {
+	model.NormalizeGroupRelayConfig(&group.RelayConfig)
 	// 成员恒为数组: 读取侧承诺该字段不为 null, 空分组也要给出空数组。
 	group.Items = append(make([]model.GroupItem, 0, len(group.Items)), group.Items...)
 	for i := range group.Items {

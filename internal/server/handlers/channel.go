@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/rhttp"
 	"github.com/bestruirui/octopus/internal/server/middleware"
 	"github.com/bestruirui/octopus/internal/server/resp"
@@ -115,11 +117,13 @@ func updateChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
 		return
 	}
+	previousGroups := allGroupsByID()
 	channel, err := op.ChannelUpdate(&req, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	refreshChangedChannelGroups(req.ID, previousGroups, allGroupsByID())
 	if err := addChannelModelPrices(channel.Models, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -140,10 +144,12 @@ func enableChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
+	previousGroups := allGroupsByID()
 	if err := op.ChannelEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	refreshChangedChannelGroups(request.ID, previousGroups, allGroupsByID())
 	resp.Success(c, nil)
 }
 
@@ -153,15 +159,73 @@ func deleteChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
 		return
 	}
+	previousGroups := allGroupsByID()
 	if err := op.ChannelDel(id, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	refreshChangedChannelGroups(id, previousGroups, allGroupsByID())
 	if err := op.LLMCleanupGhosts(c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	resp.Success(c, nil)
+}
+
+type channelGroupMember struct {
+	itemID   int
+	grantID  int
+	priority int
+}
+
+func allGroupsByID() map[int]model.Group {
+	groups := make(map[int]model.Group)
+	for _, group := range op.GroupList() {
+		groups[group.ID] = group
+	}
+	return groups
+}
+
+func refreshChangedChannelGroups(channelID int, previous, current map[int]model.Group) {
+	groupIDs := make(map[int]struct{}, len(previous)+len(current))
+	for groupID := range previous {
+		groupIDs[groupID] = struct{}{}
+	}
+	for groupID := range current {
+		groupIDs[groupID] = struct{}{}
+	}
+	for groupID := range groupIDs {
+		oldGroup, hadOld := previous[groupID]
+		newGroup, hasNew := current[groupID]
+		oldMembers := channelMembers(oldGroup, channelID)
+		newMembers := channelMembers(newGroup, channelID)
+		if len(oldMembers) == 0 && len(newMembers) == 0 {
+			continue
+		}
+		if !hasNew {
+			relay.ResetRouteState(groupID)
+			if hadOld {
+				publishGroupEvent(groupEvent{Name: "deleted", Data: groupID})
+			}
+			continue
+		}
+		if !hadOld || !slices.Equal(oldMembers, newMembers) {
+			relay.ResetRouteStateForGroup(newGroup)
+		} else {
+			relay.NotifyRouteStateChanged(newGroup)
+		}
+		publishGroupSnapshot(newGroup)
+	}
+}
+
+func channelMembers(group model.Group, channelID int) []channelGroupMember {
+	var members []channelGroupMember
+	for _, item := range group.Items {
+		if item.ChannelID == channelID {
+			members = append(members, channelGroupMember{itemID: item.ID, grantID: item.ChannelGrantID, priority: item.Priority})
+		}
+	}
+	return members
 }
 
 // addChannelModelPrices 为渠道模型匹配校准价格，并批量写入尚不存在的价格记录。
