@@ -112,13 +112,17 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
 
         if (values.name !== group.name) payload.name = values.name;
         if (values.mode !== group.mode) payload.mode = values.mode;
+        // 亲和时间已不再由界面提供配置，故不参与变更判定；编辑器状态始终沿用分组上的原值。
         if (
             values.relay_config.member_max_attempts !== group.relay_config.member_max_attempts ||
             values.relay_config.member_retry_interval_seconds !== group.relay_config.member_retry_interval_seconds ||
             values.relay_config.member_non_stream_response_timeout_seconds !== group.relay_config.member_non_stream_response_timeout_seconds ||
             values.relay_config.member_stream_first_event_timeout_seconds !== group.relay_config.member_stream_first_event_timeout_seconds ||
             values.relay_config.member_cooldown_seconds !== group.relay_config.member_cooldown_seconds ||
-            values.relay_config.member_affinity_seconds !== group.relay_config.member_affinity_seconds
+            values.relay_config.retry_mode !== group.relay_config.retry_mode ||
+            values.relay_config.retry_initial_interval_seconds !== group.relay_config.retry_initial_interval_seconds ||
+            values.relay_config.retry_max_interval_seconds !== group.relay_config.retry_max_interval_seconds ||
+            values.relay_config.manual_max_attempts !== group.relay_config.manual_max_attempts
         ) payload.relay_config = values.relay_config;
         // 成员集合与顺序有任一处不同就整体提交; 后端按授权主键匹配, 已有成员保留其主键与统计。
         const nextGrantIDs = values.members.map((m) => m.channel_grant_id);

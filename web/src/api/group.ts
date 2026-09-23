@@ -7,14 +7,21 @@ import { groupListQueryOptions } from './queries';
 // GroupMode 表示分组的手动或故障转移路由模式。
 export type GroupMode = 'manual' | 'failover';
 
+// RetryMode 表示同一成员相邻两次尝试之间的等待策略。
+export type RetryMode = 'fixed' | 'exponential';
+
 // GroupRelayConfig 保存分组 Relay 配置。
 export interface GroupRelayConfig {
-    member_max_attempts: number;
-    member_retry_interval_seconds: number;
+    member_max_attempts: number; // 故障转移模式下单个成员包含首次请求的总尝试次数。
+    member_retry_interval_seconds: number; // 固定重试模式下同一成员相邻两次尝试之间的等待秒数。
     member_non_stream_response_timeout_seconds: number;
     member_stream_first_event_timeout_seconds: number;
     member_cooldown_seconds: number;
-    member_affinity_seconds: number;
+    member_affinity_seconds: number; // 后端保留字段：路由已不再使用亲和，界面也不再提供配置。
+    retry_mode: RetryMode; // 同一成员相邻两次尝试的等待策略。
+    retry_initial_interval_seconds: number; // 指数模式的首次重试等待秒数，每次重试翻一倍。
+    retry_max_interval_seconds: number; // 指数模式的等待上限秒数，后端硬上限 600。
+    manual_max_attempts: number; // 手动模式下单个成员包含首次请求的总尝试次数，0 表示无限重试。
 }
 
 // GroupItem 是分组内一条可路由的成员，对应一条渠道授权。

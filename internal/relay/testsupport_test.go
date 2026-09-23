@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -189,6 +191,7 @@ func testName(t *testing.T, kind string) string {
 
 // testRelayConfig 返回测试用的 Relay 配置: 固定重试间隔取配置允许的最小非零值 1 秒,
 // 使重试确实经过等待而不必久等; 亲和时间为零, 使故障转移的选路只由冷却决定。
+// 新增字段一并显式写出, 使测试不依赖 NormalizeGroupRelayConfig 的回填: 手动上限 0 表示不限额。
 func testRelayConfig(maxAttempts int) model.GroupRelayConfig {
 	return model.GroupRelayConfig{
 		MemberMaxAttempts:                     maxAttempts,
@@ -197,7 +200,19 @@ func testRelayConfig(maxAttempts int) model.GroupRelayConfig {
 		MemberStreamFirstEventTimeoutSeconds:  30,
 		MemberCooldownSeconds:                 60,
 		MemberAffinitySeconds:                 0,
+		RetryMode:                             model.RetryModeFixed,
+		RetryInitialIntervalSeconds:           model.RetryInitialIntervalSecondsDefault,
+		RetryMaxIntervalSeconds:               model.RetryMaxIntervalSecondsLimit,
+		ManualMaxAttempts:                     0,
 	}
+}
+
+// testRetryConfigWithMode 返回指定重试模式的测试配置: 两种模式的首次重试等待都是 1 秒,
+// 差异只体现在指数模式的后续重试递增上, 故断言可以只靠耗时下界区分两者。
+func testRetryConfigWithMode(mode model.RetryMode) model.GroupRelayConfig {
+	config := testRelayConfig(2)
+	config.RetryMode = mode
+	return config
 }
 
 // newTestChannel 建立一条指向给定测试上游的渠道并注册一个模型与凭据, 返回其可加入分组的授权主键。
@@ -229,6 +244,49 @@ func newTestChannel(t *testing.T, name, baseURL, upstreamModel string) int {
 	}
 	t.Fatalf("测试渠道 %s 未产生可用授权", name)
 	return 0
+}
+
+// channelIDOfGrant 返回给定授权所属的渠道主键。
+func channelIDOfGrant(t *testing.T, grantID int) int {
+	t.Helper()
+
+	for _, candidate := range op.ChannelGrantCandidates() {
+		if candidate.ID == grantID {
+			return candidate.ChannelID
+		}
+	}
+	t.Fatalf("授权 %d 不存在", grantID)
+	return 0
+}
+
+// breakChannelBaseURL 把渠道地址清空并刷新缓存, 用于构造"出站转换器无法构造"的成员。
+// 经 op 的写入路径产生不了该状态: 创建与更新都要求地址非空, 故只能直接改库,
+// 模拟人工改库或历史遗留的异常行——这类数据同样会流到转发链路上。
+// 该状态下 buildOutbound 在请求上游之前就返回错误, 即本轮没有真正发出上游请求。
+func breakChannelBaseURL(t *testing.T, grantID int) {
+	t.Helper()
+
+	channelID := channelIDOfGrant(t, grantID)
+	if err := db.GetDB().Model(&model.Channel{}).Where("id = ?", channelID).Update("base_url", "").Error; err != nil {
+		t.Fatalf("清空渠道 %d 的地址失败: %v", channelID, err)
+	}
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("改库后刷新缓存失败: %v", err)
+	}
+}
+
+// setChannelParamOverride 把渠道的参数覆盖配置设为给定值并刷新缓存。
+// 设为非法 JSON 可让 applyChannelConfig 在构造上游请求时返回错误, 即本轮失败发生在发出上游请求之前。
+func setChannelParamOverride(t *testing.T, grantID int, value string) {
+	t.Helper()
+
+	channelID := channelIDOfGrant(t, grantID)
+	if err := db.GetDB().Model(&model.Channel{}).Where("id = ?", channelID).Update("param_override", value).Error; err != nil {
+		t.Fatalf("设置渠道 %d 的参数覆盖失败: %v", channelID, err)
+	}
+	if err := op.InitCache(); err != nil {
+		t.Fatalf("改库后刷新缓存失败: %v", err)
+	}
 }
 
 // newTestGroup 按给定模式, Relay 配置与成员顺序建立一个分组, 返回分组名。
@@ -287,6 +345,41 @@ func serveWithTimeout(t *testing.T, engine *gin.Engine, recorder *httptest.Respo
 	case <-time.After(30 * time.Second):
 		t.Fatalf("转发未在 30 秒内结束, 疑为重试循环未按预期退出")
 	}
+}
+
+// assertUpstreamFailure 断言转发以协议合法的上游错误结束: HTTP 503 与 upstream_error 类型。
+// 正文必须是可解析的错误对象, 即重试耗尽后返回的仍是客户端协议认识的响应。
+func assertUpstreamFailure(t *testing.T, recorder *httptest.ResponseRecorder) {
+	t.Helper()
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("最终状态码 = %d, 期望 503; 响应正文 %s", recorder.Code, recorder.Body.String())
+	}
+	var failure struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &failure); err != nil {
+		t.Fatalf("最终响应不是合法的错误对象: %v; 响应正文 %s", err, recorder.Body.String())
+	}
+	if failure.Error.Type != "upstream_error" {
+		t.Fatalf("错误类型 = %q, 期望 upstream_error; 响应正文 %s", failure.Error.Type, recorder.Body.String())
+	}
+	if failure.Error.Message == "" {
+		t.Fatalf("错误对象没有消息: %s", recorder.Body.String())
+	}
+}
+
+// platformInt 把 int64 取值收进当前平台的 int 范围, 供测试书写"超出 time.Duration 可换算范围"的秒数。
+// 32 位平台的 int 装不下 9223372037 这类字面量(编译期即报溢出错, 测试根本无法构建),
+// 故先用 int64 承载再按位宽在运行时收口; 收口后的取值仍远大于任何配置上限, 覆盖同一分支。
+func platformInt(v int64) int {
+	if strconv.IntSize == 32 && v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int(v)
 }
 
 // chatRequest 构造一个发往 Relay 的 Chat Completions 客户端请求, 请求体中的模型名即分组名。

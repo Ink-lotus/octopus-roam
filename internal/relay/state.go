@@ -175,12 +175,19 @@ func CancelRequest(id uint64) {
 }
 
 // wait 在重新选择目标之前退避 seconds 秒; 客户端在退避期间断开时以取消终态定稿并返回 false。
+// 换算一律走 secondsToDuration: 过大的秒数直接乘 time.Second 会在 int64 乘法里回绕成非正数,
+// time.After 随即到期, 这些路径(发送前配置错误, 无可用成员等)的退避就退化成无等待的快速重轮。
 func (r *RequestState) wait(ctx context.Context, seconds int) bool {
+	return r.waitDuration(ctx, secondsToDuration(seconds))
+}
+
+// waitDuration 与 wait 相同, 但等待时长由调用方按重试策略算出, 供退避等待使用。
+func (r *RequestState) waitDuration(ctx context.Context, delay time.Duration) bool {
 	select {
 	case <-ctx.Done():
 		r.markCanceled(ctx.Err(), "", nil)
 		return false
-	case <-time.After(time.Duration(seconds) * time.Second):
+	case <-time.After(delay):
 		return true
 	}
 }

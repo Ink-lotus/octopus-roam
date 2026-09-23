@@ -79,6 +79,16 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		failedItemID := 0 // 当前累计连续失败次数的成员 ID。
 		failures := 0     // 该成员包含首次请求的连续失败次数。
 
+		// 循环内有且只有两类等待, 不可混用:
+		// 上游失败后的重试等待: 按 retry_mode 走固定或指数退避, 计数 failures 为"每请求内每成员"的连续失败次数,
+		//   换成员即归 1, 故退避在每个成员上各自从初始间隔重新开始(手动模式没有成员切换, 才会一直递增到最大间隔)。
+		// 未发出上游请求的等待(分组缺失, 无可用成员, 授权缺失, 渠道缺失, 出站转换无法构造): 一律固定间隔。
+		//   这类等待发生在选中成员之前或构造出站之前, 本轮没有成员可换, 既无重试计数也无重置点, 指数化只会让
+		//   "等冷却到期/等配置改回"在冷却较大时产生最长约 600 秒的迟滞, 故不参与退避。
+		// 阶段 1 临时: 第二类等待全部是固定间隔轮询。plan 阶段 2 任务 8 与契约 §三.3.9 要求"全部成员处于冷却时
+		// 等待最早一个冷却时间到期, 不使用固定轮询代替冷却等待", 届时"无可用成员"那处会被该截止时间等待取代;
+		// 其余几处的等待形态在阶段 2 重整路由状态机时一并复核。
+
 		for {
 			if ctx.Err() != nil {
 				request.markCanceled(ctx.Err(), "", nil)
@@ -86,6 +96,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			}
 
 			// 分组配置和成员随时可改, 故每轮重新读取; 分组被删除时等待它重新出现。
+			// 阶段 1 临时: 固定间隔等待, 属"未发出上游请求的等待", 理由与范围见循环入口的注释。
 			group, err = op.GroupGetByName(metadata.Model)
 			if err != nil {
 				if !request.wait(ctx, model.DefaultGroupRelayConfig().MemberRetryIntervalSeconds) {
@@ -96,6 +107,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			// 手动模式取人工指定的成员, 故障转移模式按优先级选择未禁用且不在冷却中的成员。
 			// 没有目标时等待重新选择, 期间人工切换渠道, 补齐成员或成员冷却到期即可让请求继续。
+			// 阶段 1 临时: 此处固定间隔轮询。故障转移模式下"没有目标"即全部成员处于冷却, 阶段 2 任务 8 会改为
+			// 等待最早一个冷却截止时间; 在那之前不要把它当成终局设计, 也不要顺手改成指数退避。
 			item := pickGroupItem(group)
 			if item.ID == 0 {
 				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
@@ -106,6 +119,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			// 成员指向的授权缺失, 凭据被停用或两侧已被删除时等待, 该成员可能很快被改回可用配置。
 			// ChannelGrantGet 一次校验齐这几种情况, 取到的授权必然可直接转发, 无需再逐项检查。
+			// 阶段 1 临时: 固定间隔等待, 属"未发出上游请求的等待", 理由与范围见循环入口的注释。
 			grant, err := op.ChannelGrantGet(item.ChannelGrantID)
 			if err != nil {
 				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
@@ -117,6 +131,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			channelKey := grant.ChannelKey
 
 			// 成员指向的渠道已被删除时同样等待, 该成员可能很快被改回可用渠道。
+			// 阶段 1 临时: 固定间隔等待, 属"未发出上游请求的等待", 理由与范围见循环入口的注释。
 			channel, err := op.ChannelGet(channelModel.ChannelID)
 			if err != nil {
 				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
@@ -159,6 +174,9 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			// 请求上游并等待首个有效响应: 非流式等待完整响应, 流式等待首个事件。
 			// 同协议渠道原样直通, 跨协议渠道经转换后请求; 此时尚未写给客户端, 失败仍可换目标重试。
 			var result *upstreamResponse
+			// 本轮是否真的向上游发出了请求, 决定这次失败是否消耗该成员的尝试次数。
+			// 由发送层的传输层回报: 请求构造, 参数解析与代理初始化失败都发生在发起传输之前, 不算发过。
+			var sent bool
 			if err == nil {
 				timeoutSeconds := group.RelayConfig.MemberNonStreamResponseTimeoutSeconds // 非流式等待完整响应, 流式分支改为首事件超时。
 				timeoutErr := errors.New("upstream non-stream response timeout")          // 具体错误用于区分超时与人工中止。
@@ -172,9 +190,9 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				})
 				// 客户端与渠道协议一致时直接透传, 其余组合通过 pipeline 转换。
 				if passthrough {
-					result, err = sendPassthrough(roundCtx, format, raw, channel, outbound, metadata.Streaming, channelModel.Name)
+					result, sent, err = sendPassthrough(roundCtx, format, raw, channel, outbound, metadata.Streaming, channelModel.Name)
 				} else {
-					result, err = sendConverted(roundCtx, format, raw, channel, outbound, metadata.Streaming)
+					result, sent, err = sendConverted(roundCtx, format, raw, channel, outbound, metadata.Streaming)
 				}
 				// 上游调用返回即结束首响应等待; Stop 失败说明已到期, 主动取消可避免等待异步回调完成。
 				if !timeoutTimer.Stop() {
@@ -206,25 +224,48 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					releaseRouteProbe(group, item.ID)
 					continue
 				}
-				cancelRound()
 				// 本轮真实失败只计入当前渠道和成员, 客户端取消与人工中止不计为渠道故障。
 				metrics := model.StatsMetrics{WaitTime: time.Since(roundStartedAt).Milliseconds(), RequestFailed: 1}
 				_ = op.ChannelStatsUpdate(channel.ID, metrics)
 				_ = op.ChannelModelStatsUpdate(channelModel.ID, metrics)
 				_ = op.ChannelKeyStatsUpdate(channelKey.ID, metrics)
 
-				// 成员改变时重新开始累计该成员在本请求内的连续失败次数。
+				cancelRound()
+				// 未真正发出上游请求的失败(如出站转换无法构造)不消耗成员的尝试次数, 它不是该成员的上游失败。
+				// 但故障转移模式仍须让它让出路由: 该失败由渠道配置决定, 重试同一成员不会改变结果,
+				// 不让出路由会让请求永久停在这个成员上而永不切换到后续成员。手动模式没有路由可让, 只会重试当前成员。
+				if !sent {
+					if group.Mode != model.GroupModeManual && recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts) {
+						continue
+					}
+					// 阶段 1 临时: 手动模式下的固定间隔等待, 属"未发出上游请求的等待", 见循环入口的注释。
+					if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+						return
+					}
+					continue
+				}
+				// 成员改变时重新开始累计该成员在本请求内的失败次数, 即该成员在本请求内的尝试次数。
 				if failedItemID == item.ID {
 					failures++
 				} else {
 					failedItemID = item.ID
 					failures = 1
 				}
-				// 达到总尝试次数时成员进入冷却并立即重新选路, 否则等待后重试。
-				if recordRouteFailure(group, item.ID, failures) {
+				// 手动模式的预算由 manual_max_attempts 给出, 0 表示不限额; 故障转移模式仍由
+				// member_max_attempts 决定成员何时让出路由。
+				if group.Mode == model.GroupModeManual {
+					if group.RelayConfig.ManualMaxAttempts > 0 && failures >= group.RelayConfig.ManualMaxAttempts {
+						request.markFailed(err, "", nil)
+						rejectUpstream(c, inbound, err)
+						return
+					}
+				} else if recordRouteFailure(group, item.ID, failures) {
+					// 成员耗尽自身尝试次数并进入冷却, 立即重新选路而不消耗额外等待。
 					continue
 				}
-				if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+				// 同一成员的重试按配置的退避策略等待: 第 failures 次失败后等待的是第 failures 次重试。
+				// failures 随成员更换归 1, 故指数退避在成员之间不累积, 每个成员都从初始间隔重新开始。
+				if !request.waitDuration(ctx, RetryDelay(group.RelayConfig, failures)) {
 					return
 				}
 				continue
@@ -355,6 +396,17 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			return
 		}
 	}
+}
+
+// rejectUpstream 以客户端协议的错误格式返回上游侧的最终失败: 重试与切换都已耗尽, 请求无法再继续。
+// 状态码与错误类型属于对外契约: 客户端据此区分"请求本身有问题"与"上游暂时不可用, 可以稍后重试"。
+func rejectUpstream(c *gin.Context, inbound transformer.Inbound, err error) {
+	response := inbound.TransformError(c.Request.Context(), &llm.ResponseError{
+		StatusCode: http.StatusServiceUnavailable,
+		Detail:     llm.ErrorDetail{Message: err.Error(), Type: "upstream_error"},
+	})
+	c.Data(response.StatusCode, "application/json", response.Body)
+	c.Abort()
 }
 
 // rejectRequest 以客户端协议的错误格式返回请求级失败, 用于尚未登记状态因而无需定稿的请求。

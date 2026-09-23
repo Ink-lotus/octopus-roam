@@ -5,11 +5,13 @@ package relay
 // 断言全部落在可观察事实上: 上游实际收到的请求序列, 每个成员的请求次数, 最终 HTTP 状态与正文。
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 )
@@ -85,5 +87,54 @@ func TestFailoverCallOrderAndCounts(t *testing.T) {
 	}
 	if got := unused.requestCount(); got != 0 {
 		t.Fatalf("未参与本场景的成员被调用了 %d 次, 期望 0", got)
+	}
+}
+
+// TestFailoverSkipsMemberWhoseOutboundCannotBeBuilt 锁定"未发出上游请求的失败"也要让出路由:
+// 首个成员的渠道地址缺失使出站转换器无法构造, 本轮失败发生在请求上游之前, 该成员一次上游请求都不会有;
+// 这类失败由配置决定, 重试同一成员不会改变结果, 故请求必须转由第二个成员承载并成功。
+func TestFailoverSkipsMemberWhoseOutboundCannotBeBuilt(t *testing.T) {
+	log := &upstreamCallLog{}
+	broken := newFakeUpstream(t, "broken", log) // 地址被清空, 本场景中不应收到任何请求。
+	healthy := newFakeUpstream(t, "healthy", log)
+
+	brokenGrant := newTestChannel(t, testName(t, "channel-broken"), broken.server.URL, "model-broken")
+	healthyGrant := newTestChannel(t, testName(t, "channel-healthy"), healthy.server.URL, "model-healthy")
+	breakChannelBaseURL(t, brokenGrant)
+	groupName := newTestGroup(t, model.GroupModeFailover, testRelayConfig(2), brokenGrant, healthyGrant)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	engine := newRelayEngine()
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		engine.ServeHTTP(recorder, chatRequest(t, groupName, false).WithContext(ctx))
+	}()
+
+	// 第二个成员收到请求即证明路由换过了成员; 该断言用 5 秒超时, 失败时报出的是"没有换成员"而非无界等待。
+	healthy.awaitRequests(t, 1, 5*time.Second)
+	// 等待转发自行结束: 此时才可读取响应记录; 取消只用于避免断言失败时留下未结束的请求。
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatalf("转发未在 5 秒内结束, 疑为停在无法构造出站转换器的成员上")
+	}
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("最终状态码 = %d, 期望 200; 响应正文 %s", recorder.Code, recorder.Body.String())
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "pong") {
+		t.Fatalf("最终响应正文未包含上游成功内容: %s", body)
+	}
+	want := []string{"healthy/model-healthy"}
+	if calls := log.snapshot(); !slices.Equal(calls, want) {
+		t.Fatalf("成员调用记录 = %v, 期望 %v", calls, want)
+	}
+	if got := broken.requestCount(); got != 0 {
+		t.Fatalf("无法构造出站转换器的成员收到了 %d 次上游请求, 期望 0", got)
 	}
 }

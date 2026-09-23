@@ -8,14 +8,32 @@ const (
 	GroupModeFailover GroupMode = "failover" // 按成员排序选择并在失败时切换。
 )
 
+// 同一成员相邻两次尝试之间的等待策略。
+type RetryMode string
+
+const (
+	RetryModeFixed       RetryMode = "fixed"       // 每次重试都等待固定间隔。
+	RetryModeExponential RetryMode = "exponential" // 每次重试的等待按固定倍数递增, 直到最大间隔。
+)
+
+// 指数退避的取值边界: 初始间隔默认 1 秒, 最大间隔默认 600 秒并以此为硬上限。
+const (
+	RetryInitialIntervalSecondsDefault = 1
+	RetryMaxIntervalSecondsLimit       = 600
+)
+
 // 分组 Relay 的持久化配置，数据库中以 JSON 存储。
 type GroupRelayConfig struct {
-	MemberMaxAttempts                     int `json:"member_max_attempts" binding:"omitempty,min=1"`                        // 单个成员包含首次请求的总尝试次数，仅在故障转移模式生效。
-	MemberRetryIntervalSeconds            int `json:"member_retry_interval_seconds" binding:"omitempty,min=1"`              // 同一成员相邻两次尝试之间的等待秒数。
-	MemberNonStreamResponseTimeoutSeconds int `json:"member_non_stream_response_timeout_seconds" binding:"omitempty,min=1"` // 单个成员返回完整非流式响应的超时秒数。
-	MemberStreamFirstEventTimeoutSeconds  int `json:"member_stream_first_event_timeout_seconds" binding:"omitempty,min=1"`  // 单个成员返回首个有效流事件的超时秒数。
-	MemberCooldownSeconds                 int `json:"member_cooldown_seconds" binding:"omitempty,min=1"`                    // 单个成员耗尽尝试后被跳过的秒数，仅在故障转移模式生效。
-	MemberAffinitySeconds                 int `json:"member_affinity_seconds" binding:"omitempty,min=0"`                    // 成员亲和时间:故障切换成功后继续保持当前成员的秒数;当前成员失败会立即结束亲和,0 表示不保持。
+	MemberMaxAttempts                     int       `json:"member_max_attempts" binding:"omitempty,min=1"`                        // 单个成员包含首次请求的总尝试次数，仅在故障转移模式生效。
+	MemberRetryIntervalSeconds            int       `json:"member_retry_interval_seconds" binding:"omitempty,min=1"`              // 固定重试模式下同一成员相邻两次尝试之间的等待秒数。
+	MemberNonStreamResponseTimeoutSeconds int       `json:"member_non_stream_response_timeout_seconds" binding:"omitempty,min=1"` // 单个成员返回完整非流式响应的超时秒数。
+	MemberStreamFirstEventTimeoutSeconds  int       `json:"member_stream_first_event_timeout_seconds" binding:"omitempty,min=1"`  // 单个成员返回首个有效流事件的超时秒数。
+	MemberCooldownSeconds                 int       `json:"member_cooldown_seconds" binding:"omitempty,min=1"`                    // 单个成员耗尽尝试后被跳过的秒数，仅在故障转移模式生效。
+	MemberAffinitySeconds                 int       `json:"member_affinity_seconds" binding:"omitempty,min=0"`                    // 成员亲和时间:故障切换成功后继续保持当前成员的秒数;当前成员失败会立即结束亲和,0 表示不保持。
+	RetryMode                             RetryMode `json:"retry_mode" binding:"omitempty,oneof=fixed exponential"`               // 同一成员相邻两次尝试的等待策略, 默认固定模式。
+	RetryInitialIntervalSeconds           int       `json:"retry_initial_interval_seconds" binding:"omitempty,min=1"`             // 指数模式的首次重试等待秒数, 每次重试翻一倍。
+	RetryMaxIntervalSeconds               int       `json:"retry_max_interval_seconds" binding:"omitempty,min=1,max=600"`         // 指数模式的等待上限秒数, 后端硬上限 600。
+	ManualMaxAttempts                     int       `json:"manual_max_attempts" binding:"omitempty,min=0"`                        // 手动模式下单个成员包含首次请求的总尝试次数, 0 表示不限额。
 }
 
 // DefaultGroupRelayConfig 返回新分组使用的 Relay 默认配置。
@@ -27,15 +45,39 @@ func DefaultGroupRelayConfig() GroupRelayConfig {
 		MemberStreamFirstEventTimeoutSeconds:  30,
 		MemberCooldownSeconds:                 60,
 		MemberAffinitySeconds:                 300,
+		RetryMode:                             RetryModeFixed,
+		RetryInitialIntervalSeconds:           RetryInitialIntervalSecondsDefault,
+		RetryMaxIntervalSeconds:               RetryMaxIntervalSecondsLimit,
+		ManualMaxAttempts:                     0,
 	}
 }
 
 // NormalizeGroupRelayConfig 补齐分组 Relay 配置中的空值。
+// 新增字段一并补默认: 旧分组缺少重试模式时回落固定模式, 保持它们原有的重试行为。
 func NormalizeGroupRelayConfig(config *GroupRelayConfig) {
 	defaults := DefaultGroupRelayConfig()
 	if *config == (GroupRelayConfig{}) {
 		*config = defaults
 		return
+	}
+	// 手动上限 0 是合法值(不限额), 故只把负数归零。
+	if config.ManualMaxAttempts < 0 {
+		config.ManualMaxAttempts = 0
+	}
+	// 未知的重试模式取值一律回落固定模式, 避免持久化数据里的旧值或错值改变重试行为。
+	if config.RetryMode != RetryModeFixed && config.RetryMode != RetryModeExponential {
+		config.RetryMode = RetryModeFixed
+	}
+	// 初始间隔同样以最大间隔的硬上限收口: 首次等待本就不可能超过它, 且无上限的取值在换算为
+	// time.Duration 时会回绕。与最大间隔字段的夹取保持同一套边界。
+	if config.RetryInitialIntervalSeconds < RetryInitialIntervalSecondsDefault {
+		config.RetryInitialIntervalSeconds = RetryInitialIntervalSecondsDefault
+	}
+	if config.RetryInitialIntervalSeconds > RetryMaxIntervalSecondsLimit {
+		config.RetryInitialIntervalSeconds = RetryMaxIntervalSecondsLimit
+	}
+	if config.RetryMaxIntervalSeconds < 1 || config.RetryMaxIntervalSeconds > RetryMaxIntervalSecondsLimit {
+		config.RetryMaxIntervalSeconds = RetryMaxIntervalSecondsLimit
 	}
 	if config.MemberMaxAttempts < 1 {
 		config.MemberMaxAttempts = defaults.MemberMaxAttempts

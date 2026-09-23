@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"sync/atomic"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/rhttp"
@@ -53,16 +54,47 @@ func resolveUpstreamClient(channel model.Channel) (*http.Client, func(), error) 
 	}
 }
 
+// trackingTransport 记录所属客户端是否真的发起过一轮 HTTP 传输。
+// 发送前的失败(请求构造, 参数解析, 代理初始化)不经过 RoundTrip, 故调用方据此可区分
+// "本轮根本没发出上游请求"与"已发出但失败(连接失败, 响应超时, 上游报错)"。
+type trackingTransport struct {
+	inner http.RoundTripper
+	sent  *atomic.Bool
+}
+
+// RoundTrip 标记本轮已进入 HTTP 传输后再交给真正的传输层。
+func (t *trackingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	t.sent.Store(true)
+	return t.inner.RoundTrip(request)
+}
+
+// trackUpstreamRoundTrip 返回一个上报"是否已发起 HTTP 传输"的客户端副本及其标志。
+// 只包一层传输层: 原客户端的连接池与归还入口仍指向同一个传输层, 故并发与连接复用行为不变。
+func trackUpstreamRoundTrip(client *http.Client) (*http.Client, *atomic.Bool) {
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	sent := &atomic.Bool{}
+	tracked := *client
+	tracked.Transport = &trackingTransport{inner: transport, sent: sent}
+	return &tracked, sent
+}
+
 // sendPassthrough 以同协议透传方式请求上游, 取得的响应无需转换即可回给客户端。
-func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.Request, channel model.Channel, outbound transformer.Outbound, streaming bool, modelName string) (*upstreamResponse, error) {
+// 第二个返回值说明本轮是否真的向上游发出了请求, 供调用方判定该失败是否消耗成员的尝试次数。
+func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.Request, channel model.Channel, outbound transformer.Outbound, streaming bool, modelName string) (*upstreamResponse, bool, error) {
 	request, err := buildPassthroughRequest(format, raw, channel, outbound, modelName)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	httpClient, closeIdle, err := resolveUpstreamClient(channel)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	// 传输层上报必须在发起之前装好, 其后的失败一律算已发出。
+	httpClient, sent := trackUpstreamRoundTrip(httpClient)
+
 	if streaming {
 		// 流式响应返回后仍在读上游连接, 归还入口随响应交给消费方; 取不到响应时就地归还。
 		result, err := sendPassthroughStream(ctx, format, request, httpClient)
@@ -70,10 +102,10 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 			if closeIdle != nil {
 				closeIdle()
 			}
-			return nil, err
+			return nil, sent.Load(), err
 		}
 		result.closeIdle = closeIdle
-		return result, nil
+		return result, sent.Load(), nil
 	}
 	// 非流式响应在 Do 返回时正文已读完, 连接可以立即归还。
 	if closeIdle != nil {
@@ -84,19 +116,19 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 	if err != nil {
 		var failure *httpclient.Error
 		if errors.As(err, &failure) && len(failure.Body) > 0 {
-			return nil, fmt.Errorf("%w: %s", err, failure.Body)
+			return nil, sent.Load(), fmt.Errorf("%w: %s", err, failure.Body)
 		}
-		return nil, err
+		return nil, sent.Load(), err
 	}
 	// 同协议下响应可原样回给客户端, 仍需解析一次以取得用量并识别以 200 下发的失败终态。
 	parsed, err := outbound.TransformResponse(ctx, response)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", err, response.Body)
+		return nil, sent.Load(), fmt.Errorf("%w: %s", err, response.Body)
 	}
 	if err := validateResponse(format, parsed); err != nil {
-		return nil, fmt.Errorf("%w: %s", err, response.Body)
+		return nil, sent.Load(), fmt.Errorf("%w: %s", err, response.Body)
 	}
-	return &upstreamResponse{body: slices.Clone(response.Body), header: response.Headers.Clone(), usage: parsed.Usage}, nil
+	return &upstreamResponse{body: slices.Clone(response.Body), header: response.Headers.Clone(), usage: parsed.Usage}, sent.Load(), nil
 }
 
 // sendPassthroughStream 发起同协议流式请求并预读首个有效事件, 首个事件通过验证才算本轮取得可提交响应。
@@ -181,7 +213,9 @@ func (m *conversionMiddleware) OnOutboundLlmResponse(_ context.Context, response
 }
 
 // sendConverted 经 axonhub pipeline 把客户端请求转换成渠道协议后请求上游, 响应再转换回客户端协议。
-func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Request, channel model.Channel, outbound transformer.Outbound, streaming bool) (*upstreamResponse, error) {
+// 第二个返回值说明本轮是否真的向上游发出了请求; 转换与渠道参数应用都发生在 pipeline 内部,
+// 故只能由传输层上报, 不能按 pipeline 是否返回错误判断。
+func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Request, channel model.Channel, outbound transformer.Outbound, streaming bool) (*upstreamResponse, bool, error) {
 	var inbound transformer.Inbound
 	switch format {
 	case llm.APIFormatOpenAIResponse:
@@ -194,8 +228,11 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 
 	httpClient, closeIdle, err := resolveUpstreamClient(channel)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	// 传输层上报必须在发起之前装好, 其后的失败一律算已发出。
+	httpClient, sent := trackUpstreamRoundTrip(httpClient)
+
 	// 流式响应要等消费方读完才能归还连接, 故只在提交流式结果那一处移交, 其余出口一律就地归还。
 	committed := false
 	if closeIdle != nil {
@@ -214,12 +251,12 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 	result, err := processor.Process(ctx, raw)
 	if err != nil {
 		if len(middleware.rawBody) > 0 {
-			return nil, fmt.Errorf("%w: %s", err, middleware.rawBody)
+			return nil, sent.Load(), fmt.Errorf("%w: %s", err, middleware.rawBody)
 		}
-		return nil, err
+		return nil, sent.Load(), err
 	}
 	if !streaming {
-		return &upstreamResponse{body: slices.Clone(result.Response.Body), usage: middleware.usage}, nil
+		return &upstreamResponse{body: slices.Clone(result.Response.Body), usage: middleware.usage}, sent.Load(), nil
 	}
 
 	events := result.EventStream
@@ -231,10 +268,10 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 		last, err := inspectStreamEvent(format, event)
 		if err != nil {
 			events.Close()
-			return nil, fmt.Errorf("%w: %s", err, event.Data)
+			return nil, sent.Load(), fmt.Errorf("%w: %s", err, event.Data)
 		}
 		committed = true
-		return &upstreamResponse{events: events, first: event, last: last, closeIdle: closeIdle}, nil
+		return &upstreamResponse{events: events, first: event, last: last, closeIdle: closeIdle}, sent.Load(), nil
 	}
 
 	err = events.Err()
@@ -242,5 +279,5 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 	if err == nil {
 		err = errors.New("upstream stream ended before first event")
 	}
-	return nil, err
+	return nil, sent.Load(), err
 }
