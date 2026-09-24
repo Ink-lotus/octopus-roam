@@ -6,6 +6,7 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -98,6 +99,7 @@ func TestManualRetryStopsAtAttemptLimitOne(t *testing.T) {
 	serveWithTimeout(t, engine, recorder, chatRequest(t, groupName, false))
 
 	assertUpstreamFailure(t, recorder)
+	assertRetryAfter(t, recorder, "1")
 	if got := upstream.requestCount(); got != 1 {
 		t.Fatalf("上游请求次数 = %d, 期望 1 (手动上限为 1 时首次请求即耗尽预算)", got)
 	}
@@ -109,8 +111,9 @@ func TestManualRetryStopsAfterConfiguredAttempts(t *testing.T) {
 	log := &upstreamCallLog{}
 	upstream := newFakeUpstream(t, "member", log, failingStatuses(http.StatusInternalServerError, 3)...)
 	grantID := newTestChannel(t, testName(t, "channel"), upstream.server.URL, "upstream-model")
-	config := testRelayConfig(2)
+	config := testRetryConfigWithMode(model.RetryModeExponential)
 	config.ManualMaxAttempts = 3
+	config.RetryMaxIntervalSeconds = 8
 	groupName := newTestGroup(t, model.GroupModeManual, config, grantID)
 
 	engine := newRelayEngine()
@@ -120,12 +123,40 @@ func TestManualRetryStopsAfterConfiguredAttempts(t *testing.T) {
 	elapsed := time.Since(started)
 
 	assertUpstreamFailure(t, recorder)
+	assertRetryAfter(t, recorder, "4")
 	if got := upstream.requestCount(); got != 3 {
 		t.Fatalf("上游请求次数 = %d, 期望 3 (手动上限为 3)", got)
 	}
-	// 三次尝试之间各等待 1 秒, 确认上限不是靠提前退出达成的。
-	if elapsed < 2*time.Second {
-		t.Fatalf("三次尝试仅耗时 %v, 未体现两次重试之间的等待", elapsed)
+	// 两次重试分别等待 1 秒和 2 秒, 确认指数退避生效且上限不是靠提前退出达成的。
+	if elapsed < 2500*time.Millisecond {
+		t.Fatalf("三次尝试仅耗时 %v, 未体现指数退避的等待", elapsed)
+	}
+}
+
+// TestInvalidRequestRemainsBadRequest 锁定无效输入仍返回 400 invalid_request_error, 且不带上游重试提示。
+func TestInvalidRequestRemainsBadRequest(t *testing.T) {
+	engine := newRelayEngine()
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{"))
+	req.Header.Set("Content-Type", "application/json")
+	serveWithTimeout(t, engine, recorder, req)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("无效请求状态码 = %d, 期望 400; 响应正文 %s", recorder.Code, recorder.Body.String())
+	}
+	var failure struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &failure); err != nil {
+		t.Fatalf("无效请求响应不是合法的错误对象: %v; 响应正文 %s", err, recorder.Body.String())
+	}
+	if failure.Error.Type != "invalid_request_error" {
+		t.Fatalf("无效请求错误类型 = %q, 期望 invalid_request_error; 响应正文 %s", failure.Error.Type, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Retry-After"); got != "" {
+		t.Fatalf("无效请求不应设置 Retry-After, 实际为 %q", got)
 	}
 }
 

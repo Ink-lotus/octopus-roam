@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -35,5 +36,47 @@ func TestStreamingRetryBeforeFirstEventCommit(t *testing.T) {
 	}
 	if got := upstream.requestCount(); got != 2 {
 		t.Fatalf("上游请求次数 = %d, 期望 2 (首帧提交前失败 + 重试成功)", got)
+	}
+}
+
+// TestStreamingDoesNotFailoverAfterFirstEventCommit 锁定首个有效事件提交后不再切换成员:
+// 首个成员提交部分内容后再返回流内错误, 第二成员不得收到请求。
+func TestStreamingDoesNotFailoverAfterFirstEventCommit(t *testing.T) {
+	var firstCalls atomic.Int64
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		firstCalls.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("测试上游响应不支持 Flush")
+			return
+		}
+		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("data: {\"error\":{\"message\":\"late stream error\",\"type\":\"server_error\"}}\n\n"))
+		flusher.Flush()
+	}))
+	defer first.Close()
+
+	second := newFakeUpstream(t, "second", &upstreamCallLog{})
+	firstGrant := newTestChannel(t, testName(t, "channel-first"), first.URL, "first-model")
+	secondGrant := newTestChannel(t, testName(t, "channel-second"), second.server.URL, "second-model")
+	groupName := newTestGroup(t, model.GroupModeFailover, testRelayConfig(1), firstGrant, secondGrant)
+
+	engine := newRelayEngine()
+	recorder := httptest.NewRecorder()
+	serveWithTimeout(t, engine, recorder, chatRequest(t, groupName, true))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("流式响应提交首个事件后的状态码 = %d, 期望 200; 响应正文 %s", recorder.Code, recorder.Body.String())
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "partial") || !strings.Contains(body, "late stream error") {
+		t.Fatalf("客户端没有收到已提交事件和后续错误事件: %s", body)
+	}
+	if got := firstCalls.Load(); got != 1 {
+		t.Fatalf("首个成员请求次数 = %d, 期望 1", got)
+	}
+	if got := second.requestCount(); got != 0 {
+		t.Fatalf("首字节提交后的流内错误触发了渠道切换, 第二成员请求次数 = %d", got)
 	}
 }

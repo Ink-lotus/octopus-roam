@@ -401,7 +401,11 @@
             "disconnected": "Log stream disconnected, reconnecting"
         },
         "status": {
-            "committed": "Responding"
+            "running": "Running",
+            "committed": "Responding",
+            "success": "Succeeded",
+            "failed": "Failed",
+            "canceled": "Canceled"
         },
         "card": {
             "errorInfo": "Error Info",
@@ -418,6 +422,21 @@
             "noRequestContent": "(No request content)",
             "noResponseContent": "(No response content)",
             "tokens": "tokens",
+            "attempts": "Attempts {count} / {limit}",
+            "unlimited": "Unlimited",
+            "retryCount": "Retried {count} times",
+            "channelErrorCount": "Channel errors {count}",
+            "requestStatus": "Request: {status}",
+            "channelStatus": {
+                "waiting": "Channel waiting",
+                "normal": "Channel normal",
+                "error": "Channel error"
+            },
+            "retryWaiting": "Waiting to retry",
+            "nextRetry": "Next retry in {time}",
+            "retryCountdownSeconds": "{seconds}s",
+            "retryCountdownMinutes": "{minutes}m {seconds}s",
+            "lastError": "Most recent error",
             "retryIndex": "Retry {index}",
             "retryDetails": "Retry Details",
             "stopRound": "Cancel Current Round",

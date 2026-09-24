@@ -30,6 +30,37 @@ func routeTestGroup(t *testing.T, itemIDs ...int) model.Group {
 	return group
 }
 
+func TestRouteStateOfMissingFailoverRouteDoesNotCreateRuntime(t *testing.T) {
+	group := routeTestGroup(t, 1)
+	blockedUntil := time.Now().Add(routeBlockRetention)
+
+	routeMu.Lock()
+	routeBlocked[group.ID] = blockedUntil
+	versionBefore := routeVersion.Load()
+	routeMu.Unlock()
+
+	state := RouteStateOf(group)
+
+	routeMu.Lock()
+	route := routes[group.ID]
+	gotBlockedUntil, stillBlocked := routeBlocked[group.ID]
+	versionAfter := routeVersion.Load()
+	routeMu.Unlock()
+
+	if route != nil {
+		t.Fatal("读取缺失路由状态创建了 routeRuntime")
+	}
+	if versionAfter != versionBefore {
+		t.Fatalf("读取缺失路由状态改变了 routeVersion: before=%d after=%d", versionBefore, versionAfter)
+	}
+	if !stillBlocked || !gotBlockedUntil.Equal(blockedUntil) {
+		t.Fatalf("读取缺失路由状态修改了删除墓碑: present=%t until=%v", stillBlocked, gotBlockedUntil)
+	}
+	if state.GroupID != group.ID || state.CurrentItemID != 0 || state.ProbeItemID != 0 || len(state.Cooldowns) != 0 {
+		t.Fatalf("缺失路由状态应为空运行状态: %+v", state)
+	}
+}
+
 func TestFailoverKeepsHealthyCurrentAfterAffinityAndPriorityRecovery(t *testing.T) {
 	now := time.Now().Truncate(time.Millisecond)
 	group := routeTestGroup(t, 11, 12)

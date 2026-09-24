@@ -370,6 +370,18 @@ func assertUpstreamFailure(t *testing.T, recorder *httptest.ResponseRecorder) {
 	if failure.Error.Message == "" {
 		t.Fatalf("错误对象没有消息: %s", recorder.Body.String())
 	}
+	retryAfter := recorder.Header().Get("Retry-After")
+	if seconds, err := strconv.ParseInt(retryAfter, 10, 64); err != nil || seconds < 1 || strconv.FormatInt(seconds, 10) != retryAfter {
+		t.Fatalf("Retry-After = %q, 期望正整数秒", retryAfter)
+	}
+}
+
+// assertRetryAfter 断言上游失败提示的下一次退避秒数。
+func assertRetryAfter(t *testing.T, recorder *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	if got := recorder.Header().Get("Retry-After"); got != want {
+		t.Fatalf("Retry-After = %q, 期望 %q", got, want)
+	}
 }
 
 // platformInt 把 int64 取值收进当前平台的 int 范围, 供测试书写"超出 time.Duration 可换算范围"的秒数。

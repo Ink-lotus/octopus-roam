@@ -401,7 +401,11 @@
             "disconnected": "日誌連線已中斷，正在重新連線"
         },
         "status": {
-            "committed": "回應中"
+            "running": "執行中",
+            "committed": "回應中",
+            "success": "成功",
+            "failed": "失敗",
+            "canceled": "已取消"
         },
         "card": {
             "errorInfo": "錯誤訊息",
@@ -418,6 +422,21 @@
             "noRequestContent": "(無請求內容)",
             "noResponseContent": "(無回應內容)",
             "tokens": "詞元",
+            "attempts": "嘗試 {count} / {limit}",
+            "unlimited": "不限",
+            "retryCount": "已重試 {count} 次",
+            "channelErrorCount": "供應源錯誤 {count} 次",
+            "requestStatus": "請求：{status}",
+            "channelStatus": {
+                "waiting": "供應源等待中",
+                "normal": "供應源正常",
+                "error": "供應源錯誤"
+            },
+            "retryWaiting": "等待重試",
+            "nextRetry": "下次重試 {time}",
+            "retryCountdownSeconds": "{seconds} 秒",
+            "retryCountdownMinutes": "{minutes} 分 {seconds} 秒",
+            "lastError": "最近錯誤",
             "retryIndex": "重試 {index}",
             "retryDetails": "重試詳情",
             "stopRound": "取消目前輪次",

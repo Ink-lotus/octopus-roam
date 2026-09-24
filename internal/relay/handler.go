@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
@@ -107,10 +108,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 				continue
 			}
-
 			// 手动模式取人工指定成员; 故障转移按优先级扫描, 当前健康成员保持固定。
 			selection := pickGroupItem(group, probeToken)
 			if selection.Wait || selection.Item.ID == 0 {
+				request.markRetryingAt(selection.WaitUntil)
 				if group.Mode == model.GroupModeFailover {
 					if !waitRoute(ctx.Done(), selection) {
 						request.markCanceled(ctx.Err(), "", nil)
@@ -131,11 +132,18 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			} else {
 				activeProbe.token = 0
 			}
+			attemptLimit := group.RelayConfig.MemberMaxAttempts
+			if group.Mode == model.GroupModeManual {
+				attemptLimit = group.RelayConfig.ManualMaxAttempts
+			}
+			resetAttempts := failedItemID != item.ID || failedGeneration != selection.Generation
+			request.selectMember(item.ID, item.ChannelName, item.ModelName, 0, attemptLimit, resetAttempts)
 
 			// 成员指向的授权缺失, 凭据被停用或两侧已被删除时等待, 该成员可能很快被改回可用配置。
 			// ChannelGrantGet 一次校验齐这几种情况, 取到的授权必然可直接转发, 无需再逐项检查。
 			grant, err := op.ChannelGrantGet(item.ChannelGrantID)
 			if err != nil {
+				request.recordFailure(err.Error())
 				if group.Mode == model.GroupModeFailover {
 					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken)
 					probeToken = 0
@@ -144,13 +152,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 				continue
 			}
-			model.NormalizeGroupRelayConfig(&group.RelayConfig)
 			channelModel := grant.ChannelModel
 			channelKey := grant.ChannelKey
 
 			// 成员指向的渠道已被删除时同样等待, 该成员可能很快被改回可用渠道。
 			channel, err := op.ChannelGet(channelModel.ChannelID)
 			if err != nil {
+				request.recordFailure(err.Error())
 				if group.Mode == model.GroupModeFailover {
 					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken)
 					probeToken = 0
@@ -187,7 +195,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			cancelRound := func() {
 				cancelRoundCause(context.Canceled)
 			}
-			request.startRound(cancelRound, channel.Name, channelModel.Name, targetProtocol)
+			startsAttempt := err == nil
+			request.startRound(cancelRound, channel.Name, channelModel.Name, targetProtocol, startsAttempt)
 
 			roundStartedAt := time.Now() // 本轮上游调用的开始时间, 用于统计首个有效响应耗时。
 
@@ -232,7 +241,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			if err != nil {
 				// 记录本轮上游调用已经结束及其失败原因。
-				request.finishRound(err.Error())
+				countError := ctx.Err() == nil && context.Cause(roundCtx) != context.Canceled
+				if !sent && startsAttempt {
+					request.discardUnsentAttempt()
+				}
+				request.finishRound(err.Error(), countError)
 				// 父上下文结束说明客户端已经取消, 归还探测占用并以取消终态结束请求。
 				if ctx.Err() != nil {
 					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
@@ -280,12 +293,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					failedGeneration = selection.Generation
 					failures = 1
 				}
+				retryDelay := RetryDelay(group.RelayConfig, failures)
 				// 手动模式的预算由 manual_max_attempts 给出, 0 表示不限额; 故障转移模式仍由
 				// member_max_attempts 决定成员何时让出路由。
 				if group.Mode == model.GroupModeManual {
 					if group.RelayConfig.ManualMaxAttempts > 0 && failures >= group.RelayConfig.ManualMaxAttempts {
 						request.markFailed(err, "", nil)
-						rejectUpstream(c, inbound, err)
+						rejectUpstream(c, inbound, err, retryDelay)
 						return
 					}
 				} else if recordRouteFailure(group, item.ID, failures, selection.Generation, selection.ProbeToken) {
@@ -297,18 +311,18 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				// 同一成员的重试按配置的退避策略等待: 第 failures 次失败后等待的是第 failures 次重试。
 				// failures 随成员更换归 1, 故指数退避在成员之间不累积, 每个成员都从初始间隔重新开始。
 				if group.Mode == model.GroupModeFailover {
-					if !request.waitRetry(ctx, RetryDelay(group.RelayConfig, failures), selection.Changed) {
+					if !request.waitRetry(ctx, retryDelay, selection.Changed) {
 						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 						activeProbe.token = 0
 						return
 					}
-				} else if !request.waitDuration(ctx, RetryDelay(group.RelayConfig, failures)) {
+				} else if !request.waitDuration(ctx, retryDelay) {
 					return
 				}
 				continue
 			}
 			// 记录本轮已经取得可提交的上游响应。
-			request.finishRound("")
+			request.finishRound("", false)
 			// 请求级取消可能与上游成功同时到达, 此时不应提交响应或继续重试。
 			if ctx.Err() != nil {
 				releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
@@ -440,13 +454,26 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 // rejectUpstream 以客户端协议的错误格式返回上游侧的最终失败: 重试与切换都已耗尽, 请求无法再继续。
 // 状态码与错误类型属于对外契约: 客户端据此区分"请求本身有问题"与"上游暂时不可用, 可以稍后重试"。
-func rejectUpstream(c *gin.Context, inbound transformer.Inbound, err error) {
+func rejectUpstream(c *gin.Context, inbound transformer.Inbound, err error, retryDelay time.Duration) {
+	c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds(retryDelay), 10))
 	response := inbound.TransformError(c.Request.Context(), &llm.ResponseError{
 		StatusCode: http.StatusServiceUnavailable,
 		Detail:     llm.ErrorDetail{Message: err.Error(), Type: "upstream_error"},
 	})
 	c.Data(response.StatusCode, "application/json", response.Body)
 	c.Abort()
+}
+
+// retryAfterSeconds 将退避时长向上取整为整数秒, 保证头部值不会短于下一次重试等待。
+func retryAfterSeconds(delay time.Duration) int64 {
+	seconds := int64(delay / time.Second)
+	if delay%time.Second != 0 {
+		seconds++
+	}
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
 }
 
 // rejectRequest 以客户端协议的错误格式返回请求级失败, 用于尚未登记状态因而无需定稿的请求。

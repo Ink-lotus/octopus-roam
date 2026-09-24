@@ -180,6 +180,7 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
     const actualModel = log.target_model || log.model;
     const { Icon, className: iconClassName, color: brandColor } = getModelIcon(actualModel);
     const errorText = log.error ?? '';
+    const lastErrorText = log.last_error ?? '';
     const requestFailed = log.status === 'failed' || log.status === 'canceled';
     const responseCommitted = log.status === 'committed';
     const requestActive = log.status === 'running' || responseCommitted;
@@ -384,6 +385,22 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                 )}
                             </div>
                         </div>
+                        {lastErrorText && (lastErrorText !== errorText || log.status === 'running') && (
+                            <div className="max-h-28 shrink-0 overflow-auto border-b border-destructive/15 bg-destructive/5 px-3 py-2.5">
+                                <div className="mb-1 flex items-center gap-2 text-xs font-medium text-destructive">
+                                    <span>{t('lastError')}</span>
+                                    <CopyIconButton
+                                        text={lastErrorText}
+                                        className="ml-auto rounded-md p-1 text-destructive/60 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                        copyIconClassName="size-3.5"
+                                        checkIconClassName="size-3.5"
+                                    />
+                                </div>
+                                <p className="whitespace-pre-wrap wrap-break-word text-[11px] leading-relaxed text-destructive/90">
+                                    {lastErrorText}
+                                </p>
+                            </div>
+                        )}
                         <div className="min-h-0 flex-1 overflow-auto">
                             {!detailReady ? (
                                 <div className="flex h-full items-center justify-center">
@@ -462,6 +479,7 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
 // LogCardBody 渲染日志概览卡片, 并在弹窗打开时挂载详情面板。
 function LogCardBody({ log }: { log: RelayLogOverview }) {
     const t = useTranslations('log.card');
+    const statusT = useTranslations('log.status');
     const { isOpen } = useMorphingDialog();
     const [now, setNow] = useState(() => Date.now());
     const actualModel = log.target_model || log.model;
@@ -469,6 +487,24 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
     const requestRunning = log.status === 'running' || log.status === 'committed';
     const requestFailed = log.status === 'failed' || log.status === 'canceled';
     const errorText = log.error ?? '';
+    const hasRetryTelemetry = log.retry_count !== undefined
+        || log.attempt !== undefined
+        || log.attempt_limit !== undefined
+        || log.retrying !== undefined
+        || log.error_count !== undefined
+        || log.next_retry_at !== undefined
+        || log.channel_status !== undefined;
+    const nextRetrySeconds = log.next_retry_at && log.next_retry_at > 0
+        ? Math.max(0, Math.ceil((log.next_retry_at - now) / 1000))
+        : null;
+    const nextRetryCountdown = nextRetrySeconds === null
+        ? null
+        : nextRetrySeconds < 60
+            ? t('retryCountdownSeconds', { seconds: nextRetrySeconds })
+            : t('retryCountdownMinutes', {
+                minutes: Math.floor(nextRetrySeconds / 60),
+                seconds: nextRetrySeconds % 60,
+            });
 
     // 仅在请求进行中或弹窗打开时按 500ms 刷新, 避免已完成日志持续触发重渲染。
     useEffect(() => {
@@ -511,6 +547,48 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                         <div className="grid grid-cols-20 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-10">
                             <LogMetrics log={log} now={now} brandColor={brandColor} variant="card" />
                         </div>
+                        {hasRetryTelemetry && (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 pt-2 text-xs tabular-nums text-muted-foreground">
+                                {(log.attempt !== undefined || log.attempt_limit !== undefined) && (
+                                    <span>
+                                        {t('attempts', {
+                                            count: log.attempt?.toLocaleString() ?? '-',
+                                            limit: log.attempt_limit === 0
+                                                ? t('unlimited')
+                                                : log.attempt_limit?.toLocaleString() ?? '-',
+                                        })}
+                                    </span>
+                                )}
+                                {log.retry_count !== undefined && (
+                                    <span>{t('retryCount', { count: log.retry_count.toLocaleString() })}</span>
+                                )}
+                                {log.error_count !== undefined && (
+                                    <span>{t('channelErrorCount', { count: log.error_count.toLocaleString() })}</span>
+                                )}
+                                <Badge variant="secondary" className="px-1.5 py-0 text-xs">
+                                    {t('requestStatus', { status: statusT(log.status) })}
+                                </Badge>
+                                {log.channel_status && (
+                                    <Badge
+                                        variant="secondary"
+                                        className={cn(
+                                            'px-1.5 py-0 text-xs',
+                                            log.channel_status === 'normal' && 'text-emerald-600 dark:text-emerald-400',
+                                            log.channel_status === 'waiting' && 'text-amber-600 dark:text-amber-400',
+                                            log.channel_status === 'error' && 'text-destructive',
+                                        )}
+                                    >
+                                        {t(`channelStatus.${log.channel_status}`)}
+                                    </Badge>
+                                )}
+                                {log.retrying && (
+                                    <span className="text-amber-600 dark:text-amber-400">
+                                        {t('retryWaiting')}
+                                        {nextRetryCountdown !== null && ` · ${t('nextRetry', { time: nextRetryCountdown })}`}
+                                    </span>
+                                )}
+                            </div>
+                        )}
                         {requestFailed && errorText && (
                             <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 overflow-hidden">
                                 <p className="text-xs text-destructive line-clamp-2 whitespace-pre-line">{errorText}</p>

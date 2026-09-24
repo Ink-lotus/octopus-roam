@@ -65,7 +65,6 @@ func GroupGetByName(name string) (model.Group, error) {
 		return model.Group{}, fmt.Errorf("group not found")
 	}
 	group = groupSnapshot(group)
-	model.NormalizeGroupRelayConfig(&group.RelayConfig)
 	return group, nil
 }
 

@@ -88,7 +88,11 @@ func RouteStateOf(group model.Group) RouteState {
 	routeMu.Lock()
 	defer routeMu.Unlock()
 
-	route := ensureRouteLocked(group)
+	// 展示尚未建立的分组状态只返回空快照, 不创建运行时路由或分配版本。
+	route := routes[group.ID]
+	if route == nil {
+		return RouteState{GroupID: group.ID, Cooldowns: map[int]int64{}}
+	}
 	state := route.state
 	state.Cooldowns = maps.Clone(route.state.Cooldowns)
 	return state

@@ -4,6 +4,7 @@ import { apiRequest } from './client';
 
 // RequestState 表示 Relay 请求的实时状态。
 export type RequestState = 'running' | 'committed' | 'success' | 'failed' | 'canceled';
+export type RelayChannelStatus = 'waiting' | 'normal' | 'error';
 
 // RelayUsage 保存请求结束后确认的统一 Token 用量。
 export interface RelayUsage {
@@ -39,6 +40,14 @@ export interface RelayLogOverview {
     target_protocol: number;
     sending: boolean;
     error?: string;
+    retry_count?: number;
+    attempt?: number;
+    attempt_limit?: number;
+    retrying?: boolean;
+    error_count?: number;
+    last_error?: string;
+    next_retry_at?: number;
+    channel_status?: RelayChannelStatus;
 }
 
 // useClearLogs 清空已完成的内存日志。

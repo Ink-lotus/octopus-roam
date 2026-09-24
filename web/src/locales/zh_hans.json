@@ -401,7 +401,11 @@
             "disconnected": "日志连接已断开，正在重连"
         },
         "status": {
-            "committed": "响应中"
+            "running": "运行中",
+            "committed": "响应中",
+            "success": "成功",
+            "failed": "失败",
+            "canceled": "已取消"
         },
         "card": {
             "errorInfo": "错误信息",
@@ -418,6 +422,21 @@
             "noRequestContent": "(无请求内容)",
             "noResponseContent": "(无响应内容)",
             "tokens": "词元",
+            "attempts": "尝试 {count} / {limit}",
+            "unlimited": "无限",
+            "retryCount": "已重试 {count} 次",
+            "channelErrorCount": "渠道错误 {count} 次",
+            "requestStatus": "请求：{status}",
+            "channelStatus": {
+                "waiting": "渠道等待中",
+                "normal": "渠道正常",
+                "error": "渠道错误"
+            },
+            "retryWaiting": "等待重试",
+            "nextRetry": "下次重试 {time}",
+            "retryCountdownSeconds": "{seconds} 秒",
+            "retryCountdownMinutes": "{minutes} 分 {seconds} 秒",
+            "lastError": "最近错误",
             "retryIndex": "重试 {index}",
             "retryDetails": "重试详情",
             "stopRound": "取消当前轮次",
