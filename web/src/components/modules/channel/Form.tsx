@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronLeft, Plus, Trash2 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
+import { toast } from 'sonner';
 import {
     type ChannelDetail,
     useChannelDetail,
@@ -16,6 +17,8 @@ import { Switch } from '@/components/ui/switch';
 import { FormGrants } from './FormGrants';
 import { FormKeys } from './FormKeys';
 import { IconButton } from '@/components/common/IconButton';
+import { RegexFilterField } from '@/components/common/RegexFilterField';
+import { isValidRegex } from '@/lib/regex';
 import {
     emptyFormState,
     fromChannel,
@@ -97,9 +100,16 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
     const submit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (!canSubmit) return;
+        if (!isValidRegex(state.match_regex.trim())) {
+            setStep('advanced');
+            return;
+        }
         const detail = toChannelDetail(state, channel?.id ?? 0);
         const mutation = channel ? updateChannel : createChannel;
-        mutation.mutate(detail, { onSuccess: () => setIsOpen(false) });
+        mutation.mutate(detail, {
+            onSuccess: () => setIsOpen(false),
+            onError: (error) => toast.error(t('saveFailed'), { description: error.message }),
+        });
     };
 
     // 表单高度固定, 否则切换步骤时弹窗会随内容高度跳动; 内容更高的步骤由步骤区内部滚动消化。
@@ -212,7 +222,6 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                         <div className="space-y-4 pt-2">
                             {([
                                 ['channel_proxy', t('channelProxy')],
-                                ['match_regex', t('matchRegex')],
                             ] as const).map(([field, label]) => (
                                 <div key={field} className="space-y-2">
                                     <Label htmlFor={`${idPrefix}-${field}`}>{label}</Label>
@@ -224,6 +233,13 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     />
                                 </div>
                             ))}
+                            <RegexFilterField
+                                id={`${idPrefix}-match_regex`}
+                                label={t('matchRegex')}
+                                value={state.match_regex}
+                                validationValue={state.match_regex.trim()}
+                                onChange={(value) => setState({ ...state, match_regex: value })}
+                            />
                             <div className="space-y-2">
                                 <Label htmlFor={`${idPrefix}-param-override`}>{t('paramOverride')}</Label>
                                 <textarea

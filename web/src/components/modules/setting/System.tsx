@@ -6,6 +6,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { RegexFilterField } from '@/components/common/RegexFilterField';
+import { isValidRegex } from '@/lib/regex';
 
 export function SettingSystem() {
     const t = useTranslations('setting');
@@ -63,7 +65,8 @@ export function SettingSystem() {
                 } else if (key === SettingKey.ModelFilter) {
                     initialModelFilter.current = value;
                 }
-            }
+            },
+            onError: (error) => toast.error(t('saveFailed'), { description: error.message }),
         });
     };
 
@@ -160,27 +163,19 @@ export function SettingSystem() {
             </div>
 
             {/* 全局模型过滤 */}
-            <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                    <Filter className="h-5 w-5 text-muted-foreground" />
-                    <span className="text-sm font-medium">{t('modelFilter.label')}</span>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <HelpCircle className="size-4 text-muted-foreground cursor-help" />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" sideOffset={10} align="center">
-                            {t('modelFilter.hint')}
-                        </TooltipContent>
-                    </Tooltip>
-                </div>
-                <Input
-                    value={modelFilter}
-                    onChange={(e) => setModelFilter(e.target.value)}
-                    onBlur={() => handleSave('model_filter', modelFilter, initialModelFilter.current)}
-                    placeholder={t('modelFilter.placeholder')}
-                    className="w-48 rounded-xl"
-                />
-            </div>
+            <RegexFilterField
+                id="global-model-filter"
+                label={t('modelFilter.label')}
+                labelIcon={<Filter className="h-5 w-5 text-muted-foreground" />}
+                value={modelFilter}
+                onChange={setModelFilter}
+                onBlur={() => {
+                    if (isValidRegex(modelFilter)) {
+                        handleSave(SettingKey.ModelFilter, modelFilter, initialModelFilter.current);
+                    }
+                }}
+                placeholder={t('modelFilter.placeholder')}
+            />
 
             {/* CORS 跨域白名单 */}
             <div className="flex items-center justify-between gap-4">

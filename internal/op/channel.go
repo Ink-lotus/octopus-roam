@@ -10,6 +10,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
 	"github.com/charmbracelet/log"
+	"github.com/dlclark/regexp2"
 	"gorm.io/gorm"
 )
 
@@ -165,6 +166,11 @@ func normalizeChannelConfig(config model.ChannelConfig) (model.ChannelConfig, er
 	config.ChannelProxy = strings.TrimSpace(config.ChannelProxy)
 	config.ParamOverride = strings.TrimSpace(config.ParamOverride)
 	config.MatchRegex = strings.TrimSpace(config.MatchRegex)
+	if config.MatchRegex != "" {
+		if _, err := regexp2.Compile(config.MatchRegex, regexp2.ECMAScript); err != nil {
+			return config, fmt.Errorf("match regex is invalid: %w", err)
+		}
+	}
 	return config, nil
 }
 

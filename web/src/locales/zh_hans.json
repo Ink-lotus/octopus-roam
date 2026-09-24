@@ -77,6 +77,21 @@
             }
         }
     },
+    "regexFilter": {
+        "syntax": "使用 ECMAScript 正则表达式。",
+        "combined": "渠道过滤和全局过滤同时生效（AND）；模型必须同时匹配两者才会保留。",
+        "empty": "留空表示不过滤。",
+        "invalid": "正则表达式格式错误。",
+        "copy": "复制正则",
+        "examples": {
+            "title": "常用示例",
+            "prefix": "按前缀保留",
+            "suffix": "按后缀保留",
+            "includeKeyword": "包含关键词",
+            "excludeKeyword": "排除关键词（preview）",
+            "excludeEmbeddingRerank": "排除 embedding、rerank 模型"
+        }
+    },
     "common": {
         "copy": {
             "success": "复制成功",
@@ -160,10 +175,10 @@
         },
         "modelFilter": {
             "label": "全局模型过滤",
-            "placeholder": "请输入过滤表达式",
-            "hint": "渠道获取模型时与渠道自身的过滤表达式同时生效（AND），留空不过滤"
+            "placeholder": "请输入过滤表达式"
         },
         "saved": "已保存",
+        "saveFailed": "保存失败",
         "webhook": {
             "title": "Webhook 通知",
             "manualThreshold": "手动模式连续失败阈值",
@@ -538,6 +553,7 @@
             "modelRefreshEmpty": "未获取到模型",
             "channelProxy": "渠道代理",
             "matchRegex": "匹配正则",
+            "saveFailed": "渠道保存失败",
             "paramOverride": "参数覆盖",
             "customHeader": "自定义 Header",
             "customHeaderKey": "Header Key",

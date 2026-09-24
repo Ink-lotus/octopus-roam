@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 type CopyIconButtonProps = {
     text: string;
+    ariaLabel?: string;
     className?: string;
     copyIconClassName?: string;
     checkIconClassName?: string;
@@ -14,6 +15,7 @@ type CopyIconButtonProps = {
 
 export function CopyIconButton({
     text,
+    ariaLabel = 'Copy',
     className,
     copyIconClassName,
     checkIconClassName,
@@ -57,7 +59,7 @@ export function CopyIconButton({
         <button
             type="button"
             onClick={handleClick}
-            aria-label="Copy"
+            aria-label={ariaLabel}
             className={cn(className)}
         >
             <span className="grid place-items-center">

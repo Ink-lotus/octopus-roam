@@ -77,6 +77,21 @@
             }
         }
     },
+    "regexFilter": {
+        "syntax": "使用 ECMAScript 正規表示式。",
+        "combined": "供應源篩選和全域篩選會同時生效（AND）；模型必須同時符合兩者才會保留。",
+        "empty": "留空表示不進行篩選。",
+        "invalid": "正規表示式格式錯誤。",
+        "copy": "複製正規表示式",
+        "examples": {
+            "title": "常用範例",
+            "prefix": "依前綴保留",
+            "suffix": "依後綴保留",
+            "includeKeyword": "包含關鍵字",
+            "excludeKeyword": "排除關鍵字（preview）",
+            "excludeEmbeddingRerank": "排除 embedding、rerank 模型"
+        }
+    },
     "common": {
         "copy": {
             "success": "複製成功",
@@ -160,10 +175,10 @@
         },
         "modelFilter": {
             "label": "全域模型過濾",
-            "placeholder": "請輸入過濾表達式",
-            "hint": "渠道獲取模型時與渠道自身的過濾表達式同時生效（AND），留空不過濾"
+            "placeholder": "請輸入過濾表達式"
         },
         "saved": "已儲存",
+        "saveFailed": "儲存失敗",
         "webhook": {
             "title": "Webhook 通知",
             "manualThreshold": "手動模式連續失敗閾值",
@@ -538,6 +553,7 @@
             "modelRefreshEmpty": "未取得模型",
             "channelProxy": "通道代理",
             "matchRegex": "匹配正則",
+            "saveFailed": "供應源儲存失敗",
             "paramOverride": "參數覆寫",
             "customHeader": "自訂 Header",
             "customHeaderKey": "Header Key",

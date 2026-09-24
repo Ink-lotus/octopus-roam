@@ -77,6 +77,21 @@
             }
         }
     },
+    "regexFilter": {
+        "syntax": "Expressions use ECMAScript regular expression syntax.",
+        "combined": "Channel and global filters both apply (AND); a model must match both to be retained.",
+        "empty": "Leave empty to disable this filter.",
+        "invalid": "The regular expression format is invalid.",
+        "copy": "Copy regular expression",
+        "examples": {
+            "title": "Common examples",
+            "prefix": "Keep by prefix",
+            "suffix": "Keep by suffix",
+            "includeKeyword": "Include keyword",
+            "excludeKeyword": "Exclude keyword (preview)",
+            "excludeEmbeddingRerank": "Exclude embedding and rerank models"
+        }
+    },
     "common": {
         "copy": {
             "success": "Copied",
@@ -160,10 +175,10 @@
         },
         "modelFilter": {
             "label": "Global Model Filter",
-            "placeholder": "Enter filter regex",
-            "hint": "Applied along with the channel's own filter when fetching models (AND); empty means no filter"
+            "placeholder": "Enter filter regex"
         },
         "saved": "Saved",
+        "saveFailed": "Save failed",
         "webhook": {
             "title": "Webhook Notifications",
             "manualThreshold": "Manual mode failure threshold",
@@ -538,6 +553,7 @@
             "modelRefreshEmpty": "No models returned",
             "channelProxy": "Channel proxy",
             "matchRegex": "Match regex",
+            "saveFailed": "Channel save failed",
             "paramOverride": "Param override",
             "customHeader": "Custom headers",
             "customHeaderKey": "Header key",
