@@ -13,7 +13,10 @@ import (
 
 // 渠道拆分为渠道, 凭据, 模型与渠道授权后导出结构变化, 版本随之递增;
 // 版本 5 起 api_keys.supported_models 由逗号分隔字符串改为 JSON 数组。
-const dbDumpVersion = 5
+const (
+	dbDumpVersion       = 6
+	legacyDBDumpVersion = 5
+)
 
 // DBExportAll 导出完整数据库内容，包括所有统计数据。
 func DBExportAll(ctx context.Context) (*model.DBDump, error) {
@@ -51,6 +54,9 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 	if err := conn.Find(&d.Settings).Error; err != nil {
 		return nil, fmt.Errorf("export settings: %w", err)
 	}
+	if err := conn.Find(&d.WebhookEndpoints).Error; err != nil {
+		return nil, fmt.Errorf("export webhook_endpoints: %w", err)
+	}
 
 	if err := conn.Find(&d.StatsTotal).Error; err != nil {
 		return nil, fmt.Errorf("export stats_total: %w", err)
@@ -73,7 +79,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil, fmt.Errorf("empty dump")
 	}
 
-	if dump.Version != 0 && dump.Version != dbDumpVersion {
+	if dump.Version != 0 && dump.Version != legacyDBDumpVersion && dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
 
@@ -144,6 +150,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 			return fmt.Errorf("import settings: %w", err)
 		} else {
 			res.RowsAffected["settings"] = n
+		}
+		if n, err := createUpsertAll(tx, dump.WebhookEndpoints, []clause.Column{{Name: "id"}}); err != nil {
+			return fmt.Errorf("import webhook_endpoints: %w", err)
+		} else {
+			res.RowsAffected["webhook_endpoints"] = n
 		}
 
 		if n, err := createUpsertAll(tx, dump.StatsTotal, []clause.Column{{Name: "id"}}); err != nil {

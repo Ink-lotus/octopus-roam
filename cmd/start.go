@@ -7,6 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/server"
 	"github.com/bestruirui/octopus/internal/task"
 	"github.com/bestruirui/octopus/internal/utils/shutdown"
+	"github.com/bestruirui/octopus/internal/webhook"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )
@@ -36,6 +37,12 @@ var startCmd = &cobra.Command{
 			return
 		}
 		shutdown.Register(op.SaveCache)
+
+		webhookService := webhook.Start()
+		shutdown.Register(func() error {
+			webhookService.Close()
+			return nil
+		})
 
 		if err := op.UserInit(); err != nil {
 			log.Errorf("user init error: %v", err)

@@ -15,6 +15,7 @@ import (
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
 	"github.com/bestruirui/octopus/internal/task"
+	"github.com/bestruirui/octopus/internal/webhook"
 	"github.com/gin-gonic/gin"
 )
 
@@ -147,6 +148,12 @@ func importDB(c *gin.Context) {
 			return
 		}
 	}
+	for i := range dump.WebhookEndpoints {
+		if err := webhook.NormalizeAndValidate(&dump.WebhookEndpoints[i]); err != nil {
+			resp.Error(c, http.StatusBadRequest, "invalid webhook endpoint in backup: "+err.Error())
+			return
+		}
+	}
 
 	result, err := op.DBImportIncremental(c.Request.Context(), &dump)
 	if err != nil {
@@ -184,7 +191,8 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 		len(dump.StatsDaily) == 0 &&
 		len(dump.StatsHourly) == 0 &&
 		len(dump.StatsTotal) == 0 &&
-		len(dump.StatsAPIKey) == 0 {
+		len(dump.StatsAPIKey) == 0 &&
+		len(dump.WebhookEndpoints) == 0 {
 		var wrapper struct {
 			Code    int             `json:"code"`
 			Message string          `json:"message"`

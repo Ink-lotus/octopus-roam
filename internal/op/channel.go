@@ -309,6 +309,19 @@ func ChannelGrantGet(id int) (model.ChannelGrant, error) {
 	return grant, nil
 }
 
+// ChannelGrantKeyGet 返回授权关联的缓存凭据, 包含已停用的凭据, 供配置密钥脱敏使用。
+func ChannelGrantKeyGet(id int) (model.ChannelKey, error) {
+	grant, ok := channelGrantCache.Get(id)
+	if !ok {
+		return model.ChannelKey{}, fmt.Errorf("channel grant not found")
+	}
+	channelKey, ok := channelKeyCache.Get(grant.ChannelKeyID)
+	if !ok {
+		return model.ChannelKey{}, fmt.Errorf("channel key %d not found", grant.ChannelKeyID)
+	}
+	return channelKey, nil
+}
+
 // ChannelGrantCandidates 返回全部渠道授权及其展示字段, 供分组页选取成员。
 // 可用性与 GroupList 补齐成员时同一口径: 渠道与凭据均启用即可用, 由此候选与已选成员不会各判一套。
 // 两侧任一缺失的授权直接跳过: 它无法转发, 也无从展示名称。
