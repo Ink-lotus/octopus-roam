@@ -151,12 +151,12 @@ func TestWebhookEndpointHeadersPersistAndOldBackupsRemainImportable(t *testing.T
 	if updated.Enabled || updated.Headers["Authorization"] != "Bearer private" || updated.Headers["X-Region"] != "east" {
 		t.Fatalf("updated endpoint = %+v", updated)
 	}
-	for _, version := range []int{0, 5, 6} {
+	for _, version := range []int{0, 5} {
 		if _, err := op.DBImportIncremental(t.Context(), &model.DBDump{Version: version}); err != nil {
 			t.Fatalf("import legacy backup version %d: %v", version, err)
 		}
 	}
-	for _, version := range []int{4, 8} {
+	for _, version := range []int{4, 7} {
 		if _, err := op.DBImportIncremental(t.Context(), &model.DBDump{Version: version}); err == nil {
 			t.Fatalf("unsupported backup version %d was accepted", version)
 		}
@@ -165,8 +165,8 @@ func TestWebhookEndpointHeadersPersistAndOldBackupsRemainImportable(t *testing.T
 	if err != nil {
 		t.Fatalf("export database: %v", err)
 	}
-	if dump.Version != 7 {
-		t.Fatalf("backup version = %d, want 7", dump.Version)
+	if dump.Version != 6 {
+		t.Fatalf("backup version = %d, want 6", dump.Version)
 	}
 	if len(dump.WebhookEndpoints) == 0 || dump.WebhookEndpoints[0].Headers["Authorization"] != "Bearer private" {
 		t.Fatalf("exported webhook endpoints = %+v", dump.WebhookEndpoints)

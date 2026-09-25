@@ -192,8 +192,7 @@ func decodeDBDump(body []byte, dump *model.DBDump) error {
 		len(dump.StatsHourly) == 0 &&
 		len(dump.StatsTotal) == 0 &&
 		len(dump.StatsAPIKey) == 0 &&
-		len(dump.WebhookEndpoints) == 0 &&
-		len(dump.StatusTokens) == 0 {
+		len(dump.WebhookEndpoints) == 0 {
 		var wrapper struct {
 			Code    int             `json:"code"`
 			Message string          `json:"message"`

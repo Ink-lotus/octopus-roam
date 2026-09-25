@@ -64,7 +64,6 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.APIKey{},
 		&model.Setting{},
 		&model.WebhookEndpoint{},
-		&model.StatusToken{},
 		&model.StatsTotal{},
 		&model.StatsDaily{},
 		&model.StatsHourly{},

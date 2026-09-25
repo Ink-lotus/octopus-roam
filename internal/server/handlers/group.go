@@ -98,26 +98,6 @@ func publishGroupSnapshot(group model.Group) {
 	})
 }
 
-// openGroupEventStream 注册一个分组事件订阅通道, 供 SSE 处理器接收分组的增删改。
-func openGroupEventStream() chan groupEvent {
-	events := make(chan groupEvent, groupEventBuffer)
-	groupEventMu.Lock()
-	groupEventStreams[events] = struct{}{}
-	groupEventMu.Unlock()
-	return events
-}
-
-// closeGroupEventStream 注销分组事件订阅通道。
-// 通道可能已被拥塞时的发布方关闭, 重复关闭会 panic, 故先判存在。
-func closeGroupEventStream(events chan groupEvent) {
-	groupEventMu.Lock()
-	defer groupEventMu.Unlock()
-	if _, exists := groupEventStreams[events]; exists {
-		delete(groupEventStreams, events)
-		close(events)
-	}
-}
-
 // streamGroupEvents 向前端发送分组的变更事件与实时运行状态。
 // 一条连接承载两个来源: 分组的增删改由本包发布, 故障转移模式的运行状态增量由 Relay 的路由自身发布。
 // 不发初始快照: 分组读取接口已随分组带回当前状态, 前端由此拿到的初始值即全量。
@@ -126,8 +106,19 @@ func streamGroupEvents(c *gin.Context) {
 	routeUpdates := relay.OpenRouteStream()
 	defer relay.CloseRouteStream(routeUpdates)
 
-	events := openGroupEventStream()
-	defer closeGroupEventStream(events)
+	events := make(chan groupEvent, groupEventBuffer)
+	groupEventMu.Lock()
+	groupEventStreams[events] = struct{}{}
+	groupEventMu.Unlock()
+	defer func() {
+		groupEventMu.Lock()
+		defer groupEventMu.Unlock()
+		// 通道可能已被拥塞时的发布方关闭, 重复关闭会 panic。
+		if _, exists := groupEventStreams[events]; exists {
+			delete(groupEventStreams, events)
+			close(events)
+		}
+	}()
 
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
