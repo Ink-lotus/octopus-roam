@@ -18,6 +18,7 @@ type DBDump struct {
 	APIKeys          []APIKey          `json:"api_keys,omitempty"`       // API Key 数据。
 	Settings         []Setting         `json:"settings,omitempty"`       // 系统设置数据。
 	WebhookEndpoints []WebhookEndpoint `json:"webhook_endpoints,omitempty"`
+	StatusTokens     []StatusToken     `json:"status_tokens,omitempty"`
 
 	StatsTotal  []StatsTotal  `json:"stats_total,omitempty"`
 	StatsDaily  []StatsDaily  `json:"stats_daily,omitempty"`

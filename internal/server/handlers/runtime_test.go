@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay"
 	serverauth "github.com/bestruirui/octopus/internal/server/auth"
 	"github.com/bestruirui/octopus/internal/server/router"
@@ -45,12 +46,65 @@ func TestRuntimeEndpointsRequireAuthAndShareSnapshotContract(t *testing.T) {
 	if unauthorized.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("未认证 webhook 列表返回 %d, 期望 %d", unauthorized.StatusCode, http.StatusUnauthorized)
 	}
+	unauthorized, err = http.Get(server.URL + "/api/v1/status/snapshot")
+	if err != nil {
+		t.Fatalf("请求未认证的 status 快照失败: %v", err)
+	}
+	_ = unauthorized.Body.Close()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("未认证 status 快照返回 %d, 期望 %d", unauthorized.StatusCode, http.StatusUnauthorized)
+	}
 
 	token, _, err := serverauth.GenerateJWTToken(60)
 	if err != nil {
 		t.Fatalf("生成测试认证令牌失败: %v", err)
 	}
+	statusToken, statusPlaintext, err := op.StatusTokenCreate(t.Context(), "runtime test", 0)
+	if err != nil {
+		t.Fatalf("创建 status token 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = op.StatusTokenRevoke(t.Context(), statusToken.ID) })
 	client := &http.Client{}
+	statusRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/status/snapshot", nil)
+	if err != nil {
+		t.Fatalf("构造 status 快照请求失败: %v", err)
+	}
+	statusRequest.Header.Set("Authorization", "Bearer "+statusPlaintext)
+	statusResponse, err := client.Do(statusRequest)
+	if err != nil {
+		t.Fatalf("请求 status 快照失败: %v", err)
+	}
+	defer statusResponse.Body.Close()
+	if statusResponse.StatusCode != http.StatusOK {
+		t.Fatalf("status 快照返回 %d, 期望 %d", statusResponse.StatusCode, http.StatusOK)
+	}
+	var statusEnvelope struct {
+		Data []StatusSnapshot `json:"data"`
+	}
+	if err := json.NewDecoder(statusResponse.Body).Decode(&statusEnvelope); err != nil {
+		t.Fatalf("解析 status 快照失败: %v", err)
+	}
+	for _, path := range []string{
+		"/api/v1/runtime",
+		"/api/v1/setting/list",
+		"/api/v1/log/overview/stream",
+		"/api/v1/webhook/list",
+		"/v1/models",
+	} {
+		request, err := http.NewRequest(http.MethodGet, server.URL+path, nil)
+		if err != nil {
+			t.Fatalf("构造状态 Token 越权请求失败 (%s): %v", path, err)
+		}
+		request.Header.Set("Authorization", "Bearer "+statusPlaintext)
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatalf("发送状态 Token 越权请求失败 (%s): %v", path, err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("状态 Token 访问 %s 返回 %d, 期望 %d", path, response.StatusCode, http.StatusUnauthorized)
+		}
+	}
 	snapshotRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/runtime", nil)
 	if err != nil {
 		t.Fatalf("构造 runtime 快照请求失败: %v", err)

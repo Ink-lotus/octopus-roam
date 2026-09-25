@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,8 +15,9 @@ import (
 // 渠道拆分为渠道, 凭据, 模型与渠道授权后导出结构变化, 版本随之递增;
 // 版本 5 起 api_keys.supported_models 由逗号分隔字符串改为 JSON 数组。
 const (
-	dbDumpVersion       = 6
-	legacyDBDumpVersion = 5
+	dbDumpVersion         = 7
+	legacyDBDumpVersion   = 5
+	previousDBDumpVersion = 6
 )
 
 // DBExportAll 导出完整数据库内容，包括所有统计数据。
@@ -57,6 +59,9 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 	if err := conn.Find(&d.WebhookEndpoints).Error; err != nil {
 		return nil, fmt.Errorf("export webhook_endpoints: %w", err)
 	}
+	if err := conn.Find(&d.StatusTokens).Error; err != nil {
+		return nil, fmt.Errorf("export status_tokens: %w", err)
+	}
 
 	if err := conn.Find(&d.StatsTotal).Error; err != nil {
 		return nil, fmt.Errorf("export stats_total: %w", err)
@@ -79,7 +84,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil, fmt.Errorf("empty dump")
 	}
 
-	if dump.Version != 0 && dump.Version != legacyDBDumpVersion && dump.Version != dbDumpVersion {
+	if dump.Version != 0 && dump.Version != legacyDBDumpVersion && dump.Version != previousDBDumpVersion && dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
 
@@ -156,6 +161,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		} else {
 			res.RowsAffected["webhook_endpoints"] = n
 		}
+		if n, err := importStatusTokens(tx, dump.StatusTokens); err != nil {
+			return fmt.Errorf("import status_tokens: %w", err)
+		} else {
+			res.RowsAffected["status_tokens"] = n
+		}
 
 		if n, err := createUpsertAll(tx, dump.StatsTotal, []clause.Column{{Name: "id"}}); err != nil {
 			return fmt.Errorf("import stats_total: %w", err)
@@ -218,4 +228,38 @@ func createUpsertSettings(tx *gorm.DB, rows []model.Setting) (int64, error) {
 		DoUpdates: clause.AssignmentColumns([]string{"value"}),
 	}).Create(&rows)
 	return result.RowsAffected, result.Error
+}
+
+// importStatusTokens merges revocation state monotonically. Importing an older
+// backup must never make a locally revoked token usable again.
+func importStatusTokens(tx *gorm.DB, rows []model.StatusToken) (int64, error) {
+	var affected int64
+	for _, token := range rows {
+		var current model.StatusToken
+		err := tx.First(&current, token.ID).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if err := tx.Create(&token).Error; err != nil {
+				return affected, err
+			}
+			affected++
+		case err != nil:
+			return affected, err
+		default:
+			updates := map[string]any{
+				"name":       token.Name,
+				"token_hash": token.TokenHash,
+				"created_at": token.CreatedAt,
+				"expires_at": token.ExpiresAt,
+			}
+			if current.RevokedAt == 0 && token.RevokedAt > 0 {
+				updates["revoked_at"] = token.RevokedAt
+			}
+			if err := tx.Model(&model.StatusToken{}).Where("id = ?", token.ID).Updates(updates).Error; err != nil {
+				return affected, err
+			}
+			affected++
+		}
+	}
+	return affected, nil
 }
