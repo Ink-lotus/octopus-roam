@@ -3,3 +3,7 @@ build
 static/out/*
 !static/out/README.md
 .vscode
+# 构建与测试缓存
+.pnpm-store/
+.tmp-go-cache/
+.tmp-go-mod/
