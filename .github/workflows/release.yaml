@@ -2,8 +2,9 @@ name: release
 
 on:
   push:
+    # 只在产品主分支触发。master 保留为上游同步分支, 上游的版本号提交不应触发本项目发布。
     branches:
-      - master
+      - main
     paths:
       - main.go
 
@@ -40,6 +41,12 @@ jobs:
         run: |
           VERSION=$(grep '^// Version ' main.go | sed 's|^// Version ||' | tr -d ' ')
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # 带连字符的版本视为预发布, 例如 v0.1.0-rc.1 或 v0.1.0-beta.1。
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
           git tag "${VERSION}"
           git push origin "${VERSION}"
 
@@ -88,6 +95,8 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
+      # changelogithub 通过 HEAD 上的标签判定版本与预发布状态, 依赖 Publish tag 已先执行且
+      # checkout 的 HEAD 未改变。调整步骤顺序会让它退化成按分支名判定, 从而多建一个 Release。
       - name: Generate changelog
         run: npx changelogithub
         env:
@@ -97,7 +106,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: build/archives/*
-          prerelease: false
+          prerelease: ${{ steps.version.outputs.prerelease }}
           tag_name: ${{ steps.version.outputs.version }}
 
       - name: Docker meta
@@ -107,8 +116,9 @@ jobs:
           images: |
             ghcr.io/${{ github.repository }}
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
+          # 预发布只推版本号标签, 不覆盖 latest, 避免拉取 latest 的用户拿到候选版。
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ steps.version.outputs.prerelease == 'false' }}
             type=raw,value=${{ steps.version.outputs.version }}
 
       - name: Set up QEMU
