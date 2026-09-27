@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square, Timer } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Brain, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square, Timer } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
@@ -223,6 +223,12 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                     <Icon aria-hidden="true" className={iconClassName} width={28} height={28} />
                     <span className="text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span>
                     <span className="font-semibold text-card-foreground">{log.model || t('unknownModel')}</span>
+                    {log.reasoning_effort && (
+                        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/70" title={log.reasoning_effort}>
+                            <Brain className="size-3.5" />
+                            {log.reasoning_effort}
+                        </span>
+                    )}
                     {log.status === 'running' || responseCommitted
                         ? <Loader2 className={cn('size-3.5 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />
                         : <ArrowRight className="size-3.5 text-muted-foreground/50" />}
@@ -529,6 +535,12 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                             <span className="font-semibold text-card-foreground truncate">
                                 {log.model || t('unknownModel')}
                             </span>
+                            {log.reasoning_effort && (
+                                <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/70" title={log.reasoning_effort}>
+                                    <Brain className="size-3.5" />
+                                    {log.reasoning_effort}
+                                </span>
+                            )}
                             {requestRunning
                                 ? <Loader2 className={cn('size-3.5 shrink-0 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />
                                 : <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />}

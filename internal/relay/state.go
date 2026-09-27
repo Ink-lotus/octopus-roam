@@ -42,6 +42,7 @@ type RequestState struct {
 	StreamDuration     time.Duration  `json:"stream_duration"`      // 流式响应从首字节提交到响应结束的耗时, 非流式响应为零。
 	ResponseDuration   time.Duration  `json:"response_duration"`    // 非流式正确响应轮次开始到完整响应提交的耗时, 流式响应为零。
 	Model              string         `json:"model"`                // 客户端请求的模型名称, 即分组名称。
+	ReasoningEffort    string         `json:"reasoning_effort"`     // 客户端请求的思考等级, 由入站转换器归一, 未指定或解析失败时为空。
 	Protocol           model.Protocol `json:"protocol"`             // 客户端请求使用的协议, 由入站格式定出, 单个协议位而非掩码组合。
 	GroupID            int            `json:"group_id"`             // 承载本请求的分组 ID, 供界面按主键直接定位分组而不必按名称回查。
 	APIKeyName         string         `json:"api_key_name"`         // 发起请求时的 API Key 名称。
@@ -90,23 +91,24 @@ var (
 )
 
 // newRequestState 分配请求 ID 并登记初始运行状态; 返回的记录是本请求后续全部状态写入的入口。
-func newRequestState(ctx context.Context, modelName string, groupID int, protocol model.Protocol, body string, apiKeyID int) *RequestState {
+func newRequestState(ctx context.Context, modelName, reasoningEffort string, groupID int, protocol model.Protocol, body string, apiKeyID int) *RequestState {
 	requestCtx, requestCancel := context.WithCancel(ctx)
 	mu.Lock()
 	defer mu.Unlock()
 
 	request := &RequestState{
-		ID:            idSeq.Add(1),
-		Status:        StatusRunning,
-		ChannelStatus: ChannelStatusWaiting,
-		StartedAt:     time.Now(),
-		Model:         modelName,
-		Protocol:      protocol,
-		GroupID:       groupID,
-		requestBody:   body,
-		apiKeyID:      apiKeyID,
-		requestCtx:    requestCtx,
-		requestCancel: requestCancel,
+		ID:              idSeq.Add(1),
+		Status:          StatusRunning,
+		ChannelStatus:   ChannelStatusWaiting,
+		StartedAt:       time.Now(),
+		Model:           modelName,
+		ReasoningEffort: reasoningEffort,
+		Protocol:        protocol,
+		GroupID:         groupID,
+		requestBody:     body,
+		apiKeyID:        apiKeyID,
+		requestCtx:      requestCtx,
+		requestCancel:   requestCancel,
 	}
 	// 登记时保存名称快照, 查询失败时留空。
 	if apiKey, err := op.APIKeyGet(apiKeyID, ctx); err == nil {
