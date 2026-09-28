@@ -177,15 +177,18 @@ func sendPassthroughStream(ctx context.Context, format llm.APIFormat, request *h
 
 // conversionMiddleware 保存跨协议 pipeline 单次调用需要应用和取得的状态。
 type conversionMiddleware struct {
-	pipeline.DummyMiddleware // 提供本次无需处理的其余 pipeline 中间件方法。
-	channel model.Channel // 本轮上游请求使用的渠道配置。
-	format  llm.APIFormat // 上游渠道协议, 用于校验统一响应终态。
-	rawBody []byte        // 上游非流式响应或错误的原始正文。
-	usage   *llm.Usage    // 非流式统一响应中确认的用量。
+	pipeline.DummyMiddleware               // 提供本次无需处理的其余 pipeline 中间件方法。
+	channel                  model.Channel // 本轮上游请求使用的渠道配置。
+	format                   llm.APIFormat // 上游渠道协议, 用于校验统一响应终态。
+	clientUserAgent          string        // 客户端原始 User-Agent; pipeline 合并入站请求时会过滤掉, 需在出站阶段补回。
+	rawBody                  []byte        // 上游非流式响应或错误的原始正文。
+	usage                    *llm.Usage    // 非流式统一响应中确认的用量。
 }
 
 // OnOutboundRawRequest 在转换后的上游请求上应用渠道参数和自定义 Header。
 func (m *conversionMiddleware) OnOutboundRawRequest(_ context.Context, request *httpclient.Request) (*httpclient.Request, error) {
+	// pipeline 的 MergeInboundRequest 已过滤客户端 User-Agent, 在应用渠道配置前补回, 供转发上游与占位符读取。
+	preserveClientUserAgent(request, m.clientUserAgent)
 	return request, applyChannelConfig(m.channel, request)
 }
 
@@ -242,7 +245,7 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 			}
 		}()
 	}
-	middleware := &conversionMiddleware{channel: channel, format: outbound.APIFormat()}
+	middleware := &conversionMiddleware{channel: channel, format: outbound.APIFormat(), clientUserAgent: raw.Headers.Get("User-Agent")}
 	processor := pipeline.NewFactory(httpclient.NewHttpClientWithClient(httpClient)).Pipeline(
 		inbound,
 		outbound,
