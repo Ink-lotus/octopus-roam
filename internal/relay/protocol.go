@@ -18,7 +18,8 @@ import (
 )
 
 // buildPassthroughRequest 构造同协议透传的上游请求: 目标地址, 认证和请求体由渠道决定, 客户端的其余请求头和查询参数
-// 经 MergeInboundRequest 透传给上游, 其中认证类, 库自管类和逐跳类请求头会被丢弃以免覆盖渠道凭据。
+// 经 MergeInboundRequest 透传给上游, 其中认证类, 库自管类和逐跳类请求头会被丢弃以免覆盖渠道凭据;
+// User-Agent 自 AxonHub v0.13.8 起被库列入不透传名单, 故在合并后显式补回客户端 UA。
 // 地址与认证取自出站转换器对一个占位请求的转换结果, 使透传与跨协议转换共用同一套地址拼接, 避免两处规则分歧;
 // openai 与 anthropic 出站转换器会校验模型名非空, 故占位请求必须带本轮真实的上游模型名。
 func buildPassthroughRequest(format llm.APIFormat, raw *httpclient.Request, channel model.Channel, outbound transformer.Outbound, modelName string) (*httpclient.Request, error) {
@@ -45,6 +46,10 @@ func buildPassthroughRequest(format llm.APIFormat, raw *httpclient.Request, chan
 		Auth:      probe.Auth,
 		APIFormat: format.String(),
 	}, raw)
+
+	// AxonHub v0.13.8 起 User-Agent 被库列入不透传名单, 显式补回客户端 UA(见 preserveClientUserAgent)。
+	preserveClientUserAgent(request, raw.Headers.Get("User-Agent"))
+
 	request, err = httpclient.FinalizeAuthHeaders(request)
 	if err != nil {
 		return nil, err
@@ -53,6 +58,21 @@ func buildPassthroughRequest(format llm.APIFormat, raw *httpclient.Request, chan
 		return nil, err
 	}
 	return request, nil
+}
+
+// preserveClientUserAgent 在上游请求头缺少 User-Agent 时补回客户端 UA。
+// AxonHub v0.13.8 起把 User-Agent 列入 httpclient 不透传名单(blockedHeaders), MergeInboundRequest 不再
+// 带入客户端 UA, 库约定改由调用方显式保留。补回后供转发上游(否则 BuildHttpRequest 会填默认 axonhub/1.0)
+// 与 applyChannelConfig 的 {client_header:User-Agent} 占位符读取; 仅在未设时补, 不覆盖渠道或出站转换器
+// 已设的 provider 专用 UA(如 Copilot 的 GitHubCopilotChat)。
+func preserveClientUserAgent(request *httpclient.Request, clientUA string) {
+	if clientUA == "" || request.Headers.Get("User-Agent") != "" {
+		return
+	}
+	if request.Headers == nil {
+		request.Headers = make(http.Header)
+	}
+	request.Headers.Set("User-Agent", clientUA)
 }
 
 // inspectStreamEvent 判断一个客户端协议流事件是否结束了整个响应流, 并识别以事件形式下发的上游错误。
