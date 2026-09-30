@@ -246,6 +246,7 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                 </span>
             </MorphingDialogTitle>
 
+            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">{t('bodyPrivacyHint')}</p>
             <MorphingDialogDescription className="flex-1 min-h-0">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-0">
                     <div className="flex flex-col rounded-2xl border border-border bg-muted/30 overflow-hidden min-h-0">

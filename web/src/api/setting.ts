@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, apiRequest } from './client';
+import { groupRouteDefaultsQueryOptions } from './queries';
 
 /**
  * Setting 数据
@@ -121,6 +122,7 @@ export function useExportDB() {
  * 导入数据库（上传 JSON 文件）
  */
 export function useImportDB() {
+    const queryClient = useQueryClient();
     return useMutation({
         mutationFn: async (file: File) => {
             const form = new FormData();
@@ -145,6 +147,14 @@ export function useImportDB() {
 
             // 支持后端标准 ApiResponse：{code,message,data:{...}}
             return typeof data === 'string' ? data as unknown as DBImportResult : data.data as DBImportResult;
+        },
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: groupRouteDefaultsQueryOptions.queryKey }),
+                queryClient.invalidateQueries({ queryKey: ['groups', 'list'] }),
+                queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] }),
+                queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
+            ]);
         },
     });
 }

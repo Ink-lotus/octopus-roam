@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -18,6 +19,7 @@ const (
 	SettingKeyModelFilter                     SettingKey = "model_filter"               // 渠道获取模型时的全局过滤表达式; 留空表示不过滤
 	SettingKeyWebhookManualFailureThreshold   SettingKey = "webhook_manual_failure_threshold"
 	SettingKeyWebhookFailoverChannelThreshold SettingKey = "webhook_failover_channel_threshold"
+	SettingKeyGroupRouteDefaults              SettingKey = "group_route_defaults"
 )
 
 type Setting struct {
@@ -26,6 +28,7 @@ type Setting struct {
 }
 
 func DefaultSettings() []Setting {
+	routeDefaults, _ := json.Marshal(DefaultGroupRelayConfig())
 	return []Setting{
 		{Key: SettingKeyProxyURL, Value: ""},
 		{Key: SettingKeyStatsSaveInterval, Value: "10"},       // 默认10分钟保存一次统计信息
@@ -34,6 +37,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyModelFilter, Value: ""},               // 默认不过滤模型
 		{Key: SettingKeyWebhookManualFailureThreshold, Value: "10"},
 		{Key: SettingKeyWebhookFailoverChannelThreshold, Value: "3"},
+		{Key: SettingKeyGroupRouteDefaults, Value: string(routeDefaults)},
 	}
 }
 

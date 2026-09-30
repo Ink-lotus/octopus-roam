@@ -3,6 +3,7 @@ package resp
 import (
 	"net/http"
 
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,8 +22,11 @@ func Success(c *gin.Context, data any) {
 }
 
 func Error(c *gin.Context, code int, err string) {
+	redactor := privacy.FromContext(c.Request.Context())
+	redactor.AddHeaders(c.Request.Header)
+	redactor.AddURL(c.Request.URL.String())
 	c.AbortWithStatusJSON(code, ResponseStruct{
 		Code:    code,
-		Message: err,
+		Message: redactor.Text(err),
 	})
 }

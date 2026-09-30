@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/privacy"
 )
 
 func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
@@ -99,4 +100,71 @@ func mapValues(values map[string]string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func TestEndpointFingerprintsPreserveCredentialsWhenEditingOrdinaryFields(t *testing.T) {
+	original := model.WebhookEndpoint{
+		URL:     "https://fixture-user:fixture-pass@example.test/hook?api_key=query-fixture&key=key-fixture&room=before",
+		Headers: map[string]string{"X-API-Key": "header-fixture", "X-Region": "west"},
+	}
+	masked := MaskEndpoint(original)
+	if masked.Headers["X-API-Key"] != privacy.Mask("header-fixture") {
+		t.Fatal("endpoint must use the shared credential fingerprint")
+	}
+	for _, secret := range []string{"fixture-user", "fixture-pass", "query-fixture", "key-fixture"} {
+		if strings.Contains(masked.URL, secret) {
+			t.Fatalf("endpoint URL leaked: %s", masked.URL)
+		}
+	}
+	masked.URL = strings.Replace(masked.URL, "room=before", "room=after", 1)
+	PreserveMaskedSecrets(&masked, original)
+	if masked.URL != strings.Replace(original.URL, "room=before", "room=after", 1) {
+		t.Fatalf("editing an ordinary URL field damaged credentials: %s", masked.URL)
+	}
+	if masked.Headers["X-API-Key"] != original.Headers["X-API-Key"] {
+		t.Fatal("fingerprint was saved as a credential")
+	}
+	legacy := model.WebhookEndpoint{URL: "https://***@example.test/hook?api_key=***&key=***&room=after", Headers: map[string]string{"X-API-Key": "***"}}
+	PreserveMaskedSecrets(&legacy, original)
+	if legacy.URL != masked.URL || legacy.Headers["X-API-Key"] != masked.Headers["X-API-Key"] {
+		t.Fatal("legacy masked edits are no longer accepted")
+	}
+}
+
+func TestStaleEndpointFingerprintCannotBeSavedAsCredential(t *testing.T) {
+	current := model.WebhookEndpoint{Name: "fixture", URL: "https://example.test/hook", Headers: map[string]string{"Authorization": "Bearer actual-fixture"}}
+	incoming := current
+	incoming.Headers = map[string]string{"Authorization": privacy.Mask("different-fixture")}
+	PreserveMaskedSecrets(&incoming, current)
+	if err := NormalizeAndValidate(&incoming); err == nil {
+		t.Fatal("stale fingerprint would overwrite a real credential")
+	}
+}
+
+func TestCredentialSuffixesRemainPrivateInWebhookViewsAndEvents(t *testing.T) {
+	for _, name := range []string{"X-Secret-Id", "X-Token-Value", "api_key_id", "credential_name"} {
+		t.Run(name, func(t *testing.T) {
+			const secret = "fixture-webhook-suffix-value"
+			original := model.WebhookEndpoint{
+				Name: "fixture", URL: "https://example.test/hook?" + name + "=" + secret,
+				Headers: map[string]string{name: secret},
+			}
+			masked := MaskEndpoint(original)
+			if masked.Headers[name] != privacy.Mask(secret) || strings.Contains(masked.URL, secret) {
+				t.Fatal("webhook view leaked a credential")
+			}
+			PreserveMaskedSecrets(&masked, original)
+			if masked.Headers[name] != secret || masked.URL != original.URL {
+				t.Fatal("editing the masked webhook damaged its actual credentials")
+			}
+			masked.Headers[name] = privacy.Mask("fixture-stale-value")
+			if err := NormalizeAndValidate(&masked); err == nil {
+				t.Fatal("stale suffix credential fingerprint was accepted")
+			}
+			body, err := Render(DefaultBodyTemplate, Event{LastError: name + "=" + secret})
+			if err != nil || strings.Contains(string(body), secret) {
+				t.Fatal("webhook last_error leaked a suffix credential", err)
+			}
+		})
+	}
 }

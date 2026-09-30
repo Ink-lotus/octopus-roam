@@ -179,6 +179,20 @@
         },
         "saved": "已儲存",
         "saveFailed": "儲存失敗",
+        "routeDefaults": {
+            "title": "預設路由策略",
+            "description": "新建分組使用以下預設策略，也可以在建立時單獨調整。",
+            "loading": "正在讀取預設策略…",
+            "loadFailed": "預設策略讀取失敗",
+            "retry": "重試",
+            "applyToExisting": "同時套用至現有分組",
+            "applyHint": "只更新公共策略及各組目前模式的參數，保留分組模式、成員順序和目前選擇。",
+            "save": "儲存預設策略",
+            "saving": "儲存中…",
+            "saved": "預設路由策略已儲存",
+            "applied": "預設策略已儲存，已更新 {count} 個分組",
+            "saveFailed": "預設策略儲存失敗"
+        },
         "webhook": {
             "title": "Webhook 通知",
             "manualThreshold": "手動模式連續失敗閾值",
@@ -360,7 +374,10 @@
         },
         "create": {
             "submit": "建立",
-            "submitting": "建立中..."
+            "submitting": "建立中...",
+            "defaultsLoading": "正在讀取預設路由策略…",
+            "defaultsFailed": "預設路由策略讀取失敗，請重試。",
+            "retry": "重試"
         },
         "card": {
             "empty": "暫無規則",
@@ -384,6 +401,9 @@
             "failover": "故障轉移",
             "members": "成員",
             "relay": "路由策略",
+            "commonSettings": "公共參數",
+            "manualSettings": "手動模式參數",
+            "failoverSettings": "故障轉移參數",
             "retryCount": "總嘗試次數",
             "retryCountHint": "故障轉移模式下單個成員包含首次請求的總嘗試次數",
             "retryInterval": "重試間隔（秒）",
@@ -461,6 +481,7 @@
             "unknownModel": "未知模型",
             "detailUnavailable": "正文內容不可用",
             "requestContent": "請求體",
+            "bodyPrivacyHint": "敏感欄位與已知憑據已遮蔽；對話正文仍按需顯示。",
             "group": "分組",
             "groupUnavailable": "目前請求模型沒有對應分組",
             "noGroupItems": "目前分組沒有可用供應源",

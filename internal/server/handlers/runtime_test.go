@@ -147,7 +147,8 @@ func testWebhookCRUDAndDelivery(t *testing.T, client *http.Client, serverURL, to
 			t.Fatalf("create response leaked %q: %+v", secret, created)
 		}
 	}
-	if !strings.Contains(created.URL, "token=***") || created.Headers["Authorization"] != "***" || created.Headers["X-Notify-Token"] != "***" {
+	masked := webhook.MaskEndpoint(endpoint)
+	if created.URL != masked.URL || created.Headers["Authorization"] != masked.Headers["Authorization"] || created.Headers["X-Notify-Token"] != masked.Headers["X-Notify-Token"] {
 		t.Fatalf("create response did not mask sensitive values: %+v", created)
 	}
 

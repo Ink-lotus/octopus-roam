@@ -1,5 +1,12 @@
 package model
 
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrInvalidGroupConfig = errors.New("invalid group configuration")
+
 // 分组选择上游成员的模式。
 type GroupMode string
 
@@ -24,16 +31,16 @@ const (
 
 // 分组 Relay 的持久化配置，数据库中以 JSON 存储。
 type GroupRelayConfig struct {
-	MemberMaxAttempts                     int       `json:"member_max_attempts" binding:"omitempty,min=1"`                        // 单个成员包含首次请求的总尝试次数，仅在故障转移模式生效。
-	MemberRetryIntervalSeconds            int       `json:"member_retry_interval_seconds" binding:"omitempty,min=1"`              // 固定重试模式下同一成员相邻两次尝试之间的等待秒数。
-	MemberNonStreamResponseTimeoutSeconds int       `json:"member_non_stream_response_timeout_seconds" binding:"omitempty,min=1"` // 单个成员返回完整非流式响应的超时秒数。
-	MemberStreamFirstEventTimeoutSeconds  int       `json:"member_stream_first_event_timeout_seconds" binding:"omitempty,min=1"`  // 单个成员返回首个有效流事件的超时秒数。
-	MemberCooldownSeconds                 int       `json:"member_cooldown_seconds" binding:"omitempty,min=1"`                    // 单个成员耗尽尝试后被跳过的秒数，仅在故障转移模式生效。
-	MemberAffinitySeconds                 int       `json:"member_affinity_seconds" binding:"omitempty,min=0"`                    // 成员亲和时间:故障切换成功后继续保持当前成员的秒数;当前成员失败会立即结束亲和,0 表示不保持。
-	RetryMode                             RetryMode `json:"retry_mode" binding:"omitempty,oneof=fixed exponential"`               // 同一成员相邻两次尝试的等待策略, 默认固定模式。
-	RetryInitialIntervalSeconds           int       `json:"retry_initial_interval_seconds" binding:"omitempty,min=1"`             // 指数模式的首次重试等待秒数, 每次重试翻一倍。
-	RetryMaxIntervalSeconds               int       `json:"retry_max_interval_seconds" binding:"omitempty,min=1,max=600"`         // 指数模式的等待上限秒数, 后端硬上限 600。
-	ManualMaxAttempts                     int       `json:"manual_max_attempts" binding:"omitempty,min=0"`                        // 手动模式下单个成员包含首次请求的总尝试次数, 0 表示不限额。
+	MemberMaxAttempts                     int       `json:"member_max_attempts"`                        // 故障转移成员包含首次请求的总尝试次数。
+	MemberRetryIntervalSeconds            int       `json:"member_retry_interval_seconds"`              // 固定重试间隔秒数。
+	MemberNonStreamResponseTimeoutSeconds int       `json:"member_non_stream_response_timeout_seconds"` // 完整非流式响应超时秒数。
+	MemberStreamFirstEventTimeoutSeconds  int       `json:"member_stream_first_event_timeout_seconds"`  // 流式首事件超时秒数。
+	MemberCooldownSeconds                 int       `json:"member_cooldown_seconds"`                    // 故障转移成员冷却秒数。
+	MemberAffinitySeconds                 int       `json:"member_affinity_seconds"`                    // 旧 JSON 兼容字段, 有效值和新保存值恒为 0。
+	RetryMode                             RetryMode `json:"retry_mode"`                                 // 固定或指数重试。
+	RetryInitialIntervalSeconds           int       `json:"retry_initial_interval_seconds"`             // 指数重试初始间隔秒数。
+	RetryMaxIntervalSeconds               int       `json:"retry_max_interval_seconds"`                 // 指数重试间隔上限秒数。
+	ManualMaxAttempts                     int       `json:"manual_max_attempts"`                        // 手动总尝试次数, 0 表示不限额。
 }
 
 // DefaultGroupRelayConfig 返回新分组使用的 Relay 默认配置。
@@ -44,7 +51,7 @@ func DefaultGroupRelayConfig() GroupRelayConfig {
 		MemberNonStreamResponseTimeoutSeconds: 120,
 		MemberStreamFirstEventTimeoutSeconds:  30,
 		MemberCooldownSeconds:                 60,
-		MemberAffinitySeconds:                 300,
+		MemberAffinitySeconds:                 0,
 		RetryMode:                             RetryModeFixed,
 		RetryInitialIntervalSeconds:           RetryInitialIntervalSecondsDefault,
 		RetryMaxIntervalSeconds:               RetryMaxIntervalSecondsLimit,
@@ -94,9 +101,65 @@ func NormalizeGroupRelayConfig(config *GroupRelayConfig) {
 	if config.MemberCooldownSeconds < 1 {
 		config.MemberCooldownSeconds = defaults.MemberCooldownSeconds
 	}
-	if config.MemberAffinitySeconds < 0 {
-		config.MemberAffinitySeconds = defaults.MemberAffinitySeconds
+	config.MemberAffinitySeconds = 0
+}
+
+func ValidateGroupMode(mode GroupMode) error {
+	if mode != GroupModeManual && mode != GroupModeFailover {
+		return fmt.Errorf("%w: unsupported group mode", ErrInvalidGroupConfig)
 	}
+	return nil
+}
+
+// ValidateGroupRelayConfig 校验提交的公共与当前模式字段; 零值可由旧 JSON 补默认。
+// 不使用字段级 binding 校验, 避免非当前模式的历史参数阻止保存。
+func ValidateGroupRelayConfig(config GroupRelayConfig, mode GroupMode) error {
+	if err := ValidateGroupMode(mode); err != nil {
+		return err
+	}
+	if config.RetryMode != "" && config.RetryMode != RetryModeFixed && config.RetryMode != RetryModeExponential {
+		return fmt.Errorf("%w: unsupported retry mode", ErrInvalidGroupConfig)
+	}
+	if config.MemberRetryIntervalSeconds < 0 || config.MemberNonStreamResponseTimeoutSeconds < 0 || config.MemberStreamFirstEventTimeoutSeconds < 0 {
+		return fmt.Errorf("%w: retry interval and response timeouts cannot be negative", ErrInvalidGroupConfig)
+	}
+	if config.RetryInitialIntervalSeconds < 0 || config.RetryInitialIntervalSeconds > RetryMaxIntervalSecondsLimit || config.RetryMaxIntervalSeconds < 0 || config.RetryMaxIntervalSeconds > RetryMaxIntervalSecondsLimit {
+		return fmt.Errorf("%w: exponential retry intervals must be between 0 and 600 seconds", ErrInvalidGroupConfig)
+	}
+	if mode == GroupModeManual && config.ManualMaxAttempts < 0 {
+		return fmt.Errorf("%w: manual attempts cannot be negative", ErrInvalidGroupConfig)
+	}
+	if mode == GroupModeFailover && (config.MemberMaxAttempts < 0 || config.MemberCooldownSeconds < 0) {
+		return fmt.Errorf("%w: failover attempts and cooldown cannot be negative", ErrInvalidGroupConfig)
+	}
+	return nil
+}
+
+// NormalizeGroupRelayConfigForMode 补齐公共与当前模式参数, 保留另一模式的已有参数供切换使用。
+func NormalizeGroupRelayConfigForMode(config *GroupRelayConfig, mode GroupMode) {
+	original := *config
+	NormalizeGroupRelayConfig(config)
+	if original == (GroupRelayConfig{}) {
+		return
+	}
+	if mode == GroupModeManual {
+		config.MemberMaxAttempts = original.MemberMaxAttempts
+		config.MemberCooldownSeconds = original.MemberCooldownSeconds
+	} else if mode == GroupModeFailover {
+		config.ManualMaxAttempts = original.ManualMaxAttempts
+	}
+}
+
+// EffectiveGroupRelayConfig 供路由版本比较使用, 不生效字段不触发重置。
+func EffectiveGroupRelayConfig(config GroupRelayConfig, mode GroupMode) GroupRelayConfig {
+	NormalizeGroupRelayConfigForMode(&config, mode)
+	if mode == GroupModeManual {
+		config.MemberMaxAttempts = 0
+		config.MemberCooldownSeconds = 0
+	} else if mode == GroupModeFailover {
+		config.ManualMaxAttempts = 0
+	}
+	return config
 }
 
 // 客户端模型名称及其可手动选择或故障转移的上游分组。

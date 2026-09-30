@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -72,6 +73,7 @@ func TestRouteConfigChangedTracksPolicyAndMembersButIgnoresAffinity(t *testing.T
 			group.ActiveItemID = 1
 		}, want: true},
 		{name: "legacy affinity", edit: func(group *model.Group) { group.RelayConfig.MemberAffinitySeconds++ }, want: false},
+		{name: "inactive manual budget", edit: func(group *model.Group) { group.RelayConfig.ManualMaxAttempts++ }, want: false},
 		{name: "name only", edit: func(group *model.Group) { group.Name = "renamed" }, want: false},
 	}
 	for _, test := range tests {
@@ -305,4 +307,101 @@ func sameRouteState(left, right relay.RouteState) bool {
 		}
 	}
 	return true
+}
+
+func TestManualWaitingForwardRespondsToUpdateHandlers(t *testing.T) {
+	for _, change := range []string{"selection", "policy", "mode", "channel availability"} {
+		t.Run(change, func(t *testing.T) {
+			channelID, group, itemID := newChannelRouteFixture(t)
+			update := func(body string) {
+				request := httptest.NewRequest(http.MethodPost, "/update/"+strconv.Itoa(group.ID), strings.NewReader(body))
+				request.Header.Set("Content-Type", "application/json")
+				serveHandler(t, http.MethodPost, "/update/:id", updateGroup, request)
+			}
+			config := group.RelayConfig
+			config.MemberRetryIntervalSeconds = 60
+			encoded, err := json.Marshal(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			activeID := 0
+			if change == "channel availability" {
+				activeID = itemID
+				request := httptest.NewRequest(http.MethodPost, "/enable", strings.NewReader(fmt.Sprintf(`{"id":%d,"enabled":false}`, channelID)))
+				request.Header.Set("Content-Type", "application/json")
+				serveHandler(t, http.MethodPost, "/enable", enableChannel, request)
+			}
+			update(fmt.Sprintf(`{"mode":"manual","active_item_id":%d,"relay_config":%s}`, activeID, encoded))
+			_, stream := relay.OpenRequestStream()
+			defer relay.CloseRequestStream(stream)
+			ctx, cancel := context.WithCancel(context.Background())
+			engine := gin.New()
+			engine.POST("/forward", relay.Forward(llm.APIFormatOpenAIChatCompletion))
+			request := httptest.NewRequest(http.MethodPost, "/forward", strings.NewReader(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"ping"}]}`, group.Name))).WithContext(ctx)
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				engine.ServeHTTP(response, request)
+			}()
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(3 * time.Second):
+					t.Error("取消后等待请求未退出")
+				}
+			})
+			awaitWaiting := func() {
+				t.Helper()
+				timer := time.NewTimer(3 * time.Second)
+				defer timer.Stop()
+				for {
+					select {
+					case state, ok := <-stream:
+						if !ok {
+							t.Fatal("等待时请求状态流已关闭")
+						}
+						if state.GroupID == group.ID && state.Retrying {
+							if state.NextRetryAt != 0 || state.Attempt != 0 {
+								t.Fatal("手动无可用选择时未保持无截止时间的等待")
+							}
+							return
+						}
+					case <-timer.C:
+						t.Fatal("配置更新后未及时重新读取并进入等待")
+					}
+				}
+			}
+			awaitWaiting()
+			switch change {
+			case "selection":
+				update(fmt.Sprintf(`{"active_item_id":%d}`, itemID))
+			case "policy":
+				config.ManualMaxAttempts = 1
+				encoded, err = json.Marshal(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				update(fmt.Sprintf(`{"relay_config":%s}`, encoded))
+				awaitWaiting()
+				update(fmt.Sprintf(`{"active_item_id":%d}`, itemID))
+			case "mode":
+				update(`{"mode":"failover"}`)
+			case "channel availability":
+				request := httptest.NewRequest(http.MethodPost, "/enable", strings.NewReader(fmt.Sprintf(`{"id":%d,"enabled":true}`, channelID)))
+				request.Header.Set("Content-Type", "application/json")
+				serveHandler(t, http.MethodPost, "/enable", enableChannel, request)
+			}
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("实际更新入口未唤醒手动等待请求")
+			}
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "pong") {
+				t.Fatalf("更新后转发未成功: status=%d", response.Code)
+			}
+		})
+	}
 }

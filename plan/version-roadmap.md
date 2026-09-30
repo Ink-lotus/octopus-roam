@@ -13,7 +13,7 @@
 | 里程碑 | 内容 | 文档 | `main.go` 版本注释 |
 | --- | --- | --- | --- |
 | `S1` | 吸收上游 v0.13.8：厂商预设、AxonHub 升级、reasoning effort 移植，建立新基线 | [upstream-sync-v0.13.8.md](upstream-sync-v0.13.8.md) | 不动 |
-| `M1` | 路由策略拆分、全局默认策略、确定性隐私保护 | [versions/v0.1.0-route-policy.md](versions/v0.1.0-route-policy.md) | 不动 |
+| `M1` | 路由策略拆分、全局默认策略、确定性隐私保护（实现与自动检查已完成，见[验收记录](m1-route-policy-result.md)） | [versions/v0.1.0-route-policy.md](versions/v0.1.0-route-policy.md) | 不动 |
 | `M2` | 日志置顶与筛选、渠道模型刷新、严格匹配、分组同步、协议开关、禁用渠道隐藏 | [versions/v0.2.0-channel-models.md](versions/v0.2.0-channel-models.md) | 不动 |
 | `M3` | 全局自动更新、渠道跟随开关、自动添加分组模型、渠道并发限制 | [versions/v0.3.0-automation.md](versions/v0.3.0-automation.md) | 不动 |
 | `R1` | 回归、迁移审计、文档、切换主分支、修 `release.yaml` | [versions/v1.0.0-independent-release.md](versions/v1.0.0-independent-release.md) | `v0.1.0-rc.1` → `v0.1.0` |

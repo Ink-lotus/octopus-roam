@@ -56,6 +56,10 @@ func setSetting(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if setting.Key == model.SettingKeyGroupRouteDefaults {
+		resp.Error(c, http.StatusBadRequest, "use /api/v1/group/route-defaults to update route defaults")
+		return
+	}
 	if err := setting.Validate(); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -138,16 +142,6 @@ func importDB(c *gin.Context) {
 		}
 		seenLLMNames[dump.LLMInfos[i].Name] = struct{}{}
 	}
-	for i := range dump.Groups {
-		if dump.Groups[i].Mode == "" {
-			dump.Groups[i].Mode = model.GroupModeManual
-		}
-		model.NormalizeGroupRelayConfig(&dump.Groups[i].RelayConfig)
-		if dump.Groups[i].Mode != model.GroupModeManual && dump.Groups[i].Mode != model.GroupModeFailover {
-			resp.Error(c, http.StatusBadRequest, "invalid group relay mode")
-			return
-		}
-	}
 	for i := range dump.WebhookEndpoints {
 		if err := webhook.NormalizeAndValidate(&dump.WebhookEndpoints[i]); err != nil {
 			resp.Error(c, http.StatusBadRequest, "invalid webhook endpoint in backup: "+err.Error())
@@ -155,6 +149,8 @@ func importDB(c *gin.Context) {
 		}
 	}
 
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	result, err := op.DBImportIncremental(c.Request.Context(), &dump)
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())

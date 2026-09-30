@@ -12,53 +12,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
-import type { GroupMode, GroupRelayConfig, RetryMode } from '@/api/group';
+import type { GroupMode, GroupRelayConfig } from '@/api/group';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
+import { RelayConfigFields } from './RelayConfigFields';
 import { matchesGroupName, memberKey, normalizeKey } from './utils';
 
-// RETRY_MAX_INTERVAL_SECONDS_LIMIT 是后端对指数退避最大间隔的硬上限，前端在此收口以免提交被拒。
-const RETRY_MAX_INTERVAL_SECONDS_LIMIT = 600;
-
-// defaultRelayConfig 提供创建分组时的前端初始配置。
-// 取值与后端 DefaultGroupRelayConfig 保持一致，避免新建分组在保存前后表现出不同的重试行为。
-const defaultRelayConfig: GroupRelayConfig = {
-    member_max_attempts: 2,
-    member_retry_interval_seconds: 3,
-    member_non_stream_response_timeout_seconds: 120,
-    member_stream_first_event_timeout_seconds: 30,
-    member_cooldown_seconds: 60,
-    member_affinity_seconds: 0,
-    retry_mode: 'fixed',
-    retry_initial_interval_seconds: 1,
-    retry_max_interval_seconds: RETRY_MAX_INTERVAL_SECONDS_LIMIT,
-    manual_max_attempts: 0,
-};
-
-// normalizeRelayConfig 用默认值补齐分组配置：
-// 旧分组在数据库里没有重试模式，退避参数与手动上限，后端读取路径不会补默认，界面须先补齐再编辑。
-function normalizeRelayConfig(config?: Partial<GroupRelayConfig>): GroupRelayConfig {
-    const merged = { ...defaultRelayConfig, ...config };
-
-    if (merged.retry_mode !== 'fixed' && merged.retry_mode !== 'exponential') {
-        merged.retry_mode = defaultRelayConfig.retry_mode;
-    }
-    // 初始间隔与最大间隔同一套边界：首次等待本就不可能超过最大间隔，后端也按此收口。
-    if (!(merged.retry_initial_interval_seconds >= 1)) {
-        merged.retry_initial_interval_seconds = defaultRelayConfig.retry_initial_interval_seconds;
-    }
-    if (merged.retry_initial_interval_seconds > RETRY_MAX_INTERVAL_SECONDS_LIMIT) {
-        merged.retry_initial_interval_seconds = RETRY_MAX_INTERVAL_SECONDS_LIMIT;
-    }
-    if (!(merged.retry_max_interval_seconds >= 1 && merged.retry_max_interval_seconds <= RETRY_MAX_INTERVAL_SECONDS_LIMIT)) {
-        merged.retry_max_interval_seconds = defaultRelayConfig.retry_max_interval_seconds;
-    }
-    // 手动上限 0 是合法值（不限额），故只补负数与缺失值。
-    if (!(merged.manual_max_attempts >= 0)) {
-        merged.manual_max_attempts = defaultRelayConfig.manual_max_attempts;
-    }
-    return merged;
-}
 
 export type GroupEditorValues = {
     name: string;
@@ -80,7 +39,9 @@ function FieldHelp({ text }: { text: string }) {
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <HelpCircle className="size-4 cursor-help text-muted-foreground" />
+                <button type="button" aria-label={text} className="rounded-sm text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring">
+                    <HelpCircle className="size-4" aria-hidden="true" />
+                </button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={10} align="center">
                 {text}
@@ -339,10 +300,10 @@ export function GroupEditor({
     onSubmit,
     onCancel,
 }: {
-    initial?: {
+    initial: {
         name?: string;
         mode?: GroupMode;
-        relay_config?: Partial<GroupRelayConfig>;
+        relay_config: GroupRelayConfig;
         members?: SelectedMember[];
     };
     submitText: string;
@@ -366,9 +327,22 @@ export function GroupEditor({
 
     const [groupName, setGroupName] = useState(initial?.name ?? '');
     const [mode, setMode] = useState<GroupMode>(initial?.mode ?? 'manual');
-    const [relayConfig, setRelayConfig] = useState<GroupRelayConfig>(() => normalizeRelayConfig(initial?.relay_config));
+    const [relayConfig, setRelayConfig] = useState<GroupRelayConfig>(() => ({ ...initial.relay_config, member_affinity_seconds: 0 }));
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+
+    const changeMode = (nextMode: GroupMode) => {
+        setMode(nextMode);
+        // 旧记录可能保留另一模式的零值或负数; 切换时与后端的缺省归一化保持一致。
+        setRelayConfig((current) => nextMode === 'failover' ? {
+            ...current,
+            member_max_attempts: current.member_max_attempts >= 1 ? current.member_max_attempts : 2,
+            member_cooldown_seconds: current.member_cooldown_seconds >= 1 ? current.member_cooldown_seconds : 60,
+        } : {
+            ...current,
+            manual_max_attempts: current.manual_max_attempts >= 0 ? current.manual_max_attempts : 0,
+        });
+    };
 
     const groupKey = normalizeKey(groupName);
 
@@ -419,11 +393,11 @@ export function GroupEditor({
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        if (!isValid) return;
+        if (!isValid || isSubmitting) return;
         onSubmit({
             name: groupName,
             mode,
-            relay_config: relayConfig,
+            relay_config: { ...relayConfig, member_affinity_seconds: 0 },
             members: selectedMembers,
         });
     };
@@ -450,7 +424,8 @@ export function GroupEditor({
                             </FieldLabel>
                             <Select
                                 value={mode}
-                                onValueChange={(value) => setMode(value as GroupMode)}
+                                onValueChange={(value) => changeMode(value as GroupMode)}
+                                disabled={isSubmitting}
                             >
                                 <SelectTrigger id="group-mode" className="w-full rounded-xl">
                                     <SelectValue />
@@ -489,200 +464,7 @@ export function GroupEditor({
                         </TabsContent>
 
                         <TabsContent value="relay" className="min-h-0 overflow-y-auto px-1">
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                                <Field>
-                                    <FieldLabel htmlFor="group-retry-mode">
-                                        {t('form.retryMode')}
-                                        <FieldHelp text={t('form.retryModeHint')} />
-                                    </FieldLabel>
-                                    <Select
-                                        value={relayConfig.retry_mode}
-                                        onValueChange={(value) => setRelayConfig((prev) => ({ ...prev, retry_mode: value as RetryMode }))}
-                                    >
-                                        <SelectTrigger id="group-retry-mode" className="w-full rounded-xl">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="fixed">{t('form.retryModeFixed')}</SelectItem>
-                                            <SelectItem value="exponential">{t('form.retryModeExponential')}</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </Field>
-                                {/* 固定模式沿用固定间隔；指数模式改为配置初始间隔与最大间隔，两者互不冲突。 */}
-                                {relayConfig.retry_mode === 'fixed' ? (
-                                    <Field>
-                                        <FieldLabel htmlFor="group-retry-interval">
-                                            {t('form.retryInterval')}
-                                            <FieldHelp text={t('form.retryIntervalHint')} />
-                                        </FieldLabel>
-                                        <Input
-                                            id="group-retry-interval"
-                                            type="number"
-                                            inputMode="numeric"
-                                            min={1}
-                                            step={1}
-                                            value={String(relayConfig.member_retry_interval_seconds)}
-                                            onChange={(event) => {
-                                                const value = Number.parseInt(event.target.value, 10);
-                                                setRelayConfig((prev) => ({ ...prev, member_retry_interval_seconds: Number.isFinite(value) && value >= 1 ? value : 1 }));
-                                            }}
-                                            className="rounded-xl"
-                                        />
-                                    </Field>
-                                ) : (
-                                    <>
-                                        <Field>
-                                            <FieldLabel htmlFor="group-retry-initial-interval">
-                                                {t('form.retryInitialInterval')}
-                                                <FieldHelp text={t('form.retryInitialIntervalHint')} />
-                                            </FieldLabel>
-                                            <Input
-                                                id="group-retry-initial-interval"
-                                                type="number"
-                                                inputMode="numeric"
-                                                min={1}
-                                                max={RETRY_MAX_INTERVAL_SECONDS_LIMIT}
-                                                step={1}
-                                                value={String(relayConfig.retry_initial_interval_seconds)}
-                                                onChange={(event) => {
-                                                    const value = Number.parseInt(event.target.value, 10);
-                                                    setRelayConfig((prev) => ({
-                                                        ...prev,
-                                                        retry_initial_interval_seconds: Number.isFinite(value)
-                                                            ? Math.min(Math.max(value, 1), RETRY_MAX_INTERVAL_SECONDS_LIMIT)
-                                                            : 1,
-                                                    }));
-                                                }}
-                                                className="rounded-xl"
-                                            />
-                                        </Field>
-                                        <Field>
-                                            <FieldLabel htmlFor="group-retry-max-interval">
-                                                {t('form.retryMaxInterval')}
-                                                <FieldHelp text={t('form.retryMaxIntervalHint')} />
-                                            </FieldLabel>
-                                            <Input
-                                                id="group-retry-max-interval"
-                                                type="number"
-                                                inputMode="numeric"
-                                                min={1}
-                                                max={RETRY_MAX_INTERVAL_SECONDS_LIMIT}
-                                                step={1}
-                                                value={String(relayConfig.retry_max_interval_seconds)}
-                                                onChange={(event) => {
-                                                    const value = Number.parseInt(event.target.value, 10);
-                                                    setRelayConfig((prev) => ({
-                                                        ...prev,
-                                                        retry_max_interval_seconds: Number.isFinite(value)
-                                                            ? Math.min(Math.max(value, 1), RETRY_MAX_INTERVAL_SECONDS_LIMIT)
-                                                            : RETRY_MAX_INTERVAL_SECONDS_LIMIT,
-                                                    }));
-                                                }}
-                                                className="rounded-xl"
-                                            />
-                                        </Field>
-                                    </>
-                                )}
-                                {/* 尝试上限按模式取用其一：手动模式看手动上限，故障转移模式看单成员总尝试次数。 */}
-                                {mode === 'manual' ? (
-                                    <Field>
-                                        <FieldLabel htmlFor="group-manual-attempts">
-                                            {t('form.manualMaxAttempts')}
-                                            <FieldHelp text={t('form.manualMaxAttemptsHint')} />
-                                        </FieldLabel>
-                                        <Input
-                                            id="group-manual-attempts"
-                                            type="number"
-                                            inputMode="numeric"
-                                            min={0}
-                                            step={1}
-                                            value={String(relayConfig.manual_max_attempts)}
-                                            onChange={(event) => {
-                                                const value = Number.parseInt(event.target.value, 10);
-                                                setRelayConfig((prev) => ({ ...prev, manual_max_attempts: Number.isFinite(value) && value >= 0 ? value : 0 }));
-                                            }}
-                                            className="rounded-xl"
-                                        />
-                                    </Field>
-                                ) : (
-                                    <Field>
-                                        <FieldLabel htmlFor="group-retry-count">
-                                            {t('form.retryCount')}
-                                            <FieldHelp text={t('form.retryCountHint')} />
-                                        </FieldLabel>
-                                        <Input
-                                            id="group-retry-count"
-                                            type="number"
-                                            inputMode="numeric"
-                                            min={1}
-                                            step={1}
-                                            value={String(relayConfig.member_max_attempts)}
-                                            onChange={(event) => {
-                                                const value = Number.parseInt(event.target.value, 10);
-                                                setRelayConfig((prev) => ({ ...prev, member_max_attempts: Number.isFinite(value) && value >= 1 ? value : 1 }));
-                                            }}
-                                            className="rounded-xl"
-                                        />
-                                    </Field>
-                                )}
-                                <Field>
-                                    <FieldLabel htmlFor="group-non-stream-timeout">
-                                        {t('form.nonStreamTimeout')}
-                                        <FieldHelp text={t('form.nonStreamTimeoutHint')} />
-                                    </FieldLabel>
-                                    <Input
-                                        id="group-non-stream-timeout"
-                                        type="number"
-                                        inputMode="numeric"
-                                        min={1}
-                                        step={1}
-                                        value={String(relayConfig.member_non_stream_response_timeout_seconds)}
-                                        onChange={(event) => {
-                                            const value = Number.parseInt(event.target.value, 10);
-                                            setRelayConfig((prev) => ({ ...prev, member_non_stream_response_timeout_seconds: Number.isFinite(value) && value >= 1 ? value : 1 }));
-                                        }}
-                                        className="rounded-xl"
-                                    />
-                                </Field>
-                                <Field>
-                                    <FieldLabel htmlFor="group-stream-timeout">
-                                        {t('form.streamTimeout')}
-                                        <FieldHelp text={t('form.streamTimeoutHint')} />
-                                    </FieldLabel>
-                                    <Input
-                                        id="group-stream-timeout"
-                                        type="number"
-                                        inputMode="numeric"
-                                        min={1}
-                                        step={1}
-                                        value={String(relayConfig.member_stream_first_event_timeout_seconds)}
-                                        onChange={(event) => {
-                                            const value = Number.parseInt(event.target.value, 10);
-                                            setRelayConfig((prev) => ({ ...prev, member_stream_first_event_timeout_seconds: Number.isFinite(value) && value >= 1 ? value : 1 }));
-                                        }}
-                                        className="rounded-xl"
-                                    />
-                                </Field>
-                                <Field>
-                                    <FieldLabel htmlFor="group-cooldown">
-                                        {t('form.cooldown')}
-                                        <FieldHelp text={t('form.cooldownHint')} />
-                                    </FieldLabel>
-                                    <Input
-                                        id="group-cooldown"
-                                        type="number"
-                                        inputMode="numeric"
-                                        min={1}
-                                        step={1}
-                                        value={String(relayConfig.member_cooldown_seconds)}
-                                        onChange={(event) => {
-                                            const value = Number.parseInt(event.target.value, 10);
-                                            setRelayConfig((prev) => ({ ...prev, member_cooldown_seconds: Number.isFinite(value) && value >= 1 ? value : 1 }));
-                                        }}
-                                        className="rounded-xl"
-                                    />
-                                </Field>
-                            </div>
+                            <RelayConfigFields value={relayConfig} onChange={setRelayConfig} mode={mode} disabled={isSubmitting} />
                         </TabsContent>
                     </Tabs>
                 </FieldGroup>

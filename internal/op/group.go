@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -14,6 +15,7 @@ import (
 )
 
 var (
+	groupWriteMu   sync.Mutex                        // 串行化分组事务及提交后的缓存更新。
 	groupCache     = cache.New[int, model.Group](16) // 按主键保存完整分组配置。
 	groupNameIndex = cache.New[string, int](16)      // 客户端模型名对应的分组主键。
 )
@@ -71,6 +73,8 @@ func GroupGetByName(name string) (model.Group, error) {
 // GroupCreate 创建分组及其成员并刷新缓存, 返回创建后的分组。
 // 成员的提交顺序即优先级顺序。
 func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Group, error) {
+	groupWriteMu.Lock()
+	defer groupWriteMu.Unlock()
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("group name is required")
@@ -84,7 +88,17 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 	if group.Mode == "" {
 		group.Mode = model.GroupModeManual
 	}
-	model.NormalizeGroupRelayConfig(&group.RelayConfig)
+	if group.RelayConfig == (model.GroupRelayConfig{}) {
+		defaults, err := GroupRouteDefaultsGet()
+		if err != nil {
+			return nil, err
+		}
+		group.RelayConfig = defaults
+	}
+	if err := model.ValidateGroupRelayConfig(group.RelayConfig, group.Mode); err != nil {
+		return nil, err
+	}
+	model.NormalizeGroupRelayConfigForMode(&group.RelayConfig, group.Mode)
 	for i, item := range req.Items {
 		group.Items[i] = model.GroupItem{ChannelGrantID: item.ChannelGrantID, Priority: i + 1}
 	}
@@ -99,11 +113,20 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 
 // GroupUpdate 更新分组配置, 成员和当前成员，并返回刷新后的分组。
 func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*model.Group, error) {
+	groupWriteMu.Lock()
+	defer groupWriteMu.Unlock()
 	oldGroup, ok := groupCache.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("group not found")
 	}
 	oldName := oldGroup.Name
+	mode := oldGroup.Mode
+	if req.Mode != nil {
+		mode = *req.Mode
+	}
+	if err := model.ValidateGroupMode(mode); err != nil {
+		return nil, err
+	}
 
 	var selectFields []string
 	updates := model.Group{ID: id}
@@ -119,12 +142,22 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 		selectFields = append(selectFields, "mode")
 		updates.Mode = *req.Mode
 	}
+	config := oldGroup.RelayConfig
 	if req.RelayConfig != nil {
-		config := *req.RelayConfig
-		model.NormalizeGroupRelayConfig(&config)
-		selectFields = append(selectFields, "relay_config")
-		updates.RelayConfig = config
+		config = *req.RelayConfig
+		if err := model.ValidateGroupRelayConfig(config, mode); err != nil {
+			return nil, err
+		}
+		if mode == model.GroupModeManual {
+			config.MemberMaxAttempts = oldGroup.RelayConfig.MemberMaxAttempts
+			config.MemberCooldownSeconds = oldGroup.RelayConfig.MemberCooldownSeconds
+		} else {
+			config.ManualMaxAttempts = oldGroup.RelayConfig.ManualMaxAttempts
+		}
 	}
+	model.NormalizeGroupRelayConfigForMode(&config, mode)
+	selectFields = append(selectFields, "relay_config")
+	updates.RelayConfig = config
 
 	var group model.Group
 	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -221,6 +254,8 @@ func syncGroupItems(tx *gorm.DB, groupID int, requested []model.GroupItemInput) 
 
 // GroupDel 删除分组及其成员，成员删除不会影响被其他分组引用的渠道授权。
 func GroupDel(id int, ctx context.Context) error {
+	groupWriteMu.Lock()
+	defer groupWriteMu.Unlock()
 	group, ok := groupCache.Get(id)
 	if !ok {
 		return fmt.Errorf("group not found")
@@ -237,6 +272,8 @@ func GroupDel(id int, ctx context.Context) error {
 // 缓存只存库内行, 成员的名称与可用性在读取时由 groupSnapshot 现算: 它们随渠道与凭据变化,
 // 存进缓存就得在每次渠道改动后跟着刷新一遍。
 func groupRefreshCache(ctx context.Context) error {
+	groupWriteMu.Lock()
+	defer groupWriteMu.Unlock()
 	groups := []model.Group{}
 	if err := db.GetDB().WithContext(ctx).
 		Preload("Items").
@@ -267,7 +304,7 @@ func sortGroupItems(items []model.GroupItem) {
 // 可用性在此一次定稿: 渠道与凭据均启用且模型, 凭据均存在时可转发, 否则仍列出该成员但标记不可用,
 // 由此界面无需再按渠道列表回查, 也不会出现前后端各判一套的分歧。
 func groupSnapshot(group model.Group) model.Group {
-	model.NormalizeGroupRelayConfig(&group.RelayConfig)
+	model.NormalizeGroupRelayConfigForMode(&group.RelayConfig, group.Mode)
 	// 成员恒为数组: 读取侧承诺该字段不为 null, 空分组也要给出空数组。
 	group.Items = append(make([]model.GroupItem, 0, len(group.Items)), group.Items...)
 	for i := range group.Items {

@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -82,6 +83,34 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	if dump.Version != 0 && dump.Version != legacyDBDumpVersion && dump.Version != dbDumpVersion {
 		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
 	}
+	for i := range dump.Groups {
+		if dump.Groups[i].Mode == "" {
+			dump.Groups[i].Mode = model.GroupModeManual
+		}
+		if err := model.ValidateGroupMode(dump.Groups[i].Mode); err != nil {
+			return nil, err
+		}
+		model.NormalizeGroupRelayConfigForMode(&dump.Groups[i].RelayConfig, dump.Groups[i].Mode)
+	}
+	var importedDefaults *string
+	for i := range dump.Settings {
+		if dump.Settings[i].Key != model.SettingKeyGroupRouteDefaults {
+			continue
+		}
+		if importedDefaults != nil {
+			return nil, fmt.Errorf("duplicate group route defaults in backup")
+		}
+		config, err := parseGroupRouteDefaults(dump.Settings[i].Value)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(config)
+		if err != nil {
+			return nil, err
+		}
+		dump.Settings[i].Value = string(raw)
+		importedDefaults = &dump.Settings[i].Value
+	}
 
 	// 导入也是写入边界, 渠道配置须与接口提交走同一套规范化: 手改过的备份文件同样可能带空白,
 	// 空串或缺省字段, 不在此收敛则读侧要为每个字段各自兜底。
@@ -93,6 +122,8 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		dump.Channels[i].ChannelConfig = config
 	}
 
+	groupWriteMu.Lock()
+	defer groupWriteMu.Unlock()
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
 	err := conn.Transaction(func(tx *gorm.DB) error {
@@ -182,6 +213,9 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	})
 	if err != nil {
 		return nil, err
+	}
+	if importedDefaults != nil {
+		settingCache.Set(model.SettingKeyGroupRouteDefaults, *importedDefaults)
 	}
 	return res, nil
 }

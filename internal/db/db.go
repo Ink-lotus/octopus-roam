@@ -21,7 +21,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 	var err error
 	gormConfig := gorm.Config{Logger: logger.Discard}
 	if debug {
-		gormConfig.Logger = logger.Default.LogMode(logger.Info)
+		gormConfig.Logger = redactedLogger{logger.Default.LogMode(logger.Info)}
 	}
 
 	switch dbType {

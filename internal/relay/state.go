@@ -9,6 +9,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/looplj/axonhub/llm"
 )
 
@@ -66,9 +67,12 @@ type RequestState struct {
 	NextRetryAt    int64          `json:"next_retry_at"`    // 下一次重试的 Unix 毫秒时间, 无计划时为 0。
 	ChannelStatus  ChannelStatus  `json:"channel_status"`   // waiting、normal 或 error。
 
-	requestBody  string // 客户端原始请求体, 体积大故不进状态流, 由独立接口按需拉取。
-	responseBody string // 聚合后的完整最终响应体, 同样按需拉取。
-	apiKeyID     int    // 发起请求的 API Key ID, 用于请求完成后的归属统计。
+	requestBody       string               // 首次脱敏后的请求体, 后续读取还需使用最新凭据补充脱敏。
+	responseBody      string               // 聚合后的完整最终响应体, 同样按需拉取。
+	apiKeyID          int                  // 发起请求的 API Key ID, 用于请求完成后的归属统计。
+	redactor          *privacy.Redactor    // 仅供诊断副本脱敏, 不序列化或持久化。
+	requestBodyCache  *diagnosticBodyCache // 独立缓存锁, 不能复制到公开状态中作为值锁。
+	responseBodyCache *diagnosticBodyCache
 
 	requestCtx    context.Context    // 请求级上下文, 同时约束等待、当前轮次和后续重试。
 	requestCancel context.CancelFunc // 中止整个请求, 同时打断等待、当前轮次和后续重试。
@@ -92,6 +96,8 @@ var (
 
 // newRequestState 分配请求 ID 并登记初始运行状态; 返回的记录是本请求后续全部状态写入的入口。
 func newRequestState(ctx context.Context, modelName, reasoningEffort string, groupID int, protocol model.Protocol, body string, apiKeyID int) *RequestState {
+	redactor := privacy.FromContext(ctx)
+	body = redactor.Body(body)
 	requestCtx, requestCancel := context.WithCancel(ctx)
 	mu.Lock()
 	defer mu.Unlock()
@@ -106,12 +112,14 @@ func newRequestState(ctx context.Context, modelName, reasoningEffort string, gro
 		Protocol:        protocol,
 		GroupID:         groupID,
 		requestBody:     body,
+		redactor:        redactor,
 		apiKeyID:        apiKeyID,
 		requestCtx:      requestCtx,
 		requestCancel:   requestCancel,
 	}
 	// 登记时保存名称快照, 查询失败时留空。
 	if apiKey, err := op.APIKeyGet(apiKeyID, ctx); err == nil {
+		redactor.Add(apiKey.APIKey)
 		request.APIKeyName = apiKey.Name
 	}
 	requests[request.ID] = request
@@ -186,14 +194,14 @@ func (r *RequestState) finishRound(errText string, countError bool) {
 	defer mu.Unlock()
 
 	r.Sending = false
-	r.Error = errText
+	r.Error = r.redactor.Text(errText)
 	if errText == "" {
 		r.ChannelStatus = ChannelStatusNormal
 		r.Retrying = false
 		r.NextRetryAt = 0
 	} else if countError {
 		r.ErrorCount++
-		r.LastError = errText
+		r.LastError = r.Error
 		r.ChannelStatus = ChannelStatusError
 	}
 	r.roundCancel = nil
@@ -225,8 +233,8 @@ func (r *RequestState) recordFailure(errText string) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	r.Error = errText
-	r.LastError = errText
+	r.Error = r.redactor.Text(errText)
+	r.LastError = r.Error
 	r.ErrorCount++
 	r.ChannelStatus = ChannelStatusError
 	publishRequestLocked(r)
@@ -355,7 +363,7 @@ func (r *RequestState) markSucceeded(responseBody string, usage *llm.Usage) {
 	r.ChannelStatus = ChannelStatusNormal
 	r.Retrying = false
 	r.NextRetryAt = 0
-	r.responseBody = responseBody
+	r.responseBody = r.redactor.Body(responseBody)
 	r.finishLocked(usage)
 }
 
@@ -370,7 +378,7 @@ func (r *RequestState) markFailed(err error, responseBody string, usage *llm.Usa
 		r.ChannelStatus = ChannelStatusNormal
 	} else {
 		r.Status = StatusFailed
-		r.Error = err.Error()
+		r.Error = r.redactor.Text(err.Error())
 		if r.Error != r.LastError {
 			r.ErrorCount++
 		}
@@ -378,7 +386,7 @@ func (r *RequestState) markFailed(err error, responseBody string, usage *llm.Usa
 		r.ChannelStatus = ChannelStatusError
 	}
 	if responseBody != "" {
-		r.responseBody = responseBody
+		r.responseBody = r.redactor.Body(responseBody)
 	}
 	r.finishLocked(usage)
 }
@@ -389,12 +397,12 @@ func (r *RequestState) markCanceled(err error, responseBody string, usage *llm.U
 	defer mu.Unlock()
 
 	r.Status = StatusCanceled
-	r.Error = err.Error()
+	r.Error = r.redactor.Text(err.Error())
 	r.ChannelStatus = ChannelStatusNormal
 	r.Retrying = false
 	r.NextRetryAt = 0
 	if responseBody != "" {
-		r.responseBody = responseBody
+		r.responseBody = r.redactor.Body(responseBody)
 	}
 	r.finishLocked(usage)
 }
@@ -507,26 +515,14 @@ func CloseRequestStream(stream chan RequestState) {
 	}
 }
 
-// RequestBody 返回指定请求保存的原始请求体, 记录不存在时返回空串。
+// RequestBody 返回使用当前已知凭据脱敏的请求体, 记录不存在时返回空串。
 func RequestBody(id uint64) string {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if request := requests[id]; request != nil {
-		return request.requestBody
-	}
-	return ""
+	return readDiagnosticBody(id, false)
 }
 
 // ResponseBody 返回指定请求当前保存的响应体, 记录不存在或响应未完成时返回空串。
 func ResponseBody(id uint64) string {
-	mu.Lock()
-	defer mu.Unlock()
-
-	if request := requests[id]; request != nil {
-		return request.responseBody
-	}
-	return ""
+	return readDiagnosticBody(id, true)
 }
 
 // Clear 删除全部已结束的请求记录。

@@ -37,7 +37,7 @@ type routeRuntime struct {
 	state      RouteState
 	generation uint64
 	probeToken uint64
-	changed    chan struct{}
+	changed    chan struct{} // 手动模式也保存版本与通知, 但不建立当前成员、冷却或探测状态。
 }
 
 type routeConfigSignature struct {
@@ -75,7 +75,7 @@ var (
 )
 
 // RouteStateOf 返回分组当前的实时路由状态, 供读取接口随分组一并返回。
-// 手动模式没有进程内路由: 当前成员即人工指定的成员, 冷却与亲和均不适用, 故直接由分组配置得出。
+// 手动模式仅在进程内保存等待通知: 当前成员即人工指定的成员, 故直接由分组配置得出。
 func RouteStateOf(group model.Group) RouteState {
 	if group.Mode == model.GroupModeManual {
 		return RouteState{
@@ -157,16 +157,15 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 	if _, exists := routeConfigs[group.ID]; !exists {
 		routeConfigs[group.ID] = actual
 	}
+	route := ensureRouteLocked(group)
 	if group.Mode == model.GroupModeManual {
 		for _, item := range group.Items {
 			if item.ID == group.ActiveItemID && item.Available {
-				return routeSelection{Item: item}
+				return selectionOf(route, item, 0)
 			}
 		}
-		return routeSelection{Wait: true}
+		return routeSelection{Wait: true, Generation: route.generation, Changed: route.changed}
 	}
-
-	route := ensureRouteLocked(group)
 
 	// 当前成员健康时一直固定使用。仅在它已经从本轮可用成员集合中消失时重新选路。
 	if route.state.CurrentItemID != 0 {
@@ -388,6 +387,11 @@ func NotifyRouteStateChanged(group model.Group) {
 	routeConfigs[group.ID] = routeConfigSignatureOf(group)
 	delete(routeBlocked, group.ID)
 	if route := routes[group.ID]; route != nil {
+		if group.Mode == model.GroupModeManual {
+			advanceRouteLocked(route)
+			signalRouteLocked(route)
+			return
+		}
 		if route.state.ProbeItemID != 0 {
 			if _, available := availableItemOf(group, route.state.ProbeItemID); !available {
 				route.state.ProbeItemID = 0
@@ -463,9 +467,7 @@ func staleRouteSelection(now time.Time) routeSelection {
 }
 
 func routeConfigSignatureOf(group model.Group) routeConfigSignature {
-	config := group.RelayConfig
-	model.NormalizeGroupRelayConfig(&config)
-	config.MemberAffinitySeconds = 0 // 兼容字段不再参与路由策略或版本校验。
+	config := model.EffectiveGroupRelayConfig(group.RelayConfig, group.Mode)
 	signature := routeConfigSignature{mode: group.Mode, name: group.Name, config: config}
 	if group.Mode == model.GroupModeManual {
 		signature.activeItemID = group.ActiveItemID

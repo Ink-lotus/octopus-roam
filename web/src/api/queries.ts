@@ -1,7 +1,7 @@
 import { queryOptions } from '@tanstack/react-query';
 import type { APIKey, APIKeyStatsResponse } from './apikey';
 import type { ChannelStats } from './channel';
-import type { Group } from './group';
+import type { Group, GroupRelayConfig } from './group';
 import type { LLMInfo } from './model';
 import type { StatsDailyResponse, StatsHourly, StatsTotal } from './stats';
 import { apiRequest } from './client';
@@ -29,6 +29,13 @@ export const channelStatsQueryOptions = queryOptions({
 export const groupListQueryOptions = queryOptions({
     queryKey: ['groups', 'list'],
     queryFn: () => apiRequest<Group[]>('/api/v1/group/list'),
+});
+
+export const groupRouteDefaultsQueryOptions = queryOptions({
+    queryKey: ['groups', 'route-defaults'],
+    queryFn: ({ signal }) => apiRequest<GroupRelayConfig>('/api/v1/group/route-defaults', { signal }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
 });
 
 // modelListQueryOptions 供页面查询和启动预取共享模型列表定义。

@@ -32,6 +32,9 @@ func SettingGetString(key model.SettingKey) (string, error) {
 }
 
 func SettingSetString(key model.SettingKey, value string) error {
+	if key == model.SettingKeyGroupRouteDefaults {
+		return fmt.Errorf("use /api/v1/group/route-defaults to update route defaults")
+	}
 	valueCache, ok := settingCache.Get(key)
 	if !ok {
 		return fmt.Errorf("setting not found")
@@ -67,6 +70,9 @@ func SettingGetBool(key model.SettingKey) (bool, error) {
 }
 
 func SettingSetInt(key model.SettingKey, value int) error {
+	if key == model.SettingKeyGroupRouteDefaults {
+		return fmt.Errorf("use /api/v1/group/route-defaults to update route defaults")
+	}
 	valueCache, ok := settingCache.Get(key)
 	if !ok {
 		return fmt.Errorf("setting not found")
@@ -90,6 +96,8 @@ func SettingSetInt(key model.SettingKey, value int) error {
 }
 
 func settingRefreshCache(ctx context.Context) error {
+	groupWriteMu.Lock()
+	defer groupWriteMu.Unlock()
 	db := db.GetDB().WithContext(ctx)
 
 	var settings []model.Setting

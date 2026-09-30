@@ -328,3 +328,98 @@ func TestLegacyRelayConfigSnapshotMatchesNormalizedRuntimeConfig(t *testing.T) {
 		t.Fatalf("旧配置快照与补默认后的路由配置不匹配: %+v", selection)
 	}
 }
+
+func TestRouteSignatureIgnoresInactiveModeParameters(t *testing.T) {
+	group := routeTestGroup(t, 701, 702)
+	group.Mode = model.GroupModeManual
+	group.ActiveItemID = group.Items[0].ID
+	before := routeConfigSignatureOf(group)
+	group.RelayConfig.MemberMaxAttempts += 10
+	group.RelayConfig.MemberCooldownSeconds += 100
+	if !sameRouteConfig(before, routeConfigSignatureOf(group)) {
+		t.Fatal("manual route changed for inactive failover fields")
+	}
+	group.Mode = model.GroupModeFailover
+	before = routeConfigSignatureOf(group)
+	group.RelayConfig.ManualMaxAttempts += 10
+	if !sameRouteConfig(before, routeConfigSignatureOf(group)) {
+		t.Fatal("failover route changed for inactive manual limit")
+	}
+}
+
+func TestManualSelectionNotificationsSurviveChangeBeforeWait(t *testing.T) {
+	for _, reset := range []bool{false, true} {
+		name := "availability notification"
+		if reset {
+			name = "policy reset"
+		}
+		t.Run(name, func(t *testing.T) {
+			group := routeTestGroup(t, 81)
+			group.Mode = model.GroupModeManual
+			group.ActiveItemID = 81
+			selection := pickGroupItem(group, 0)
+			if selection.Generation == 0 || selection.Changed == nil {
+				t.Fatal("手动选择缺少版本或等待通知")
+			}
+			stream := OpenRouteStream()
+			defer CloseRouteStream(stream)
+			if reset {
+				group.RelayConfig.MemberRetryIntervalSeconds++
+				ResetRouteStateForGroup(group)
+			} else {
+				NotifyRouteStateChanged(group)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			request := &RequestState{}
+			if !request.waitRetry(ctx, time.Minute, selection.Changed) {
+				t.Fatal("开始退避前发生的通知丢失, 仍在等待旧间隔")
+			}
+			fresh := pickGroupItem(group, 0)
+			if fresh.Generation == selection.Generation || fresh.Item.ID != 81 {
+				t.Fatal("手动选择未更新版本或未保留人工指定成员")
+			}
+			select {
+			case state := <-stream:
+				t.Fatalf("手动等待通知不应发布空的故障转移路由状态: %+v", state)
+			default:
+			}
+			state := RouteStateOf(group)
+			if state.CurrentItemID != 81 || state.ProbeItemID != 0 || len(state.Cooldowns) != 0 {
+				t.Fatalf("手动路由展示出现冷却或探测状态: %+v", state)
+			}
+		})
+	}
+}
+
+func TestManualResetRejectsOldConfigWithoutRebuildingRoute(t *testing.T) {
+	group := routeTestGroup(t, 91)
+	group.Mode = model.GroupModeManual
+	group.ActiveItemID = 91
+	oldSelection := pickGroupItem(group, 0)
+	updated := group
+	updated.Mode = model.GroupModeFailover
+	ResetRouteStateForGroup(updated)
+	select {
+	case <-oldSelection.Changed:
+	default:
+		t.Fatal("模式变更未通知旧手动请求")
+	}
+	stale := pickGroupItem(group, 0)
+	if !stale.Wait || stale.WaitUntil.IsZero() {
+		t.Fatal("旧手动快照没有进入短间隔重读")
+	}
+	routeMu.Lock()
+	route := routes[group.ID]
+	routeMu.Unlock()
+	if route != nil {
+		t.Fatal("旧手动快照重建了路由")
+	}
+	fresh := pickGroupItem(updated, 0)
+	recordRouteFailure(group, 91, 100, oldSelection.Generation, 0)
+	recordRouteSuccess(group, 91, oldSelection.Generation, 0)
+	state := RouteStateOf(updated)
+	if fresh.Generation == oldSelection.Generation || state.CurrentItemID != 91 || len(state.Cooldowns) != 0 {
+		t.Fatalf("旧手动结果影响了新故障转移路由: %+v", state)
+	}
+}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"sync"
@@ -36,6 +37,8 @@ func init() {
 			router.NewRoute("/create", http.MethodPost).
 				Handle(createGroup),
 		).
+		AddRoute(router.NewRoute("/route-defaults", http.MethodGet).Handle(getGroupRouteDefaults)).
+		AddRoute(router.NewRoute("/route-defaults", http.MethodPost).Handle(setGroupRouteDefaults)).
 		AddRoute(
 			router.NewRoute("/update/:id", http.MethodPost).
 				Handle(updateGroup),
@@ -69,6 +72,7 @@ type groupEvent struct {
 const groupEventBuffer = 16 // 单个分组事件流连接的非阻塞消息缓冲容量。
 
 var (
+	groupMutationMu   sync.Mutex                           // 覆盖写入、路由重置和事件发布, 防止批量策略与单组更新乱序。
 	groupEventMu      sync.Mutex                           // groupEventMu 保护全部分组事件流连接。
 	groupEventStreams = make(map[chan groupEvent]struct{}) // 全部分组事件流 SSE 连接。
 )
@@ -184,9 +188,11 @@ func createGroup(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	group, err := op.GroupCreate(&req, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		groupWriteError(c, err)
 		return
 	}
 	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
@@ -209,6 +215,8 @@ func updateGroup(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	oldGroup, err := op.GroupGet(id)
 	if err != nil {
 		resp.Error(c, http.StatusNotFound, err.Error())
@@ -216,7 +224,7 @@ func updateGroup(c *gin.Context) {
 	}
 	group, err := op.GroupUpdate(id, &req, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		groupWriteError(c, err)
 		return
 	}
 	// 模式、完整成员顺序或任一 Relay 策略变化都会使旧运行时状态失效, 并唤醒在旧状态上等待的请求。
@@ -234,9 +242,8 @@ func updateGroup(c *gin.Context) {
 }
 
 func routeConfigChanged(oldGroup, newGroup model.Group) bool {
-	oldRelayConfig, newRelayConfig := oldGroup.RelayConfig, newGroup.RelayConfig
-	oldRelayConfig.MemberAffinitySeconds = 0
-	newRelayConfig.MemberAffinitySeconds = 0
+	oldRelayConfig := model.EffectiveGroupRelayConfig(oldGroup.RelayConfig, oldGroup.Mode)
+	newRelayConfig := model.EffectiveGroupRelayConfig(newGroup.RelayConfig, newGroup.Mode)
 	if oldGroup.Mode != newGroup.Mode || oldRelayConfig != newRelayConfig ||
 		(oldGroup.Mode == model.GroupModeManual && oldGroup.ActiveItemID != newGroup.ActiveItemID) ||
 		len(oldGroup.Items) != len(newGroup.Items) {
@@ -251,12 +258,22 @@ func routeConfigChanged(oldGroup, newGroup model.Group) bool {
 	return false
 }
 
+func groupWriteError(c *gin.Context, err error) {
+	status := http.StatusInternalServerError
+	if errors.Is(err, model.ErrInvalidGroupConfig) {
+		status = http.StatusBadRequest
+	}
+	resp.Error(c, status, err.Error())
+}
+
 func deleteGroup(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	if err := op.GroupDel(id, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return

@@ -179,6 +179,20 @@
         },
         "saved": "Saved",
         "saveFailed": "Save failed",
+        "routeDefaults": {
+            "title": "Default Routing Policy",
+            "description": "New groups use these defaults. You can adjust the policy when creating a group.",
+            "loading": "Loading default policy…",
+            "loadFailed": "Failed to load default policy",
+            "retry": "Retry",
+            "applyToExisting": "Also apply to existing groups",
+            "applyHint": "Updates shared settings and each group's current mode settings, preserving its mode, member order, and current selection.",
+            "save": "Save Default Policy",
+            "saving": "Saving…",
+            "saved": "Default routing policy saved",
+            "applied": "Default policy saved; {count} groups updated",
+            "saveFailed": "Failed to save default policy"
+        },
         "webhook": {
             "title": "Webhook Notifications",
             "manualThreshold": "Manual mode failure threshold",
@@ -360,7 +374,10 @@
         },
         "create": {
             "submit": "Create",
-            "submitting": "Creating..."
+            "submitting": "Creating...",
+            "defaultsLoading": "Loading default routing policy…",
+            "defaultsFailed": "Failed to load default routing policy. Please retry.",
+            "retry": "Retry"
         },
         "card": {
             "empty": "No rules",
@@ -384,6 +401,9 @@
             "failover": "Failover",
             "members": "Members",
             "relay": "Routing",
+            "commonSettings": "Shared Settings",
+            "manualSettings": "Manual Mode Settings",
+            "failoverSettings": "Failover Settings",
             "retryCount": "Maximum Attempts",
             "retryCountHint": "Total attempts per member in failover mode, including the first request",
             "retryInterval": "Retry Interval (s)",
@@ -461,6 +481,7 @@
             "unknownModel": "Unknown model",
             "detailUnavailable": "Body content unavailable",
             "requestContent": "Request Body",
+            "bodyPrivacyHint": "Sensitive fields and known credentials are redacted; conversation content is still shown on demand.",
             "group": "Group",
             "groupUnavailable": "No group matches this request model",
             "noGroupItems": "No channels are available in this group",

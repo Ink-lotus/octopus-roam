@@ -151,3 +151,46 @@ func TestGroupRelayConfigJSONFieldNames(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayConfigValidatesOnlyCurrentModeAndNormalizesAffinity(t *testing.T) {
+	config := DefaultGroupRelayConfig()
+	config.MemberMaxAttempts, config.MemberCooldownSeconds = -3, -8
+	config.MemberAffinitySeconds = 300
+	if err := ValidateGroupRelayConfig(config, GroupModeManual); err != nil {
+		t.Fatalf("手动模式被非生效字段阻止: %v", err)
+	}
+	if err := ValidateGroupRelayConfig(config, GroupModeFailover); err == nil {
+		t.Fatal("故障转移模式接受了负数预算或冷却")
+	}
+	NormalizeGroupRelayConfigForMode(&config, GroupModeManual)
+	if config.MemberMaxAttempts != -3 || config.MemberCooldownSeconds != -8 || config.MemberAffinitySeconds != 0 {
+		t.Fatalf("未保留另一模式参数或未清零兼容字段: %+v", config)
+	}
+	changed := config
+	changed.MemberCooldownSeconds = 99
+	if EffectiveGroupRelayConfig(config, GroupModeManual) != EffectiveGroupRelayConfig(changed, GroupModeManual) {
+		t.Fatal("手动有效策略包含冷却")
+	}
+	changed.ManualMaxAttempts = 1
+	if EffectiveGroupRelayConfig(config, GroupModeManual) == EffectiveGroupRelayConfig(changed, GroupModeManual) {
+		t.Fatal("手动有效策略忽略了手动预算")
+	}
+	config = DefaultGroupRelayConfig()
+	config.ManualMaxAttempts = -1
+	if err := ValidateGroupRelayConfig(config, GroupModeFailover); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateGroupRelayConfig(config, GroupModeManual); err == nil {
+		t.Fatal("手动模式接受了负数预算")
+	}
+	NormalizeGroupRelayConfigForMode(&config, GroupModeFailover)
+	if config.ManualMaxAttempts != -1 || EffectiveGroupRelayConfig(config, GroupModeFailover).ManualMaxAttempts != 0 {
+		t.Fatal("故障转移未保留或隔离手动预算")
+	}
+	config.MemberNonStreamResponseTimeoutSeconds = -1
+	for _, mode := range []GroupMode{GroupModeManual, GroupModeFailover} {
+		if err := ValidateGroupRelayConfig(config, mode); err == nil {
+			t.Fatalf("%s 接受负数公共超时", mode)
+		}
+	}
+}

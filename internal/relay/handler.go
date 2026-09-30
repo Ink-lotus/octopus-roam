@@ -13,6 +13,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
@@ -41,6 +42,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		redactor := privacy.FromContext(c.Request.Context())
+		redactor.AddHeaders(c.Request.Header)
+		redactor.AddURL(c.Request.URL.String())
+		c.Request = c.Request.WithContext(privacy.WithRedactor(c.Request.Context(), redactor))
 		// 完整读取客户端请求, 正文先登记到请求状态, 后续每轮直接改写为当前目标请求。
 		raw, err := httpclient.ReadHTTPRequest(c.Request)
 		if err != nil {
@@ -97,7 +102,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		}()
 
 		// 上游失败后的重试等待按 retry_mode 使用 RetryDelay; 同一请求开始恢复探测后会保留该成员的预算。
-		// 故障转移无可用成员时按 routeSelection 的最早冷却截止时间或状态变更信号等待。
+		// 无可用成员时等待状态变更信号; 故障转移还可由最早冷却截止时间唤醒。
 
 		for {
 			if ctx.Err() != nil {
@@ -117,12 +122,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			selection := pickGroupItem(group, probeToken)
 			if selection.Wait || selection.Item.ID == 0 {
 				request.markRetryingAt(selection.WaitUntil)
-				if group.Mode == model.GroupModeFailover {
-					if !waitRoute(ctx.Done(), selection) {
-						request.markCanceled(ctx.Err(), "", nil)
-						return
-					}
-				} else if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+				if !waitRoute(ctx.Done(), selection) {
+					request.markCanceled(ctx.Err(), "", nil)
 					return
 				}
 				continue
@@ -152,13 +153,14 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				if group.Mode == model.GroupModeFailover {
 					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken)
 					probeToken = 0
-				} else if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+				} else if !request.waitRetry(ctx, secondsToDuration(group.RelayConfig.MemberRetryIntervalSeconds), selection.Changed) {
 					return
 				}
 				continue
 			}
 			channelModel := grant.ChannelModel
 			channelKey := grant.ChannelKey
+			redactor.Add(channelKey.Key)
 
 			// 成员指向的渠道已被删除时同样等待, 该成员可能很快被改回可用渠道。
 			channel, err := op.ChannelGet(channelModel.ChannelID)
@@ -167,12 +169,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				if group.Mode == model.GroupModeFailover {
 					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken)
 					probeToken = 0
-				} else if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+				} else if !request.waitRetry(ctx, secondsToDuration(group.RelayConfig.MemberRetryIntervalSeconds), selection.Changed) {
 					return
 				}
 				continue
 			}
 
+			rememberChannelSecrets(redactor, channel, channelKey.Key, raw.Headers)
 			// 将分组成员配置的真实模型写入本轮上游请求。
 			raw.Body, err = sjson.SetBytes(raw.Body, "model", channelModel.Name)
 			if err != nil {
@@ -282,8 +285,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 						activeProbe.token = 0
 						continue
 					}
-					// 手动模式没有可让出的路由, 未发送错误仍按配置间隔等待后重试。
-					if !request.wait(ctx, group.RelayConfig.MemberRetryIntervalSeconds) {
+					// 手动模式未发送错误按配置间隔重试, 配置变化时立即重新读取。
+					if !request.waitRetry(ctx, secondsToDuration(group.RelayConfig.MemberRetryIntervalSeconds), selection.Changed) {
 						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 						activeProbe.token = 0
 						return
@@ -302,6 +305,12 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				// 手动模式的预算由 manual_max_attempts 给出, 0 表示不限额; 故障转移模式仍由
 				// member_max_attempts 决定成员何时让出路由。
 				if group.Mode == model.GroupModeManual {
+					// 本轮发送期间配置已变化时, 旧预算不能终结等待新配置的请求。
+					select {
+					case <-selection.Changed:
+						continue
+					default:
+					}
 					if group.RelayConfig.ManualMaxAttempts > 0 && failures >= group.RelayConfig.ManualMaxAttempts {
 						request.markFailed(err, "", nil)
 						rejectUpstream(c, inbound, err, retryDelay)
@@ -315,13 +324,9 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 				// 同一成员的重试按配置的退避策略等待: 第 failures 次失败后等待的是第 failures 次重试。
 				// failures 随成员更换归 1, 故指数退避在成员之间不累积, 每个成员都从初始间隔重新开始。
-				if group.Mode == model.GroupModeFailover {
-					if !request.waitRetry(ctx, retryDelay, selection.Changed) {
-						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
-						activeProbe.token = 0
-						return
-					}
-				} else if !request.waitDuration(ctx, retryDelay) {
+				if !request.waitRetry(ctx, retryDelay, selection.Changed) {
+					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					activeProbe.token = 0
 					return
 				}
 				continue
@@ -417,8 +422,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					break
 				}
 				event = result.events.Current()
-				// 已提交的响应不能再换目标重试, 结束事件自身携带的失败原样转发给客户端, 并在转发后作为本请求终态。
+				// 已提交的响应不能再换目标重试; 错误事件先脱敏, 转发后作为本请求终态。
 				last, err = inspectStreamEvent(format, event)
+				if err != nil && event != nil {
+					safeEvent := *event
+					safeEvent.Data = []byte(redactor.Body(string(event.Data)))
+					event = &safeEvent
+				}
 			}
 			request.finishStream()
 			result.events.Close()
@@ -463,7 +473,7 @@ func rejectUpstream(c *gin.Context, inbound transformer.Inbound, err error, retr
 	c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds(retryDelay), 10))
 	response := inbound.TransformError(c.Request.Context(), &llm.ResponseError{
 		StatusCode: http.StatusServiceUnavailable,
-		Detail:     llm.ErrorDetail{Message: err.Error(), Type: "upstream_error"},
+		Detail:     llm.ErrorDetail{Message: privacy.FromContext(c.Request.Context()).Text(err.Error()), Type: "upstream_error"},
 	})
 	c.Data(response.StatusCode, "application/json", response.Body)
 	c.Abort()
@@ -485,7 +495,7 @@ func retryAfterSeconds(delay time.Duration) int64 {
 func rejectRequest(c *gin.Context, inbound transformer.Inbound, err error) {
 	response := inbound.TransformError(c.Request.Context(), &llm.ResponseError{
 		StatusCode: http.StatusBadRequest,
-		Detail:     llm.ErrorDetail{Message: err.Error(), Type: "invalid_request_error"},
+		Detail:     llm.ErrorDetail{Message: privacy.FromContext(c.Request.Context()).Text(err.Error()), Type: "invalid_request_error"},
 	})
 	c.Data(response.StatusCode, "application/json", response.Body)
 	c.Abort()

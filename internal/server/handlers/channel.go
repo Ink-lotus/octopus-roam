@@ -15,6 +15,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/bestruirui/octopus/internal/rhttp"
 	"github.com/bestruirui/octopus/internal/server/middleware"
@@ -117,6 +118,8 @@ func updateChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
 		return
 	}
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	previousGroups := allGroupsByID()
 	channel, err := op.ChannelUpdate(&req, c.Request.Context())
 	if err != nil {
@@ -144,6 +147,8 @@ func enableChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	previousGroups := allGroupsByID()
 	if err := op.ChannelEnabled(request.ID, request.Enabled, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -159,6 +164,8 @@ func deleteChannel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
 		return
 	}
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	previousGroups := allGroupsByID()
 	if err := op.ChannelDel(id, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -259,6 +266,19 @@ func fetchModel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
+	redactor := privacy.FromContext(c.Request.Context())
+	redactor.Add(request.Key)
+	redactor.AddURL(request.Channel.BaseURL)
+	redactor.AddURL(request.Channel.ChannelProxy)
+	for _, header := range request.Channel.CustomHeader {
+		redactor.Add(header.HeaderValue)
+	}
+	if request.Channel.Proxy && request.Channel.ChannelProxy == "" {
+		if proxy, err := op.SettingGetString(model.SettingKeyProxyURL); err == nil {
+			redactor.AddURL(proxy)
+		}
+	}
+	c.Request = c.Request.WithContext(privacy.WithRedactor(c.Request.Context(), redactor))
 	ctx := c.Request.Context()
 	// 探测收的是尚未落库的提交配置, 不经 normalizeChannelConfig, 故在此自行去空白;
 	// 其中只有地址是硬需求: 渠道尚未命名时也可试拉, 故名称不在此校验。

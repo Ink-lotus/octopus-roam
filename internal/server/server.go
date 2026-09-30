@@ -7,7 +7,6 @@ import (
 	"github.com/bestruirui/octopus/internal/conf"
 	_ "github.com/bestruirui/octopus/internal/server/handlers"
 	"github.com/bestruirui/octopus/internal/server/middleware"
-	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
 	"github.com/bestruirui/octopus/static"
 	"github.com/charmbracelet/log"
@@ -24,10 +23,7 @@ func Start() error {
 	}
 
 	r := gin.New()
-	r.Use(gin.CustomRecovery(func(c *gin.Context, _ any) {
-		resp.Error(c, http.StatusInternalServerError, resp.ErrInternalServer)
-		c.Abort()
-	}))
+	r.Use(middleware.Recovery())
 
 	if conf.IsDebug() {
 		r.Use(middleware.Logger())

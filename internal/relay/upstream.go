@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/bestruirui/octopus/internal/rhttp"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -64,6 +65,9 @@ type trackingTransport struct {
 
 // RoundTrip 标记本轮已进入 HTTP 传输后再交给真正的传输层。
 func (t *trackingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	redactor := privacy.FromContext(request.Context())
+	redactor.AddHeaders(request.Header)
+	redactor.AddURL(request.URL.String())
 	t.sent.Store(true)
 	return t.inner.RoundTrip(request)
 }
@@ -87,6 +91,10 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 	request, err := buildPassthroughRequest(format, raw, channel, outbound, modelName)
 	if err != nil {
 		return nil, false, err
+	}
+	redactor := privacy.FromContext(ctx)
+	for _, header := range channel.CustomHeader {
+		redactor.Add(request.Headers.Get(header.HeaderKey))
 	}
 	httpClient, closeIdle, err := resolveUpstreamClient(channel)
 	if err != nil {
@@ -186,10 +194,10 @@ type conversionMiddleware struct {
 }
 
 // OnOutboundRawRequest 在转换后的上游请求上应用渠道参数和自定义 Header。
-func (m *conversionMiddleware) OnOutboundRawRequest(_ context.Context, request *httpclient.Request) (*httpclient.Request, error) {
+func (m *conversionMiddleware) OnOutboundRawRequest(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error) {
 	// pipeline 的 MergeInboundRequest 已过滤客户端 User-Agent, 在应用渠道配置前补回, 供转发上游与占位符读取。
 	preserveClientUserAgent(request, m.clientUserAgent)
-	return request, applyChannelConfig(m.channel, request)
+	return request, applyChannelConfig(m.channel, request, privacy.FromContext(ctx))
 }
 
 // OnOutboundRawError 保留上游错误状态码携带的原始正文。

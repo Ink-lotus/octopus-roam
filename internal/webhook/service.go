@@ -8,13 +8,12 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/bestruirui/octopus/internal/relay"
 	"github.com/charmbracelet/log"
 )
@@ -342,33 +341,20 @@ func redactConfiguredError(group model.Group, message string) string {
 	if message == "" {
 		return ""
 	}
-	secrets := make([]string, 0, len(group.Items)*4)
+	redactor := privacy.New()
 	for _, item := range group.Items {
 		if key, err := op.ChannelGrantKeyGet(item.ChannelGrantID); err == nil {
-			secrets = append(secrets, key.Key)
+			redactor.Add(key.Key)
 		}
 		channel, err := op.ChannelGet(item.ChannelID)
 		if err != nil {
 			continue
 		}
-		secrets = append(secrets, channel.BaseURL, channel.ChannelProxy)
+		redactor.AddURL(channel.BaseURL)
+		redactor.AddURL(channel.ChannelProxy)
 		for _, header := range channel.CustomHeader {
-			secrets = append(secrets, header.HeaderValue)
+			redactor.Add(header.HeaderValue)
 		}
 	}
-	filtered := secrets[:0]
-	for _, secret := range secrets {
-		if len(secret) >= 4 {
-			filtered = append(filtered, secret)
-		}
-	}
-	sort.Slice(filtered, func(i, j int) bool { return len(filtered[i]) > len(filtered[j]) })
-	replacements := make([]string, 0, len(filtered)*2)
-	for _, secret := range filtered {
-		replacements = append(replacements, secret, "[redacted]")
-	}
-	if len(replacements) == 0 {
-		return message
-	}
-	return strings.NewReplacer(replacements...).Replace(message)
+	return redactor.Text(message)
 }

@@ -179,6 +179,20 @@
         },
         "saved": "已保存",
         "saveFailed": "保存失败",
+        "routeDefaults": {
+            "title": "默认路由策略",
+            "description": "新建分组使用以下默认策略，也可以在创建时单独调整。",
+            "loading": "正在读取默认策略…",
+            "loadFailed": "默认策略读取失败",
+            "retry": "重试",
+            "applyToExisting": "同时应用到已有分组",
+            "applyHint": "只更新公共策略及各组当前模式的参数，保留分组模式、成员顺序和当前选择。",
+            "save": "保存默认策略",
+            "saving": "保存中…",
+            "saved": "默认路由策略已保存",
+            "applied": "默认策略已保存，已更新 {count} 个分组",
+            "saveFailed": "默认策略保存失败"
+        },
         "webhook": {
             "title": "Webhook 通知",
             "manualThreshold": "手动模式连续失败阈值",
@@ -360,7 +374,10 @@
         },
         "create": {
             "submit": "创建",
-            "submitting": "创建中..."
+            "submitting": "创建中...",
+            "defaultsLoading": "正在读取默认路由策略…",
+            "defaultsFailed": "默认路由策略读取失败，请重试。",
+            "retry": "重试"
         },
         "card": {
             "empty": "暂无规则",
@@ -384,6 +401,9 @@
             "failover": "故障转移",
             "members": "成员",
             "relay": "路由策略",
+            "commonSettings": "公共参数",
+            "manualSettings": "手动模式参数",
+            "failoverSettings": "故障转移参数",
             "retryCount": "总尝试次数",
             "retryCountHint": "故障转移模式下单个成员包含首次请求的总尝试次数",
             "retryInterval": "重试间隔（秒）",
@@ -461,6 +481,7 @@
             "unknownModel": "未知模型",
             "detailUnavailable": "正文内容不可用",
             "requestContent": "请求体",
+            "bodyPrivacyHint": "敏感字段与已知凭据已脱敏；对话正文仍按需显示。",
             "group": "分组",
             "groupUnavailable": "当前请求模型没有对应分组",
             "noGroupItems": "当前分组没有可用渠道",

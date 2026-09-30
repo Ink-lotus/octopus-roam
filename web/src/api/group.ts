@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { apiRequest } from './client';
 import { queryClient } from './client';
-import { groupListQueryOptions } from './queries';
+import { groupListQueryOptions, groupRouteDefaultsQueryOptions } from './queries';
 
 // GroupMode 表示分组的手动或故障转移路由模式。
 export type GroupMode = 'manual' | 'failover';
@@ -196,5 +196,33 @@ export function useDeleteGroup() {
         mutationFn: (id: number) =>
             apiRequest<null>(`/api/v1/group/delete/${id}`, { method: 'DELETE' }),
         onSuccess: (_, id) => removeGroupCache(id),
+    });
+}
+
+export function useGroupRouteDefaults() {
+    return useQuery(groupRouteDefaultsQueryOptions);
+}
+
+export function useSaveGroupRouteDefaults() {
+    return useMutation({
+        mutationFn: (body: { relay_config: GroupRelayConfig; apply_to_existing: boolean }) =>
+            apiRequest<{ relay_config: GroupRelayConfig; applied_groups: number }>('/api/v1/group/route-defaults', {
+                method: 'POST', body: { ...body, relay_config: { ...body.relay_config, member_affinity_seconds: 0 } },
+            }),
+        onMutate: () => queryClient.cancelQueries({ queryKey: groupRouteDefaultsQueryOptions.queryKey }),
+        onSuccess: async (result, request) => {
+            queryClient.setQueryData(groupRouteDefaultsQueryOptions.queryKey, result.relay_config);
+            const refreshes = [
+                queryClient.invalidateQueries({ queryKey: groupRouteDefaultsQueryOptions.queryKey }),
+                queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
+            ];
+            if (request.apply_to_existing) {
+                refreshes.push(
+                    queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey }),
+                    queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] }),
+                );
+            }
+            await Promise.all(refreshes);
+        },
     });
 }
