@@ -22,11 +22,17 @@
 - github.com/looplj/axonhub/llm：v0.0.0-20260909170523-3786f2c5c8de → v0.0.0-20260923093423-859c3e4ed944
 - diff 仅 go.mod 1 行 + go.sum 2 行；新旧版本 /go.mod 哈希相同，无依赖图传播；未跑 go mod tidy（go.sum 保留旧版本 2 行残留，无害）。
 
-## 验证结果（U5 全量验收，HEAD a208910）
+## 验证结果（U5 同步阶段验收，HEAD a208910）
 - go test ./... 全绿（relay 34.4s、handlers/model/op/webhook ok）
 - go test -race ./internal/relay ./internal/server/handlers 无竞争（CGO=1 + mingw64）
 - go vet 干净、pnpm lint / build 通过、git diff --check 干净、git status 干净
 - 六项确认全相符：AxonHub 版本、main.go v0.13.6、无 DB/备份/API 枚举变化、无重复 toast、无未授权依赖、无游离产物
+
+## 后续修复与复验
+- f9a20c8：修复 AxonHub v0.13.8 将 `User-Agent` 列入不透传名单后，同协议透传路径丢失客户端 UA 及 `{client_header:User-Agent}` 占位符为空的问题，新增 `internal/relay/passthrough_ua_test.go`。
+- 1654a38：修复跨协议转换路径经 AxonHub pipeline 合并入站请求后丢失客户端 UA 及占位符为空的问题，新增 `internal/relay/converted_ua_test.go`。
+- 当前基线（HEAD 1654a38403ac68f1236a8db87b408cf5e624456b）复验：go test ./...、go test -race ./internal/relay ./internal/server/handlers、go vet ./...、pnpm --dir web lint、pnpm --dir web build、git diff --check 全部通过。
+- 修复提交完成时分支为 `test`，工作区干净。
 
 ## 遗留问题 / 待决
 - 未做浏览器端到端 toast 验收（U4）：需完整起后端+DB+前端，按计划 §4.4 降级为静态+代码核查。
@@ -36,5 +42,6 @@
 - 集成动作（合并/推送/删分支）未执行，留待持有者决定。
 
 ## 新基线
-- 分阶段提交：597b9a9(U1) → c3c8710(U2) → a208910(U3)；本收尾记录提交为最终基线提交。
+- 同步阶段提交：597b9a9(U1) → c3c8710(U2) → a208910(U3) → 595cc84（同步收尾记录）。
+- 后续修复提交：f9a20c8（透传 UA）→ 1654a38（跨协议转换 UA）。代码基线为 `1654a38403ac68f1236a8db87b408cf5e624456b`，分支为 `test`；修复提交完成时工作区干净。
 - Windows race 验收需将 mingw64（D:\tool\mingw64\bin）前置到 PATH（cgo 依赖）。
