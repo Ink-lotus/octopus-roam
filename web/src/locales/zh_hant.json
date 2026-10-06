@@ -399,6 +399,10 @@
             "modeHint": "手動固定選中成員；故障轉移按成員順序並在失敗時切換",
             "manual": "手動",
             "failover": "故障轉移",
+            "modelMatchMode": "模型匹配",
+            "modelMatchModeHint": "自動新增模型時使用的名稱匹配規則；嚴格匹配會去除首尾空格",
+            "modelMatchKeyword": "關鍵詞包含",
+            "modelMatchExact": "嚴格全名",
             "members": "成員",
             "relay": "路由策略",
             "commonSettings": "公共參數",
@@ -469,6 +473,15 @@
             "empty": "暫無日誌",
             "disconnected": "日誌連線已中斷，正在重新連線"
         },
+        "filter": {
+            "label": "狀態",
+            "all": "全部",
+            "inProgress": "請求中",
+            "success": "成功",
+            "failed": "失敗",
+            "canceled": "已取消",
+            "noResults": "沒有符合此狀態的日誌"
+        },
         "status": {
             "running": "執行中",
             "committed": "回應中",
@@ -528,6 +541,21 @@
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"
+            },
+            "refresh": {
+                "button": "更新模型",
+                "pending": "正在更新…",
+                "autoAddGroups": "將匹配模型加入分組",
+                "success": "已更新 {count} 個模型",
+                "successTitle": "模型更新成功",
+                "empty": "模型更新返回空結果",
+                "failed": "模型更新失敗",
+                "failedDescription": "伺服器未完成更新",
+                "changeSummary": "新增 {added} 個，移除 {removed} 個",
+                "warning": "警告：{detail}",
+                "maintenanceWarning": "價格維護警告：{detail}",
+                "keyModels": "{count} 個模型",
+                "keyFailed": "憑證失敗"
             }
         },
         "stats": {
@@ -556,6 +584,11 @@
             "apiKey": "API Key",
             "enabled": "啟用",
             "proxy": "使用代理",
+            "allowedProtocols": "允許的協議",
+            "allowedProtocolsHint": "只有選中的協議可以建立授權並參與路由",
+            "protocolChat": "OpenAI Chat",
+            "protocolResponse": "OpenAI Responses",
+            "protocolAnthropic": "Anthropic Messages",
             "keys": "憑證",
             "keyAdd": "新增憑證",
             "keyName": "名稱",

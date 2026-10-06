@@ -22,6 +22,10 @@ import (
 // 地址由渠道的协议路径字段与地址拼接, 凭据取自目标绑定的渠道凭据。
 // want 是客户端请求使用的协议, 由调用方按入站格式定出; 选中的协议随请求状态推给界面, 故一并返回。
 func buildOutbound(channel model.Channel, grant model.ChannelGrant, channelKey model.ChannelKey, want model.Protocol) (transformer.Outbound, model.Protocol, bool, error) {
+	grant.Protocols = model.EffectiveProtocols(channel.AllowedProtocols, grant.Protocols)
+	if grant.Protocols == 0 {
+		return nil, 0, false, fmt.Errorf("channel grant %d supports no allowed protocol", grant.ID)
+	}
 	protocol, passthrough := want, grant.Protocols&want != 0
 	if !passthrough {
 		protocol = 0

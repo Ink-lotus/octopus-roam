@@ -90,6 +90,10 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		if err := model.ValidateGroupMode(dump.Groups[i].Mode); err != nil {
 			return nil, err
 		}
+		dump.Groups[i].ModelMatchMode = model.NormalizeGroupModelMatchMode(dump.Groups[i].ModelMatchMode)
+		if err := model.ValidateGroupModelMatchMode(dump.Groups[i].ModelMatchMode); err != nil {
+			return nil, err
+		}
 		model.NormalizeGroupRelayConfigForMode(&dump.Groups[i].RelayConfig, dump.Groups[i].Mode)
 	}
 	var importedDefaults *string

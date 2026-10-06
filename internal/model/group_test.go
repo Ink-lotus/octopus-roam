@@ -6,9 +6,13 @@ package model
 import (
 	"encoding/json"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 // platformInt 把 int64 取值收进当前平台的 int 范围, 供测试书写"远超配置上限"的取值。
@@ -149,6 +153,107 @@ func TestGroupRelayConfigJSONFieldNames(t *testing.T) {
 		if !strings.Contains(string(raw), `"`+name+`"`) {
 			t.Fatalf("分组 Relay 配置的 JSON 缺少字段 %s: %s", name, raw)
 		}
+	}
+}
+
+func TestMatchGroupModelNameModes(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      GroupModelMatchMode
+		groupName string
+		modelName string
+		want      bool
+	}{
+		{name: "keyword includes suffix", mode: GroupModelMatchModeKeyword, groupName: "claude-opus-5", modelName: "claude-opus-5-5", want: true},
+		{name: "keyword ignores case", mode: GroupModelMatchModeKeyword, groupName: "Claude-Opus-5", modelName: "claude-opus-5-5", want: true},
+		{name: "keyword trims group name", mode: GroupModelMatchModeKeyword, groupName: "  claude-opus-5  ", modelName: "claude-opus-5-5", want: true},
+		{name: "exact rejects suffix", mode: GroupModelMatchModeExact, groupName: "claude-opus-5", modelName: "claude-opus-5-5", want: false},
+		{name: "exact ignores case and trims both names", mode: GroupModelMatchModeExact, groupName: "  Claude-Opus-5 ", modelName: "claude-opus-5  ", want: true},
+		{name: "empty group name does not match", mode: GroupModelMatchModeKeyword, groupName: "  ", modelName: "anything", want: false},
+		{name: "unknown mode does not match", mode: "prefix", groupName: "claude", modelName: "claude-opus-5", want: false},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := MatchGroupModelName(testCase.mode, testCase.groupName, testCase.modelName); got != testCase.want {
+				t.Fatalf("MatchGroupModelName(%q, %q, %q) = %v, 期望 %v", testCase.mode, testCase.groupName, testCase.modelName, got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestGroupModelMatchModeValidationAndDefaults(t *testing.T) {
+	if got := NormalizeGroupModelMatchMode(""); got != GroupModelMatchModeKeyword {
+		t.Fatalf("旧分组匹配模式默认 = %q, 期望 %q", got, GroupModelMatchModeKeyword)
+	}
+	for _, mode := range []GroupModelMatchMode{GroupModelMatchModeKeyword, GroupModelMatchModeExact} {
+		if err := ValidateGroupModelMatchMode(mode); err != nil {
+			t.Errorf("合法匹配模式 %q 被拒绝: %v", mode, err)
+		}
+	}
+	if err := ValidateGroupModelMatchMode("prefix"); err == nil {
+		t.Fatal("接受了未知匹配模式")
+	}
+}
+
+func TestAutoMigrateAddsGroupMatchModeWithoutLosingItems(t *testing.T) {
+	legacyDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "legacy-groups.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("打开临时 SQLite 数据库失败: %v", err)
+	}
+	sqlDB, err := legacyDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqlDB.Close()
+	if err := legacyDB.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.AutoMigrate(&Group{}); err != nil {
+		t.Fatalf("创建旧分组表失败: %v", err)
+	}
+	if err := legacyDB.Exec("CREATE TABLE channel_grants (id integer PRIMARY KEY, channel_model_id integer NOT NULL, channel_key_id integer NOT NULL, protocols integer NOT NULL)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.AutoMigrate(&GroupItem{}); err != nil {
+		t.Fatalf("创建旧分组成员表失败: %v", err)
+	}
+	// 删除刚创建的列以模拟升级前 schema, 再放入真实的分组成员引用。
+	if err := legacyDB.Exec(`ALTER TABLE groups DROP COLUMN model_match_mode`).Error; err != nil {
+		t.Fatalf("模拟旧 groups 表失败: %v", err)
+	}
+	if err := legacyDB.Exec(`INSERT INTO groups (id, name, mode, active_item_id, relay_config) VALUES (1, 'legacy', 'manual', 0, '{}')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 该兼容测试只关心 group_items 对授权主键的保留, 不建立渠道模型/凭据的完整旧表。
+	if err := legacyDB.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.Exec(`INSERT INTO channel_grants (id, channel_model_id, channel_key_id, protocols) VALUES (7, 1, 1, 2)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.Exec(`INSERT INTO group_items (id, group_id, channel_grant_id, priority) VALUES (11, 1, 7, 1)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := legacyDB.AutoMigrate(&Group{}, &GroupItem{}); err != nil {
+		t.Fatalf("升级旧分组 schema 失败: %v", err)
+	}
+	var group Group
+	if err := legacyDB.First(&group, 1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if group.ModelMatchMode != GroupModelMatchModeKeyword {
+		t.Fatalf("旧分组列默认值 = %q, 期望 %q", group.ModelMatchMode, GroupModelMatchModeKeyword)
+	}
+	var itemCount int64
+	if err := legacyDB.Model(&GroupItem{}).Where("group_id = ?", group.ID).Count(&itemCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if itemCount != 1 {
+		t.Fatalf("AutoMigrate 后分组成员数 = %d, 期望保留 1 条", itemCount)
 	}
 }
 

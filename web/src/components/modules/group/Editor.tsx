@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type FormEvent } from 'react';
 import { Check, ChevronDownIcon, HelpCircle, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
-import { Protocol, useChannelGrantList } from '@/api/channel';
+import { Protocol } from '@/api/channel';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { getModelIcon } from '@/lib/model-icons';
-import type { GroupMode, GroupRelayConfig } from '@/api/group';
+import { useGroupGrantCandidates, type GroupModelMatchMode, type GroupMode, type GroupRelayConfig } from '@/api/group';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
 import { RelayConfigFields } from './RelayConfigFields';
@@ -22,6 +22,7 @@ import { matchesGroupName, memberKey, normalizeKey } from './utils';
 export type GroupEditorValues = {
     name: string;
     mode: GroupMode;
+    model_match_mode: GroupModelMatchMode;
     relay_config: GroupRelayConfig;
     members: SelectedMember[];
 };
@@ -303,6 +304,7 @@ export function GroupEditor({
     initial: {
         name?: string;
         mode?: GroupMode;
+        model_match_mode?: GroupModelMatchMode;
         relay_config: GroupRelayConfig;
         members?: SelectedMember[];
     };
@@ -313,7 +315,7 @@ export function GroupEditor({
     onCancel?: () => void;
 }) {
     const t = useTranslations('group');
-    const { data: grantCandidates = [] } = useChannelGrantList();
+    const { data: grantCandidates = [] } = useGroupGrantCandidates();
     const grantMembers = useMemo<SelectedMember[]>(() => grantCandidates.map((grant) => ({
         id: String(grant.id),
         channel_grant_id: grant.id,
@@ -327,6 +329,7 @@ export function GroupEditor({
 
     const [groupName, setGroupName] = useState(initial?.name ?? '');
     const [mode, setMode] = useState<GroupMode>(initial?.mode ?? 'manual');
+    const [modelMatchMode, setModelMatchMode] = useState<GroupModelMatchMode>(initial?.model_match_mode ?? 'keyword');
     const [relayConfig, setRelayConfig] = useState<GroupRelayConfig>(() => ({ ...initial.relay_config, member_affinity_seconds: 0 }));
     const [selectedMembers, setSelectedMembers] = useState<SelectedMember[]>(initial?.members ?? []);
     const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
@@ -348,8 +351,8 @@ export function GroupEditor({
 
     const matchedModelChannels = useMemo(() => {
         if (!groupKey) return [];
-        return grantMembers.filter((mc) => matchesGroupName(mc.name, groupKey));
-    }, [groupKey, grantMembers]);
+        return grantMembers.filter((mc) => matchesGroupName(mc.name, groupKey, modelMatchMode));
+    }, [groupKey, grantMembers, modelMatchMode]);
 
     const handleAddMember = useCallback((channel: SelectedMember) => {
         const key = memberKey(channel);
@@ -389,7 +392,8 @@ export function GroupEditor({
         setRemovingIds(new Set());
     }, []);
 
-    const isValid = groupKey.length > 0 && selectedMembers.length > 0;
+    // 编辑已有分组可以清空全部成员后保存；创建分组仍要求至少选择一个成员。
+    const isValid = groupKey.length > 0 && (initial.members !== undefined || selectedMembers.length > 0);
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -397,6 +401,7 @@ export function GroupEditor({
         onSubmit({
             name: groupName,
             mode,
+            model_match_mode: modelMatchMode,
             relay_config: { ...relayConfig, member_affinity_seconds: 0 },
             members: selectedMembers,
         });
@@ -407,7 +412,7 @@ export function GroupEditor({
         <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0 ">
             <div className="flex-1 min-h-0 overflow-hidden px-1">
                 <FieldGroup className="gap-4 flex flex-col min-h-0 h-full">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <Field>
                             <FieldLabel htmlFor="group-name">{t('form.name')}</FieldLabel>
                             <Input
@@ -416,6 +421,25 @@ export function GroupEditor({
                                 onChange={(e) => setGroupName(e.target.value)}
                                 className="rounded-xl"
                             />
+                        </Field>
+                        <Field>
+                            <FieldLabel htmlFor="group-model-match-mode">
+                                {t('form.modelMatchMode')}
+                                <FieldHelp text={t('form.modelMatchModeHint')} />
+                            </FieldLabel>
+                            <Select
+                                value={modelMatchMode}
+                                onValueChange={(value) => setModelMatchMode(value as GroupModelMatchMode)}
+                                disabled={isSubmitting}
+                            >
+                                <SelectTrigger id="group-model-match-mode" className="w-full rounded-xl">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="keyword">{t('form.modelMatchKeyword')}</SelectItem>
+                                    <SelectItem value="exact">{t('form.modelMatchExact')}</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </Field>
                         <Field>
                             <FieldLabel htmlFor="group-mode">

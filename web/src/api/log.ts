@@ -51,6 +51,14 @@ export interface RelayLogOverview {
     channel_status?: RelayChannelStatus;
 }
 
+function compareLogOrder(left: RelayLogOverview, right: RelayLogOverview) {
+    const leftIsActive = left.status === 'running' || left.status === 'committed';
+    const rightIsActive = right.status === 'running' || right.status === 'committed';
+    if (leftIsActive !== rightIsActive) return leftIsActive ? -1 : 1;
+    if (left.id === right.id) return 0;
+    return left.id > right.id ? -1 : 1;
+}
+
 // useClearLogs 清空已完成的内存日志。
 export function useClearLogs() {
     return useMutation({
@@ -66,7 +74,7 @@ export function useStopRequest() {
     });
 }
 
-// useLogs 订阅进程内日志概览，并按 RequestID 更新同一条记录。
+// useLogs 订阅进程内日志概览，并按状态分组、组内 RequestID 倒序排列。
 export function useLogs() {
     const [logs, setLogs] = useState<RelayLogOverview[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -89,18 +97,16 @@ export function useLogs() {
             }
             setIsLoading(false);
             setError(null);
-            // 列表始终按 ID 倒序: 命中已有记录时原地替换, 新记录插入到首个更小 ID 之前,
-            // 由此避免每条更新重排整个列表, 并保留未变更记录的引用以跳过卡片重渲染。
+            // SSE 重连或状态变化后也按状态重新归组, 同时保留未变更记录的引用。
             setLogs((current) => {
                 const index = current.findIndex((item) => item.id === next.id);
+                const updated = current.slice();
                 if (index >= 0) {
-                    const updated = current.slice();
                     updated[index] = next;
-                    return updated;
+                } else {
+                    updated.push(next);
                 }
-                const position = current.findIndex((item) => item.id < next.id);
-                if (position < 0) return [...current, next];
-                return [...current.slice(0, position), next, ...current.slice(position)];
+                return updated.sort(compareLogOrder);
             });
         });
         source.onerror = () => {

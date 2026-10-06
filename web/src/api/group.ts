@@ -1,11 +1,26 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { queryOptions, useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { apiRequest } from './client';
 import { queryClient } from './client';
 import { groupListQueryOptions, groupRouteDefaultsQueryOptions } from './queries';
 
+// GroupGrantCandidate 是分组编辑器可新增的一条渠道授权。
+// 后端只返回当前渠道和凭据都可用的授权; 已有不可用成员仍随 Group.items 返回。
+export interface GroupGrantCandidate {
+    id: number;
+    channel_id: number;
+    channel_name: string;
+    model_name: string;
+    key_name: string;
+    protocols: number;
+    available: boolean;
+}
+
 // GroupMode 表示分组的手动或故障转移路由模式。
 export type GroupMode = 'manual' | 'failover';
+
+// GroupModelMatchMode 控制自动添加模型时的名称匹配规则。
+export type GroupModelMatchMode = 'keyword' | 'exact';
 
 // RetryMode 表示同一成员相邻两次尝试之间的等待策略。
 export type RetryMode = 'fixed' | 'exponential';
@@ -53,6 +68,7 @@ export interface Group {
     id: number;
     name: string;
     mode: GroupMode;
+    model_match_mode: GroupModelMatchMode;
     relay_config: GroupRelayConfig;
     items: GroupItem[]; // 恒为数组，后端读取侧承诺不为 null。
     runtime: GroupRuntime; // 随分组一并返回；当前成员一律读 runtime.current_item_id。
@@ -67,6 +83,7 @@ export interface GroupItemInput {
 export interface GroupCreateRequest {
     name: string;
     mode: GroupMode;
+    model_match_mode: GroupModelMatchMode;
     relay_config: GroupRelayConfig;
     items: GroupItemInput[];
 }
@@ -76,6 +93,7 @@ export interface GroupCreateRequest {
 export interface GroupUpdateRequest {
     name?: string;
     mode?: GroupMode;
+    model_match_mode?: GroupModelMatchMode;
     relay_config?: GroupRelayConfig;
     items?: GroupItemInput[];
     active_item_id?: number; // 手动模式指定的当前成员，0 表示取消选择。
@@ -197,6 +215,18 @@ export function useDeleteGroup() {
             apiRequest<null>(`/api/v1/group/delete/${id}`, { method: 'DELETE' }),
         onSuccess: (_, id) => removeGroupCache(id),
     });
+}
+
+// groupGrantCandidatesQueryOptions 获取分组编辑器的新增候选。
+// 使用独立查询键避免与渠道配置页的完整授权列表共用不同 queryFn；前缀仍保留 channels,
+// 渠道启停或配置更新时现有失效缓存也会一并失效。
+export const groupGrantCandidatesQueryOptions = queryOptions({
+    queryKey: ['channels', 'group-grants'],
+    queryFn: () => apiRequest<GroupGrantCandidate[]>('/api/v1/group/candidates'),
+});
+
+export function useGroupGrantCandidates(enabled = true) {
+    return useQuery({ ...groupGrantCandidatesQueryOptions, enabled, refetchOnMount: 'always' });
 }
 
 export function useGroupRouteDefaults() {

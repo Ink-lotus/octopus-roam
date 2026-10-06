@@ -399,6 +399,10 @@
             "modeHint": "Manual fixes one member; failover follows member order and switches on failures",
             "manual": "Manual",
             "failover": "Failover",
+            "modelMatchMode": "Model Matching",
+            "modelMatchModeHint": "Rule used when automatically adding models; exact matching trims surrounding spaces",
+            "modelMatchKeyword": "Keyword contains",
+            "modelMatchExact": "Exact name",
             "members": "Members",
             "relay": "Routing",
             "commonSettings": "Shared Settings",
@@ -469,6 +473,15 @@
             "empty": "No logs yet",
             "disconnected": "Log stream disconnected, reconnecting"
         },
+        "filter": {
+            "label": "Status",
+            "all": "All",
+            "inProgress": "In progress",
+            "success": "Succeeded",
+            "failed": "Failed",
+            "canceled": "Canceled",
+            "noResults": "No logs match this status"
+        },
         "status": {
             "running": "Running",
             "committed": "Responding",
@@ -528,6 +541,21 @@
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"
+            },
+            "refresh": {
+                "button": "Update models",
+                "pending": "Updating…",
+                "autoAddGroups": "Add matching models to groups",
+                "success": "Updated {count} models",
+                "successTitle": "Model update succeeded",
+                "empty": "Model update returned no models",
+                "failed": "Model update failed",
+                "failedDescription": "The server did not complete the update",
+                "changeSummary": "Added {added}, removed {removed}",
+                "warning": "Warning: {detail}",
+                "maintenanceWarning": "Price maintenance warning: {detail}",
+                "keyModels": "{count} models",
+                "keyFailed": "Key failed"
             }
         },
         "stats": {
@@ -556,6 +584,11 @@
             "apiKey": "API Key",
             "enabled": "Enabled",
             "proxy": "Use proxy",
+            "allowedProtocols": "Allowed protocols",
+            "allowedProtocolsHint": "Only selected protocols can create grants and route requests",
+            "protocolChat": "OpenAI Chat",
+            "protocolResponse": "OpenAI Responses",
+            "protocolAnthropic": "Anthropic Messages",
             "keys": "Credentials",
             "keyAdd": "Add credential",
             "keyName": "Name",

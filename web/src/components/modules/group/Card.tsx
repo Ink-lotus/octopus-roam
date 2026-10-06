@@ -37,6 +37,7 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
                 initial={{
                     name: group.name,
                     mode: group.mode,
+                    model_match_mode: group.model_match_mode,
                     relay_config: group.relay_config,
                     members: displayMembers,
                 }}
@@ -119,6 +120,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
 
         if (values.name !== group.name) payload.name = values.name;
         if (values.mode !== group.mode) payload.mode = values.mode;
+        if (values.model_match_mode !== group.model_match_mode) payload.model_match_mode = values.model_match_mode;
         // 亲和时间已不再由界面提供配置，故不参与变更判定；编辑器状态始终沿用分组上的原值。
         if (
             values.relay_config.member_max_attempts !== group.relay_config.member_max_attempts ||
@@ -150,7 +152,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
             },
             onError,
         });
-    }, [group.id, group.items, group.mode, group.name, group.relay_config, onSuccess, onError, updateGroup]);
+    }, [group.id, group.items, group.mode, group.model_match_mode, group.name, group.relay_config, onSuccess, onError, updateGroup]);
 
     return (
         <article className="flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4">

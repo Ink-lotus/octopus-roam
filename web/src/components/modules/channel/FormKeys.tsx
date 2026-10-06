@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { IconButton } from '@/components/common/IconButton';
 import { useModelProbe } from './probe';
-import { grantKey, type ChannelFormState } from './state';
+import { grantKey, normalizeAllowedProtocols, type ChannelFormState } from './state';
 
 // maskKey 显示凭据尾部, 其余以点替代。
 function maskKey(key: string) {
@@ -54,8 +54,9 @@ export function FormKeys({ state, setState }: {
         setState({ ...state, keys: state.keys.filter((_, i) => i !== index), grants });
     };
 
+    const allowedProtocols = normalizeAllowedProtocols(state.allowed_protocols);
     const grantCount = (keyName: string) =>
-        state.models.filter((m) => (state.grants.get(grantKey(m, keyName)) ?? 0) !== 0).length;
+        state.models.filter((m) => ((state.grants.get(grantKey(m, keyName)) ?? 0) & allowedProtocols) !== 0).length;
 
     const add = () => {
         // 名称在渠道内唯一, 递增取一个未占用的默认名。

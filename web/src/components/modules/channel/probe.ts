@@ -39,7 +39,7 @@ export function useModelProbe() {
             for (const { name, protocols } of fetched) {
                 if (!models.includes(name)) models.push(name);
                 const mapKey = grantKey(name, channelKey.name);
-                grants.set(mapKey, (grants.get(mapKey) ?? 0) | protocols);
+                if (!grants.has(mapKey)) grants.set(mapKey, protocols);
             }
             setState({ ...state, models, grants });
             toast.success(t('modelRefreshSuccess', { count: fetched.length }));

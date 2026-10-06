@@ -4,6 +4,7 @@ import { useTranslations } from 'use-intl';
 import { toast } from 'sonner';
 import {
     type ChannelDetail,
+    Protocol,
     useChannelDetail,
     useCreateChannel,
     useUpdateChannel,
@@ -22,6 +23,7 @@ import { isValidRegex } from '@/lib/regex';
 import {
     emptyFormState,
     fromChannel,
+    normalizeAllowedProtocols,
     toChannelDetail,
     type ChannelFormState,
 } from './state';
@@ -66,14 +68,14 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
     // 新建与编辑弹窗可同时存在, 控件 id 需按渠道隔离。
     const idPrefix = channel ? `channel-${channel.id}` : 'new-channel';
 
-    // 后端会拒的四项在此先挡: 名称与地址非空, 路径以 / 开头, 至少一份填了 Key 的凭据, 至少一个模型。
+    // 名称、地址、路径与凭据先做前端校验。编辑已有渠道可以清空全部模型后保存。
     const canSubmit = state.name.trim() !== ''
         && state.base_url.trim() !== ''
         && [state.openai_chat_completion_path, state.openai_response_path, state.anthropic_message_path]
             .every((path) => path === '' || path.startsWith('/'))
         && state.keys.length > 0
         && state.keys.every((k) => k.key.trim() !== '')
-        && state.models.length > 0;
+        && (channel !== undefined || state.models.length > 0);
 
     const steps: { id: StepID; label: string }[] = [
         ...(channel ? [] : [{ id: 'preset' as StepID, label: t('stepPreset') }]),
@@ -211,6 +213,31 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                         <span className="text-sm">{label}</span>
                                     </label>
                                 ))}
+                            </div>
+                            <div className="space-y-2">
+                                <Label>{t('allowedProtocols')}</Label>
+                                <p className="text-xs text-muted-foreground">{t('allowedProtocolsHint')}</p>
+                                <div className="flex flex-wrap gap-4">
+                                    {([
+                                        [Protocol.OpenAIChatCompletion, t('protocolChat')],
+                                        [Protocol.OpenAIResponse, t('protocolResponse')],
+                                        [Protocol.AnthropicMessage, t('protocolAnthropic')],
+                                    ] as const).map(([bit, label]) => (
+                                        <label key={bit} className="flex items-center gap-2 cursor-pointer">
+                                            <Switch
+                                                checked={(state.allowed_protocols & bit) !== 0}
+                                                disabled={state.allowed_protocols === bit}
+                                                onCheckedChange={(checked) => {
+                                                    const allowed_protocols = normalizeAllowedProtocols(
+                                                        checked ? state.allowed_protocols | bit : state.allowed_protocols & ~bit,
+                                                    );
+                                                    setState({ ...state, allowed_protocols });
+                                                }}
+                                            />
+                                            <span className="text-sm">{label}</span>
+                                        </label>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}

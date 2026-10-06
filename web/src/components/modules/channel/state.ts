@@ -1,4 +1,4 @@
-import type { ChannelDetail } from '@/api/channel';
+import { ProtocolAll, type ChannelDetail } from '@/api/channel';
 
 // ChannelFormState 是渠道表单的全部可编辑内容。
 // 全按名称组织而不存主键: 后端凭据与模型都按名称匹配增删改, 而新建渠道和新加模型时主键尚不存在。
@@ -7,6 +7,7 @@ export type ChannelFormState = {
     dialect: ChannelDetail['dialect'];
     base_url: string;
     enabled: boolean;
+    allowed_protocols: number;
     proxy: boolean;
     openai_chat_completion_path: string;
     openai_response_path: string;
@@ -25,11 +26,18 @@ export function grantKey(modelName: string, keyName: string) {
     return `${modelName}\0${keyName}`;
 }
 
+// 协议开关为空时沿用旧渠道的全协议默认值。
+export function normalizeAllowedProtocols(protocols: number) {
+    const normalized = protocols === 0 ? ProtocolAll : protocols & ProtocolAll;
+    return normalized === 0 ? ProtocolAll : normalized;
+}
+
 export const emptyFormState: ChannelFormState = {
     name: '',
     dialect: 'generic',
     base_url: '',
     enabled: true,
+    allowed_protocols: ProtocolAll,
     proxy: false,
     openai_chat_completion_path: '/v1/chat/completions',
     openai_response_path: '/v1/responses',
@@ -45,11 +53,13 @@ export const emptyFormState: ChannelFormState = {
 
 // fromChannel 把渠道完整配置还原为表单状态; 授权读写都按名称, 直接建索引即可。
 export function fromChannel(channel: ChannelDetail): ChannelFormState {
+    const allowedProtocols = normalizeAllowedProtocols(channel.allowed_protocols);
     return {
         name: channel.name,
         dialect: channel.dialect,
         base_url: channel.base_url,
         enabled: channel.enabled,
+        allowed_protocols: allowedProtocols,
         proxy: channel.proxy,
         openai_chat_completion_path: channel.openai_chat_completion_path,
         openai_response_path: channel.openai_response_path,
@@ -71,6 +81,7 @@ export function toChannelConfig(state: ChannelFormState) {
         name: state.name.trim(),
         dialect: state.dialect,
         enabled: state.enabled,
+        allowed_protocols: normalizeAllowedProtocols(state.allowed_protocols),
         base_url: state.base_url.trim(),
         openai_chat_completion_path: state.openai_chat_completion_path.trim(),
         openai_response_path: state.openai_response_path.trim(),
@@ -87,12 +98,14 @@ export function toChannelConfig(state: ChannelFormState) {
 // 读写同构, 提交即全量: 无需与原渠道逐字段比对, 表单本就一次给出完整配置。
 // 协议位为空的条目不是授权, 在此丢弃。
 export function toChannelDetail(state: ChannelFormState, id: number): ChannelDetail {
+    const allowedProtocols = normalizeAllowedProtocols(state.allowed_protocols);
     return {
         ...toChannelConfig(state),
         id,
         keys: state.keys.map(({ name, key, enabled }) => ({ name: name.trim(), key: key.trim(), enabled })),
         models: [...state.models],
         grants: [...state.grants]
+            .map(([mapKey, protocols]) => [mapKey, protocols & allowedProtocols] as const)
             .filter(([, protocols]) => protocols !== 0)
             .map(([mapKey, protocols]) => {
                 const [model_name, key_name] = mapKey.split('\0');

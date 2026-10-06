@@ -5,10 +5,25 @@ type Protocol uint8
 
 // 协议位从 1 << 1 开始, 1 << 0 保留待用; 位值会落库并与前端交互, 不可再变更。
 const (
-	ProtocolOpenAIChatCompletion Protocol = 1 << 1 // OpenAI Chat Completions 协议。
-	ProtocolOpenAIResponse       Protocol = 1 << 2 // OpenAI Responses 协议。
-	ProtocolAnthropicMessage     Protocol = 1 << 3 // Anthropic Messages 协议。
+	ProtocolOpenAIChatCompletion Protocol = 1 << 1                                                                           // OpenAI Chat Completions 协议。
+	ProtocolOpenAIResponse       Protocol = 1 << 2                                                                           // OpenAI Responses 协议。
+	ProtocolAnthropicMessage     Protocol = 1 << 3                                                                           // Anthropic Messages 协议。
+	ProtocolAll                  Protocol = ProtocolOpenAIChatCompletion | ProtocolOpenAIResponse | ProtocolAnthropicMessage // 当前定义的全部协议。
 )
+
+// NormalizeProtocols 将缺省的协议掩码解释为全部协议。旧渠道和旧备份没有
+// allowed_protocols 字段，JSON 解码后会得到零值，必须在所有读写边界保持旧行为。
+func NormalizeProtocols(protocols Protocol) Protocol {
+	if protocols == 0 {
+		return ProtocolAll
+	}
+	return protocols
+}
+
+// EffectiveProtocols 返回一条授权在渠道开关下实际可用的协议集合。
+func EffectiveProtocols(allowed, grant Protocol) Protocol {
+	return NormalizeProtocols(allowed) & grant
+}
 
 // 上游在标准协议之上的方言。
 // 同一协议下不同服务商仍可能有请求体或响应体上的差异, 例如思考内容放 reasoning_content 还是 reasoning,
@@ -29,6 +44,7 @@ type ChannelConfig struct {
 	Name                     string         `json:"name" gorm:"unique;not null"`                                                                        // 渠道名称。
 	Dialect                  Dialect        `json:"dialect" gorm:"not null;default:generic"`                                                            // 上游方言, 决定出站转换器的厂商特化配置。
 	Enabled                  bool           `json:"enabled" gorm:"default:true"`                                                                        // 渠道是否可用。
+	AllowedProtocols         Protocol       `json:"allowed_protocols" gorm:"not null;default:14"`                                                       // 渠道允许参与的协议位掩码。
 	BaseURL                  string         `json:"base_url"`                                                                                           // 上游地址, 各协议共用。
 	OpenAIChatCompletionPath string         `json:"openai_chat_completion_path" gorm:"column:openai_chat_completion_path;default:/v1/chat/completions"` // OpenAI Chat Completions 请求路径; 留空由后端填默认路径。
 	OpenAIResponsePath       string         `json:"openai_response_path" gorm:"column:openai_response_path;default:/v1/responses"`                      // OpenAI Responses 请求路径; 留空由后端填默认路径。
@@ -42,7 +58,7 @@ type ChannelConfig struct {
 
 // 单个上游渠道的共享配置; 路径按协议分别配置, 凭据由 ChannelKey 提供。
 type Channel struct {
-	ID            int            `json:"id" gorm:"primaryKey"`                                      // 渠道主键。
+	ID            int            `json:"id" gorm:"primaryKey"` // 渠道主键。
 	ChannelConfig                // 可编辑配置, 平铺为 channels 的各列。
 	Keys          []ChannelKey   `json:"-" gorm:"foreignKey:ChannelID;constraint:OnDelete:CASCADE"` // 渠道下的上游凭据; 不出 JSON, 读取走 ChannelDetail。
 	Models        []ChannelModel `json:"-" gorm:"foreignKey:ChannelID;constraint:OnDelete:CASCADE"` // 渠道提供的模型; 不出 JSON, 读取走 ChannelDetail。
@@ -89,7 +105,7 @@ type ChannelGrant struct {
 // 凭据与模型只给界面用得上的字段: 两者在渠道内按名称唯一, 提交时也按名称引用, 主键与统计都无从使用。
 // 集合字段恒为数组, 读取侧承诺不为 null。
 type ChannelDetail struct {
-	ID            int                  `json:"id"`     // 渠道主键; 创建时提交 0, 由数据库分配。
+	ID            int                  `json:"id"` // 渠道主键; 创建时提交 0, 由数据库分配。
 	ChannelConfig                      // 渠道自身的可编辑配置。
 	Keys          []ChannelKeyConfig   `json:"keys"`   // 渠道下的上游凭据。
 	Models        []string             `json:"models"` // 渠道提供的上游模型名称。
@@ -156,4 +172,36 @@ type ChannelFetchModelRequest struct {
 type ChannelFetchModel struct {
 	Name      string   `json:"name"`      // 上游模型名称。
 	Protocols Protocol `json:"protocols"` // 由探测结果得出的协议位掩码。
+}
+
+// 渠道模型刷新选项; AutoAddGroups 控制是否按已有分组规则追加本次刷新得到的新授权。
+type ChannelModelRefreshOptions struct {
+	AutoAddGroups bool `json:"auto_add_groups"`
+}
+
+// 单个启用凭据的模型探测结果; Error 也会说明不影响提交的单侧探测失败。
+type ChannelModelRefreshKeyResult struct {
+	KeyName    string `json:"key_name"`
+	Success    bool   `json:"success"`
+	ModelCount int    `json:"model_count"`
+	Error      string `json:"error,omitempty"`
+}
+
+// 渠道模型持久化刷新结果。
+type ChannelModelRefreshResult struct {
+	ChannelID     int                            `json:"channel_id"`
+	Success       bool                           `json:"success"`
+	Error         string                         `json:"error,omitempty"`
+	Warnings      []string                       `json:"warnings,omitempty"` // 刷新已提交后, 价格维护等非关键步骤的诊断。
+	ZeroModels    bool                           `json:"zero_models"`
+	AddedModels   []string                       `json:"added_models"`
+	RemovedModels []string                       `json:"removed_models"`
+	KeyResults    []ChannelModelRefreshKeyResult `json:"key_results"`
+}
+
+// 一个渠道凭据的模型探测, 协议侧的错误保留在结果中; 仅当两侧均失败时该 Key 才失败。
+type ChannelModelFetchResult struct {
+	Models         []ChannelFetchModel
+	OpenAIError    string
+	AnthropicError string
 }

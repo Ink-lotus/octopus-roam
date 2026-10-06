@@ -55,6 +55,20 @@ func GroupListModel() []string {
 	return models
 }
 
+// GroupGrantCandidates 返回分组编辑器可新增的授权候选。
+// 渠道授权接口还会返回暂不可用的授权, 以便其它配置页面查看其状态; 分组新增成员只能选择当前可转发的授权。
+// 已有成员仍由 GroupGet 的快照单独返回, 因而不会因为候选过滤而丢失。
+func GroupGrantCandidates() []model.ChannelGrantCandidate {
+	candidates := ChannelGrantCandidates()
+	available := make([]model.ChannelGrantCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Available {
+			available = append(available, candidate)
+		}
+	}
+	return available
+}
+
 // GroupGetByName 返回客户端模型名称对应的完整分组配置, 供转发选路使用。
 // Relay 根据 Available 跳过暂不可用成员, 保留完整成员集合供路由版本检测与恢复通知使用。
 func GroupGetByName(name string) (model.Group, error) {
@@ -80,13 +94,17 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 		return nil, fmt.Errorf("group name is required")
 	}
 	group := model.Group{
-		Name:        name,
-		Mode:        req.Mode,
-		RelayConfig: req.RelayConfig,
-		Items:       make([]model.GroupItem, len(req.Items)),
+		Name:           name,
+		Mode:           req.Mode,
+		ModelMatchMode: model.NormalizeGroupModelMatchMode(req.ModelMatchMode),
+		RelayConfig:    req.RelayConfig,
+		Items:          make([]model.GroupItem, len(req.Items)),
 	}
 	if group.Mode == "" {
 		group.Mode = model.GroupModeManual
+	}
+	if err := model.ValidateGroupModelMatchMode(group.ModelMatchMode); err != nil {
+		return nil, err
 	}
 	if group.RelayConfig == (model.GroupRelayConfig{}) {
 		defaults, err := GroupRouteDefaultsGet()
@@ -127,6 +145,13 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 	if err := model.ValidateGroupMode(mode); err != nil {
 		return nil, err
 	}
+	matchMode := model.NormalizeGroupModelMatchMode(oldGroup.ModelMatchMode)
+	if req.ModelMatchMode != nil {
+		matchMode = *req.ModelMatchMode
+	}
+	if err := model.ValidateGroupModelMatchMode(matchMode); err != nil {
+		return nil, err
+	}
 
 	var selectFields []string
 	updates := model.Group{ID: id}
@@ -141,6 +166,10 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 	if req.Mode != nil {
 		selectFields = append(selectFields, "mode")
 		updates.Mode = *req.Mode
+	}
+	if req.ModelMatchMode != nil {
+		selectFields = append(selectFields, "model_match_mode")
+		updates.ModelMatchMode = matchMode
 	}
 	config := oldGroup.RelayConfig
 	if req.RelayConfig != nil {
@@ -192,6 +221,7 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 	}
 
 	sortGroupItems(group.Items)
+	group.ModelMatchMode = model.NormalizeGroupModelMatchMode(group.ModelMatchMode)
 	groupCache.Set(group.ID, group)
 	groupNameIndex.Set(group.Name, group.ID)
 	if oldName != group.Name {
@@ -274,6 +304,13 @@ func GroupDel(id int, ctx context.Context) error {
 func groupRefreshCache(ctx context.Context) error {
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	return groupRefreshCacheLocked(ctx)
+}
+
+// groupRefreshCacheLocked 从数据库刷新完整分组缓存; 调用方必须持有 groupWriteMu。
+// 刷新渠道时需要把分组成员同步与渠道模型事务串起来, 因而由调用方在同一把锁下
+// 先提交分组成员再重载缓存, 避免手动编辑在两步之间插入。
+func groupRefreshCacheLocked(ctx context.Context) error {
 	groups := []model.Group{}
 	if err := db.GetDB().WithContext(ctx).
 		Preload("Items").
@@ -283,6 +320,7 @@ func groupRefreshCache(ctx context.Context) error {
 	groupCache.Clear()
 	groupNameIndex.Clear()
 	for _, group := range groups {
+		group.ModelMatchMode = model.NormalizeGroupModelMatchMode(group.ModelMatchMode)
 		sortGroupItems(group.Items)
 		groupCache.Set(group.ID, group)
 		groupNameIndex.Set(group.Name, group.ID)
@@ -304,6 +342,7 @@ func sortGroupItems(items []model.GroupItem) {
 // 可用性在此一次定稿: 渠道与凭据均启用且模型, 凭据均存在时可转发, 否则仍列出该成员但标记不可用,
 // 由此界面无需再按渠道列表回查, 也不会出现前后端各判一套的分歧。
 func groupSnapshot(group model.Group) model.Group {
+	group.ModelMatchMode = model.NormalizeGroupModelMatchMode(group.ModelMatchMode)
 	model.NormalizeGroupRelayConfigForMode(&group.RelayConfig, group.Mode)
 	// 成员恒为数组: 读取侧承诺该字段不为 null, 空分组也要给出空数组。
 	group.Items = append(make([]model.GroupItem, 0, len(group.Items)), group.Items...)
@@ -312,7 +351,7 @@ func groupSnapshot(group model.Group) model.Group {
 		if !ok {
 			continue
 		}
-		group.Items[i].Protocols = grant.Protocols
+		group.Items[i].Protocols = 0
 		channelModel, modelOK := channelModelCache.Get(grant.ChannelModelID)
 		channelKey, keyOK := channelKeyCache.Get(grant.ChannelKeyID)
 		if !modelOK || !keyOK {
@@ -326,7 +365,8 @@ func groupSnapshot(group model.Group) model.Group {
 			continue
 		}
 		group.Items[i].ChannelName = channel.Name
-		group.Items[i].Available = channel.Enabled && channelKey.Enabled
+		group.Items[i].Protocols = model.EffectiveProtocols(channel.AllowedProtocols, grant.Protocols)
+		group.Items[i].Available = channel.Enabled && channelKey.Enabled && group.Items[i].Protocols != 0
 	}
 	return group
 }

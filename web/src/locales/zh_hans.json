@@ -399,6 +399,10 @@
             "modeHint": "手动固定选中成员；故障转移按成员顺序并在失败时切换",
             "manual": "手动",
             "failover": "故障转移",
+            "modelMatchMode": "模型匹配",
+            "modelMatchModeHint": "自动添加模型时使用的名称匹配规则；严格匹配会去除首尾空格",
+            "modelMatchKeyword": "关键词包含",
+            "modelMatchExact": "严格全名",
             "members": "成员",
             "relay": "路由策略",
             "commonSettings": "公共参数",
@@ -469,6 +473,15 @@
             "empty": "暂无日志",
             "disconnected": "日志连接已断开，正在重连"
         },
+        "filter": {
+            "label": "状态",
+            "all": "全部",
+            "inProgress": "请求中",
+            "success": "成功",
+            "failed": "失败",
+            "canceled": "已取消",
+            "noResults": "没有符合此状态的日志"
+        },
         "status": {
             "running": "运行中",
             "committed": "响应中",
@@ -528,6 +541,21 @@
             "toast": {
                 "enabled": "渠道已启用",
                 "disabled": "渠道已禁用"
+            },
+            "refresh": {
+                "button": "更新模型",
+                "pending": "正在更新…",
+                "autoAddGroups": "将匹配模型添加到分组",
+                "success": "已更新 {count} 个模型",
+                "successTitle": "模型更新成功",
+                "empty": "模型更新返回空结果",
+                "failed": "模型更新失败",
+                "failedDescription": "服务器未完成更新",
+                "changeSummary": "新增 {added} 个，移除 {removed} 个",
+                "warning": "告警：{detail}",
+                "maintenanceWarning": "价格维护告警：{detail}",
+                "keyModels": "{count} 个模型",
+                "keyFailed": "凭据失败"
             }
         },
         "stats": {
@@ -556,6 +584,11 @@
             "apiKey": "API Key",
             "enabled": "启用",
             "proxy": "使用代理",
+            "allowedProtocols": "允许的协议",
+            "allowedProtocolsHint": "只有选中的协议可以创建授权并参与路由",
+            "protocolChat": "OpenAI Chat",
+            "protocolResponse": "OpenAI Responses",
+            "protocolAnthropic": "Anthropic Messages",
             "keys": "凭据",
             "keyAdd": "添加凭据",
             "keyName": "名称",

@@ -26,6 +26,10 @@ func init() {
 				Handle(getGroupList),
 		).
 		AddRoute(
+			router.NewRoute("/candidates", http.MethodGet).
+				Handle(getGroupCandidates),
+		).
+		AddRoute(
 			router.NewRoute("/get/:id", http.MethodGet).
 				Handle(getGroup),
 		).
@@ -164,6 +168,12 @@ func getGroupList(c *gin.Context) {
 		responses[i] = groupResponse{Group: group, Runtime: relay.RouteStateOf(group)}
 	}
 	resp.Success(c, responses)
+}
+
+// getGroupCandidates 返回分组编辑器可新增的授权候选。
+// 暂不可用的渠道或凭据只会作为已有成员快照的一部分返回, 不进入新增候选。
+func getGroupCandidates(c *gin.Context) {
+	resp.Success(c, op.GroupGrantCandidates())
 }
 
 // getGroup 返回单个分组及其当前实时路由状态。

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select';
 import { IconButton } from '@/components/common/IconButton';
 import { useModelProbe } from './probe';
-import { grantKey, type ChannelFormState } from './state';
+import { grantKey, normalizeAllowedProtocols, type ChannelFormState } from './state';
 
 // GrantCells 渲染一行右侧固定的四格: chat, response, message 三个协议勾选和一个删除。
 // 表头, 模型行, 凭据子行的差别只是这一行覆盖的 (模型 × 凭据) 范围与删除动作, 勾选,
@@ -28,6 +28,7 @@ function GrantCells({ state, setState, models, keyNames, remove, icon: Icon, tip
     icon: LucideIcon; // 删除格的图标, 表头用橡皮, 模型与凭据行用垃圾桶。
     tip: string; // 删除格的提示, 三级的删除语义不同。
 }) {
+    const allowedProtocols = normalizeAllowedProtocols(state.allowed_protocols);
     // cell 渲染一个协议格: 覆盖范围内全部组合都开为 true, 全关为 false, 其余为半选。
     const cell = (bit: number) => {
         let on = 0;
@@ -37,13 +38,15 @@ function GrantCells({ state, setState, models, keyNames, remove, icon: Icon, tip
             }
         }
         const total = models.length * keyNames.length;
-        const value = total === 0 || on === 0 ? false : on === total ? true : 'indeterminate';
+        const enabled = (allowedProtocols & bit) !== 0;
+        const value = !enabled || total === 0 || on === 0 ? false : on === total ? true : 'indeterminate';
         return (
             <span className="w-7 flex justify-center">
                 <Checkbox
                     checked={value}
-                    disabled={total === 0}
+                    disabled={total === 0 || !enabled}
                     onCheckedChange={() => {
+                        if (!enabled) return;
                         // 已全开则整片取消, 否则整片打开; 协议位清空即该条授权不存在, 直接从 Map 移除。
                         const grants = new Map(state.grants);
                         for (const modelName of models) {
@@ -97,6 +100,7 @@ export function FormGrants({ state, setState }: {
     const [selectedKey, setSelectedKey] = useState('');
 
     const keyNames = state.keys.map((k) => k.name);
+    const allowedProtocols = normalizeAllowedProtocols(state.allowed_protocols);
     const activeKey = selectedKey || keyNames[0] || '';
     const allExpanded = state.models.length > 0 && state.models.every((m) => expanded.has(m));
 
@@ -113,18 +117,25 @@ export function FormGrants({ state, setState }: {
         setState({ ...state, models: state.models.filter((m) => m !== modelName), grants });
     };
 
-    // 自定义模型直接授权给当前选中的凭据, 协议位沿用该凭据在其他模型上已有的并集。
-    // 并集来自此前刷新探测出的结果, 即该凭据确实讲得通的协议; 该凭据尚无任何授权时退回 Responses,
-    // 与探测的默认一致: Chat Completions 已被官方标记弃用, 需要它的渠道由用户手动勾选 Chat 列。
+    // 自定义模型直接授权给当前选中的凭据, 优先沿用该凭据已有且仍被渠道允许的协议并集。
+    // 没有可沿用的协议时按 Responses、Anthropic、Chat 的顺序选择渠道允许的默认协议。
     const addModel = () => {
         const name = adding.trim();
         if (!name || state.models.includes(name)) return;
         let protocols = 0;
         for (const modelName of state.models) {
-            protocols |= state.grants.get(grantKey(modelName, activeKey)) ?? 0;
+            protocols |= (state.grants.get(grantKey(modelName, activeKey)) ?? 0) & allowedProtocols;
+        }
+        if (protocols === 0) {
+            for (const bit of [Protocol.OpenAIResponse, Protocol.AnthropicMessage, Protocol.OpenAIChatCompletion]) {
+                if (allowedProtocols & bit) {
+                    protocols = bit;
+                    break;
+                }
+            }
         }
         const grants = new Map(state.grants);
-        if (activeKey) grants.set(grantKey(name, activeKey), protocols || Protocol.OpenAIResponse);
+        if (activeKey && protocols !== 0) grants.set(grantKey(name, activeKey), protocols);
         setState({ ...state, models: [...state.models, name], grants });
         setAdding('');
     };
@@ -203,7 +214,7 @@ export function FormGrants({ state, setState }: {
                     ) : state.models.map((modelName) => {
                         const isOpen = expanded.has(modelName);
                         const granted = keyNames.filter(
-                            (keyName) => (state.grants.get(grantKey(modelName, keyName)) ?? 0) !== 0
+                            (keyName) => ((state.grants.get(grantKey(modelName, keyName)) ?? 0) & allowedProtocols) !== 0
                         ).length;
                         return (
                             <div key={modelName} className="border-b border-border last:border-0">
@@ -235,10 +246,11 @@ export function FormGrants({ state, setState }: {
                                 {/* 未授权的凭据也要列出, 否则没有入口给它打勾; 压暗以区分于已授权的凭据。 */}
                                 {isOpen && state.keys.map((channelKey) => {
                                     const protocols = state.grants.get(grantKey(modelName, channelKey.name)) ?? 0;
+                                    const effectiveProtocols = protocols & allowedProtocols;
                                     return (
                                         <div
                                             key={channelKey.name}
-                                            className={`flex items-center gap-1 pl-9 pr-3 py-1.5 bg-muted/20 ${protocols === 0 ? 'opacity-45' : ''}`}
+                                            className={`flex items-center gap-1 pl-9 pr-3 py-1.5 bg-muted/20 ${effectiveProtocols === 0 ? 'opacity-45' : ''}`}
                                         >
                                             <span className="flex-1 text-xs text-muted-foreground truncate">{channelKey.name}</span>
                                             <GrantCells

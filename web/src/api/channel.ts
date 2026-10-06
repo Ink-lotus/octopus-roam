@@ -11,6 +11,8 @@ export const Protocol = {
     AnthropicMessage: 1 << 3,
 } as const;
 
+export const ProtocolAll = Protocol.OpenAIChatCompletion | Protocol.OpenAIResponse | Protocol.AnthropicMessage;
+
 // Dialect 是上游在标准协议之上的方言，决定出站转换器的厂商特化配置。
 // 地址与路径不属于方言范畴，由前端按服务商预填到渠道字段上。
 export type Dialect = 'generic';
@@ -37,19 +39,6 @@ export type ChannelGrant = {
     protocols: number; // Protocol 位掩码。
 };
 
-// ChannelGrantCandidate 是分组页可选取的一条授权，字段与 GroupItem 的展示字段一一对应。
-// 分组页由此不必拉整份渠道列表：那里带着统计、路径、代理与凭据明文，与选取成员无关。
-// available 与分组成员同一口径，均由后端定稿，前后端不会各判一套。
-export type ChannelGrantCandidate = {
-    id: number; // 授权主键，分组成员按它引用。
-    channel_id: number;
-    channel_name: string;
-    model_name: string;
-    key_name: string;
-    protocols: number; // Protocol 位掩码。
-    available: boolean;
-};
-
 /**
  * 渠道完整配置（与后端 model.ChannelDetail 对齐）
  * 读写同构：编辑表单读到什么形状就提交什么形状，故创建与更新共用此类型，无需另建提交类型。
@@ -61,6 +50,7 @@ export type ChannelDetail = {
     name: string;
     dialect: Dialect;
     enabled: boolean;
+    allowed_protocols: number; // 渠道允许参与的 Protocol 位掩码。
     base_url: string; // 上游地址，各协议共用。
     openai_chat_completion_path: string;
     openai_response_path: string;
@@ -126,17 +116,25 @@ export type FetchModel = {
     protocols: number; // Protocol 位掩码。
 };
 
-// channelGrantListQueryOptions 供分组页查询可选授权。
-// 与渠道列表分开: 选取成员只需名称与可用性, 拉整份渠道会连带路径, 代理与凭据明文。
-export const channelGrantListQueryOptions = queryOptions({
-    queryKey: ['channels', 'grants'],
-    queryFn: () => apiRequest<ChannelGrantCandidate[]>('/api/v1/channel/grants'),
-});
+// ChannelModelRefreshResult 是已保存渠道执行一次模型刷新后的持久化结果。
+// success 由响应体决定：HTTP 200 但 success=false 仍表示刷新失败，需要由界面展示失败原因。
+export type ChannelModelRefreshKeyResult = {
+    key_name: string;
+    success: boolean;
+    model_count: number;
+    error?: string;
+};
 
-// useChannelGrantList 获取分组页可选的全部渠道授权。
-export function useChannelGrantList(enabled = true) {
-    return useQuery({ ...channelGrantListQueryOptions, enabled, refetchOnMount: 'always' });
-}
+export type ChannelModelRefreshResult = {
+    channel_id: number;
+    success: boolean;
+    error?: string;
+    warnings?: string[];
+    zero_models: boolean;
+    added_models: string[];
+    removed_models: string[];
+    key_results: ChannelModelRefreshKeyResult[];
+};
 
 // channelStatsFormattedQueryOptions 统一渠道统计查询, 格式化和刷新策略。
 // 与配置分开刷新: 统计每次转发都在变, 配置只在人工改动后由 mutation 失效。
@@ -295,5 +293,27 @@ export function useFetchModel() {
     return useMutation({
         mutationFn: (data: FetchModelRequest) =>
             apiRequest<FetchModel[]>('/api/v1/channel/fetch-model', { method: 'POST', body: data }),
+    });
+}
+
+// useRefreshChannelModels 持久化刷新一个已保存渠道的模型与授权。
+// auto_add_groups 只作用于本次请求，默认由调用方传入 false，不读取或写入持久化设置。
+export function useRefreshChannelModels() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ id, autoAddGroups = false }: { id: number; autoAddGroups?: boolean }) =>
+            apiRequest<ChannelModelRefreshResult>(`/api/v1/channel/refresh-model/${id}`, {
+                method: 'POST',
+                body: { auto_add_groups: autoAddGroups },
+            }),
+        onSuccess: () => {
+            // 刷新会替换模型、授权并同步已有分组成员；失效所有相关列表与详情缓存，
+            // 活跃查询会立即重新拉取，下一次打开详情也会从服务端读取最新数据。
+            queryClient.invalidateQueries({ queryKey: ['channels'] });
+            queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] });
+        },
     });
 }

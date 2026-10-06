@@ -22,7 +22,7 @@ var (
 )
 
 // 已定义的全部协议位, 用于校验提交的协议掩码。
-const definedProtocols = model.ProtocolOpenAIChatCompletion | model.ProtocolOpenAIResponse | model.ProtocolAnthropicMessage
+const definedProtocols = model.ProtocolAll
 
 // ChannelDetailGet 返回指定渠道的完整配置, 供编辑表单读取。
 func ChannelDetailGet(id int) (model.ChannelDetail, error) {
@@ -98,12 +98,14 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := normalizeChannelDetail(detail); err != nil {
 		return nil, err
 	}
+	channelRefreshCommitMu.Lock()
+	defer channelRefreshCommitMu.Unlock()
 
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 逐列点名而不整行覆盖: 全量提交下 enabled 置假与被清空的可选字段都必须落库, 按零值跳过会写不进去;
 		// 而统计列由转发累加, 不在提交范围内, 整行覆盖会把它抹回提交时的旧值。
 		if err := tx.Model(&model.Channel{}).Where("id = ?", detail.ID).
-			Select("name", "dialect", "enabled", "base_url",
+			Select("name", "dialect", "enabled", "allowed_protocols", "base_url",
 				"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
 				"proxy", "channel_proxy", "custom_header", "param_override", "match_regex").
 			Updates(&model.Channel{ChannelConfig: detail.ChannelConfig}).Error; err != nil {
@@ -148,6 +150,10 @@ func normalizeChannelConfig(config model.ChannelConfig) (model.ChannelConfig, er
 	}
 	if config.Dialect == "" {
 		config.Dialect = model.DialectGeneric
+	}
+	config.AllowedProtocols = model.NormalizeProtocols(config.AllowedProtocols)
+	if config.AllowedProtocols&^definedProtocols != 0 {
+		return config, fmt.Errorf("channel allowed protocols %d contains undefined bits", config.AllowedProtocols)
 	}
 	var err error
 	if config.OpenAIChatCompletionPath, err = normalizedPath(config.OpenAIChatCompletionPath, "/v1/chat/completions"); err != nil {
@@ -223,6 +229,8 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("channel not found")
 	}
+	channelRefreshCommitMu.Lock()
+	defer channelRefreshCommitMu.Unlock()
 	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
 		return err
 	}
@@ -236,6 +244,8 @@ func ChannelDel(id int, ctx context.Context) error {
 	if _, ok := channelCache.Get(id); !ok {
 		return fmt.Errorf("channel not found")
 	}
+	channelRefreshCommitMu.Lock()
+	defer channelRefreshCommitMu.Unlock()
 	grantIDs := channelGrantIDs(id)
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(grantIDs) > 0 {
@@ -310,6 +320,14 @@ func ChannelGrantGet(id int) (model.ChannelGrant, error) {
 	if !channelKey.Enabled {
 		return model.ChannelGrant{}, fmt.Errorf("channel key %d is disabled", channelKey.ID)
 	}
+	channel, ok := channelCache.Get(channelModel.ChannelID)
+	if !ok {
+		return model.ChannelGrant{}, fmt.Errorf("channel %d not found", channelModel.ChannelID)
+	}
+	grant.Protocols = model.EffectiveProtocols(channel.AllowedProtocols, grant.Protocols)
+	if grant.Protocols == 0 {
+		return model.ChannelGrant{}, fmt.Errorf("channel grant %d has no allowed protocol", grant.ID)
+	}
 	grant.ChannelModel = &channelModel
 	grant.ChannelKey = &channelKey
 	return grant, nil
@@ -343,13 +361,17 @@ func ChannelGrantCandidates() []model.ChannelGrantCandidate {
 		if !channelOK {
 			continue
 		}
+		protocols := model.EffectiveProtocols(channel.AllowedProtocols, grant.Protocols)
+		if protocols == 0 {
+			continue
+		}
 		candidates = append(candidates, model.ChannelGrantCandidate{
 			ID:          grant.ID,
 			ChannelID:   channel.ID,
 			ChannelName: channel.Name,
 			ModelName:   channelModel.Name,
 			KeyName:     channelKey.Name,
-			Protocols:   grant.Protocols,
+			Protocols:   protocols,
 			Available:   channel.Enabled && channelKey.Enabled,
 		})
 	}
@@ -392,6 +414,7 @@ func channelRefreshCache(ctx context.Context) error {
 	channelModelCache.Clear()
 	channelGrantCache.Clear()
 	for _, channel := range channels {
+		channel.AllowedProtocols = model.NormalizeProtocols(channel.AllowedProtocols)
 		channelCache.Set(channel.ID, channel)
 	}
 	for _, channelKey := range channelKeys {
@@ -410,6 +433,9 @@ func channelRefreshCache(ctx context.Context) error {
 // 存活目标保留缓存中尚未落库的统计, 避免刷新丢失本轮累加。
 func reloadChannelChildren(ctx context.Context, channelID int) error {
 	conn := db.GetDB().WithContext(ctx)
+	// 在删除失效模型缓存前取出授权主键; channelGrantIDs 通过模型缓存识别渠道,
+	// 若模型缓存已先删空, 旧授权缓存就会残留, 尤其会影响刷新到零模型的渠道。
+	existingGrantIDs := channelGrantIDs(channelID)
 	channelKeys := []model.ChannelKey{}
 	if err := conn.Where("channel_id = ?", channelID).Find(&channelKeys).Error; err != nil {
 		return fmt.Errorf("failed to load channel keys: %w", err)
@@ -464,7 +490,7 @@ func reloadChannelChildren(ctx context.Context, channelID int) error {
 	channelModelStatsNeedUpdateLock.Unlock()
 
 	// 授权不带统计, 直接按库内行整体替换。
-	for _, grantID := range channelGrantIDs(channelID) {
+	for _, grantID := range existingGrantIDs {
 		channelGrantCache.Del(grantID)
 	}
 	for _, grant := range grants {
@@ -511,7 +537,11 @@ func channelDetail(channel model.Channel) model.ChannelDetail {
 		if !ok {
 			continue
 		}
-		grants = append(grants, model.ChannelGrantConfig{ModelName: modelName, KeyName: keyName, Protocols: grant.Protocols})
+		protocols := model.EffectiveProtocols(channel.AllowedProtocols, grant.Protocols)
+		if protocols == 0 {
+			continue
+		}
+		grants = append(grants, model.ChannelGrantConfig{ModelName: modelName, KeyName: keyName, Protocols: protocols})
 	}
 	sort.Slice(grants, func(i, j int) bool {
 		if grants[i].ModelName != grants[j].ModelName {
@@ -617,6 +647,14 @@ func syncChannelModels(tx *gorm.DB, channelID int, requested []string) error {
 // 授权以 (模型, 凭据) 组合唯一, 该组合作为匹配依据; 提交方按名称引用, 名称在此解析为本渠道的主键。
 // 凭据与模型已在本事务内先行同步, 故新增的两者在此都能查到, 一次提交即可完成建模型与授权。
 func syncChannelGrants(tx *gorm.DB, channelID int, requested []model.ChannelGrantConfig) error {
+	var channel model.Channel
+	if err := tx.Select("id", "allowed_protocols").First(&channel, channelID).Error; err != nil {
+		return fmt.Errorf("failed to load channel protocols: %w", err)
+	}
+	allowedProtocols := model.NormalizeProtocols(channel.AllowedProtocols)
+	if allowedProtocols&^definedProtocols != 0 {
+		return fmt.Errorf("channel allowed protocols %d contains undefined bits", allowedProtocols)
+	}
 	var channelModels []model.ChannelModel
 	if err := tx.Where("channel_id = ?", channelID).Find(&channelModels).Error; err != nil {
 		return fmt.Errorf("failed to load channel models: %w", err)
@@ -660,14 +698,19 @@ func syncChannelGrants(tx *gorm.DB, channelID int, requested []model.ChannelGran
 		if !ok {
 			return fmt.Errorf("channel key %q does not belong to channel %d", requestedGrant.KeyName, channelID)
 		}
+		key := grantKey{modelID, keyID}
 		if requestedGrant.Protocols == 0 || requestedGrant.Protocols&^definedProtocols != 0 {
 			return fmt.Errorf("channel grant protocols %d is empty or contains undefined bits", requestedGrant.Protocols)
 		}
-		key := grantKey{modelID, keyID}
+		requestedProtocols := model.EffectiveProtocols(allowedProtocols, requestedGrant.Protocols)
+		if requestedProtocols == 0 {
+			// 渠道级协议开关关闭了该授权的全部协议, 删除授权并由外键清理分组成员。
+			continue
+		}
 		if current, ok := existingByKey[key]; ok {
-			if current.Protocols != requestedGrant.Protocols {
+			if current.Protocols != requestedProtocols {
 				if err := tx.Model(&model.ChannelGrant{}).Where("id = ?", current.ID).
-					Update("protocols", requestedGrant.Protocols).Error; err != nil {
+					Update("protocols", requestedProtocols).Error; err != nil {
 					return fmt.Errorf("failed to update channel grant: %w", err)
 				}
 			}
@@ -677,7 +720,7 @@ func syncChannelGrants(tx *gorm.DB, channelID int, requested []model.ChannelGran
 		newGrant := model.ChannelGrant{
 			ChannelModelID: modelID,
 			ChannelKeyID:   keyID,
-			Protocols:      requestedGrant.Protocols,
+			Protocols:      requestedProtocols,
 		}
 		if err := tx.Create(&newGrant).Error; err != nil {
 			return fmt.Errorf("failed to create channel grant: %w", err)

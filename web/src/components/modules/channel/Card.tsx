@@ -6,16 +6,17 @@ import {
     MorphingDialogDescription,
 } from '@/components/ui/morphing-dialog';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, DollarSign, Layers, MessageSquare, XCircle } from 'lucide-react';
-import { type ChannelStatsFormatted, useEnableChannel } from '@/api/channel';
+import { CheckCircle2, DollarSign, Layers, LoaderCircle, MessageSquare, RefreshCw, XCircle } from 'lucide-react';
+import { type ChannelModelRefreshResult, type ChannelStatsFormatted, useEnableChannel, useRefreshChannelModels } from '@/api/channel';
 import { usePageActionsStore } from '@/components/common/PageActions';
 import { ChannelStats } from './Stats';
 import { ChannelForm } from './Form';
 import { useTranslations } from 'use-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 // Card 展示单个渠道的概览; 名称, 启停与统计都在同一条统计查询里, 整份配置只在点开编辑时另取。
 export function Card({ channel }: { channel: ChannelStatsFormatted }) {
@@ -23,8 +24,12 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     // 布局是渠道页共享的视图选项, 直接取用而不由列表层层传入。
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
     const enableChannel = useEnableChannel();
+    const refreshChannelModels = useRefreshChannelModels();
     // 弹窗默认展示统计, 编辑入口在统计视图的头部; 关闭后下次打开仍回到统计, 故点卡片时复位。
     const [openInEditing, setOpenInEditing] = useState(false);
+    const [autoAddGroups, setAutoAddGroups] = useState(false);
+    const [refreshResult, setRefreshResult] = useState<ChannelModelRefreshResult | null>(null);
+    const refreshInFlight = useRef(false);
     const metrics = channel.formatted;
 
     // 列表布局的统计项, 缺少 unit 时只显示数值
@@ -56,6 +61,57 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
         );
     };
 
+    const handleRefresh = (event: React.MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (refreshInFlight.current || refreshChannelModels.isPending) return;
+        refreshInFlight.current = true;
+        setRefreshResult(null);
+        refreshChannelModels.mutate(
+            { id: channel.channel_id, autoAddGroups },
+            {
+                onSuccess: (result) => {
+                    setRefreshResult(result);
+                    if (result.success) {
+                        const warnings = [...(result.warnings ?? [])];
+                        if (result.error) warnings.push(result.error);
+                        const description = [
+                            t('refresh.changeSummary', { added: result.added_models.length, removed: result.removed_models.length }),
+                            ...warnings.map((warning) => t('refresh.maintenanceWarning', { detail: warning })),
+                        ].join('\n');
+                        toast.success(
+                            result.zero_models
+                                ? t('refresh.empty')
+                                : t('refresh.success', { count: channel.models.length + result.added_models.length - result.removed_models.length }),
+                            { description },
+                        );
+                    } else {
+                        toast.error(t('refresh.failed'), { description: result.error || t('refresh.failedDescription') });
+                    }
+                },
+                onError: (error) => {
+                    setRefreshResult({
+                        channel_id: channel.channel_id,
+                        success: false,
+                        error: error.message,
+                        zero_models: false,
+                        added_models: [],
+                        removed_models: [],
+                        key_results: [],
+                    });
+                    toast.error(t('refresh.failed'), { description: error.message });
+                },
+                onSettled: () => {
+                    refreshInFlight.current = false;
+                },
+            },
+        );
+    };
+
+    const stopCardTrigger = (event: React.SyntheticEvent) => {
+        event.stopPropagation();
+    };
+
     return (
         <MorphingDialog>
             <MorphingDialogTrigger className="w-full">
@@ -72,7 +128,26 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                                 {channel.channel_name}
                             </TooltipContent>
                         </Tooltip>
-                        <div className="flex shrink-0 items-center gap-1">
+                        <div className="flex shrink-0 items-center gap-1" onClick={stopCardTrigger} onPointerDown={stopCardTrigger} onKeyDown={stopCardTrigger}>
+                            <label className="flex items-center gap-1 text-xs text-muted-foreground" title={t('refresh.autoAddGroups')}>
+                                <Checkbox
+                                    checked={autoAddGroups}
+                                    onCheckedChange={(checked) => setAutoAddGroups(checked === true)}
+                                    aria-label={t('refresh.autoAddGroups')}
+                                />
+                                <span className="hidden lg:inline">{t('refresh.autoAddGroups')}</span>
+                            </label>
+                            <button
+                                type="button"
+                                onClick={handleRefresh}
+                                disabled={refreshChannelModels.isPending}
+                                aria-label={t('refresh.button')}
+                                title={t('refresh.button')}
+                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+                            >
+                                {refreshChannelModels.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                                <span className="hidden md:inline">{refreshChannelModels.isPending ? t('refresh.pending') : t('refresh.button')}</span>
+                            </button>
                             <Switch
                                 checked={channel.enabled}
                                 onCheckedChange={handleEnableChange}
@@ -112,6 +187,52 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                                 </div>
                             ))}
                         </dl>
+                    )}
+
+                    {refreshResult && (
+                        <div
+                            className={`rounded-2xl border p-3 text-xs ${refreshResult.success ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-destructive/30 bg-destructive/5'}`}
+                            onClick={stopCardTrigger}
+                            onPointerDown={stopCardTrigger}
+                        >
+                            <div className="flex items-center justify-between gap-2 font-medium">
+                                <span>{refreshResult.success ? (refreshResult.zero_models ? t('refresh.empty') : t('refresh.successTitle')) : t('refresh.failed')}</span>
+                                {refreshResult.success && (
+                                    <span className="text-muted-foreground">
+                                        {t('refresh.changeSummary', { added: refreshResult.added_models.length, removed: refreshResult.removed_models.length })}
+                                    </span>
+                                )}
+                            </div>
+                            {refreshResult.error && (
+                                <p className={`mt-1 ${refreshResult.success ? 'text-amber-700 dark:text-amber-300' : 'text-destructive'}`}>
+                                    {refreshResult.success ? t('refresh.warning', { detail: refreshResult.error }) : refreshResult.error}
+                                </p>
+                            )}
+                            {refreshResult.success && refreshResult.warnings?.map((warning, index) => (
+                                <p key={`${index}-${warning}`} className="mt-1 text-amber-700 dark:text-amber-300">
+                                    {t('refresh.maintenanceWarning', { detail: warning })}
+                                </p>
+                            ))}
+                            <ul className="mt-2 space-y-1 text-muted-foreground">
+                                {refreshResult.key_results.map((item) => (
+                                    <li key={item.key_name} className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+                                        <span className="min-w-0 break-words sm:max-w-[35%]">{item.key_name}</span>
+                                        {item.success ? (
+                                            <div className="min-w-0 sm:flex-1 sm:text-right">
+                                                <p>{t('refresh.keyModels', { count: item.model_count })}</p>
+                                                {item.error && (
+                                                    <p className="break-words text-amber-700 dark:text-amber-300" title={item.error}>
+                                                        {t('refresh.warning', { detail: item.error })}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span className="min-w-0 break-words text-destructive" title={item.error}>{item.error || t('refresh.keyFailed')}</span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     )}
 
                 </article>
