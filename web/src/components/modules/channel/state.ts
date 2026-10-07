@@ -7,6 +7,8 @@ export type ChannelFormState = {
     dialect: ChannelDetail['dialect'];
     base_url: string;
     enabled: boolean;
+    follow_global_auto_update: boolean;
+    max_concurrency: number;
     allowed_protocols: number;
     proxy: boolean;
     openai_chat_completion_path: string;
@@ -37,6 +39,8 @@ export const emptyFormState: ChannelFormState = {
     dialect: 'generic',
     base_url: '',
     enabled: true,
+    follow_global_auto_update: true,
+    max_concurrency: 0,
     allowed_protocols: ProtocolAll,
     proxy: false,
     openai_chat_completion_path: '/v1/chat/completions',
@@ -59,6 +63,8 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         dialect: channel.dialect,
         base_url: channel.base_url,
         enabled: channel.enabled,
+        follow_global_auto_update: channel.follow_global_auto_update ?? true,
+        max_concurrency: channel.max_concurrency ?? 0,
         allowed_protocols: allowedProtocols,
         proxy: channel.proxy,
         openai_chat_completion_path: channel.openai_chat_completion_path,
@@ -81,6 +87,8 @@ export function toChannelConfig(state: ChannelFormState) {
         name: state.name.trim(),
         dialect: state.dialect,
         enabled: state.enabled,
+        follow_global_auto_update: state.follow_global_auto_update,
+        max_concurrency: state.max_concurrency,
         allowed_protocols: normalizeAllowedProtocols(state.allowed_protocols),
         base_url: state.base_url.trim(),
         openai_chat_completion_path: state.openai_chat_completion_path.trim(),

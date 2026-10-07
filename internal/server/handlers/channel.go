@@ -21,6 +21,31 @@ import (
 )
 
 func init() {
+	op.SetChannelRefreshMaintenance(func(ctx context.Context, added []string) []string {
+		var warnings []string
+		if err := addChannelModelPrices(added, ctx); err != nil {
+			warnings = append(warnings, fmt.Sprintf("price update: model prices were not fully saved or loaded; %v", err))
+		}
+		if err := op.LLMCleanupGhosts(ctx); err != nil {
+			warnings = append(warnings, fmt.Sprintf("price cleanup: unused model prices may remain; %v", err))
+		}
+		return warnings
+	})
+	op.OnChannelModelsRefreshed(func(id int, previous []model.Group) {
+		groupMutationMu.Lock()
+		defer groupMutationMu.Unlock()
+		affected := make(map[int]bool)
+		for _, group := range previous {
+			if len(channelMembers(group, id)) > 0 {
+				affected[group.ID] = true
+			}
+		}
+		for _, group := range op.GroupList() {
+			if affected[group.ID] || len(channelMembers(group, id)) > 0 {
+				publishGroupSnapshot(group)
+			}
+		}
+	})
 	router.NewGroupRouter("/api/v1/channel").
 		Use(middleware.Auth()).
 		Use(middleware.RequireJSON()).
@@ -31,6 +56,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/stats", http.MethodGet).
 				Handle(listChannelStats),
+		).
+		AddRoute(
+			router.NewRoute("/refresh-status/:id", http.MethodGet).
+				Handle(getChannelRefreshStatus),
 		).
 		AddRoute(
 			router.NewRoute("/grants", http.MethodGet).
@@ -78,10 +107,28 @@ func getChannelDetail(c *gin.Context) {
 	resp.Success(c, detail)
 }
 
+// getChannelRefreshStatus 只返回指定渠道的刷新诊断，不携带编辑配置或凭据。
+func getChannelRefreshStatus(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	if _, err := op.ChannelGet(id); err != nil {
+		resp.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	resp.Success(c, op.ChannelRefreshStatus(id))
+}
+
 // listChannelStats 返回全部渠道及其模型的累计统计, 也是渠道列表页的数据来源。
 // 不带整份配置: 统计每次转发都在变, 界面按更短的间隔刷新它, 而路径, 代理与凭据明文只在编辑时用得上。
 func listChannelStats(c *gin.Context) {
-	resp.Success(c, op.ChannelStatsList())
+	stats := op.ChannelStatsList()
+	for i := range stats {
+		stats[i].Concurrency = relay.ChannelConcurrencyStats(stats[i].ChannelID)
+	}
+	resp.Success(c, stats)
 }
 
 // listChannelGrant 返回全部渠道授权候选, 供分组页选取成员。
@@ -363,9 +410,6 @@ func refreshChannelModels(c *gin.Context) {
 	}
 	c.Request = c.Request.WithContext(privacy.WithRedactor(c.Request.Context(), redactor))
 
-	groupMutationMu.Lock()
-	previousGroups := allGroupsByID()
-	groupMutationMu.Unlock()
 	result, err := op.RefreshChannelModels(c.Request.Context(), id, options)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -385,19 +429,6 @@ func refreshChannelModels(c *gin.Context) {
 		result.KeyResults[i].Error = redactor.Text(result.KeyResults[i].Error)
 	}
 	result.Error = redactor.Text(result.Error)
-	if result.Success {
-		groupMutationMu.Lock()
-		refreshChangedChannelGroups(id, previousGroups, allGroupsByID())
-		groupMutationMu.Unlock()
-	}
-	if result.Success {
-		if err := addChannelModelPrices(result.AddedModels, c.Request.Context()); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("price update: %v", err))
-		}
-		if err := op.LLMCleanupGhosts(c.Request.Context()); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("price cleanup: %v", err))
-		}
-	}
 	for i := range result.Warnings {
 		result.Warnings[i] = redactor.Text(result.Warnings[i])
 	}

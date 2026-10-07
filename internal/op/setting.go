@@ -32,6 +32,9 @@ func SettingGetString(key model.SettingKey) (string, error) {
 }
 
 func SettingSetString(key model.SettingKey, value string) error {
+	if err := (&model.Setting{Key: key, Value: value}).Validate(); err != nil {
+		return err
+	}
 	if key == model.SettingKeyGroupRouteDefaults {
 		return fmt.Errorf("use /api/v1/group/route-defaults to update route defaults")
 	}
@@ -50,6 +53,9 @@ func SettingSetString(key model.SettingKey, value string) error {
 		return fmt.Errorf("failed to set setting, key not found")
 	}
 	settingCache.Set(key, value)
+	if isChannelAutomationSetting(key) {
+		automationSettingsSignal.notify()
+	}
 	return nil
 }
 
@@ -70,6 +76,9 @@ func SettingGetBool(key model.SettingKey) (bool, error) {
 }
 
 func SettingSetInt(key model.SettingKey, value int) error {
+	if isChannelAutomationSetting(key) {
+		return SettingSetString(key, strconv.Itoa(value))
+	}
 	if key == model.SettingKeyGroupRouteDefaults {
 		return fmt.Errorf("use /api/v1/group/route-defaults to update route defaults")
 	}
@@ -125,8 +134,20 @@ func settingRefreshCache(ctx context.Context) error {
 		}
 		settings = append(settings, missingSettings...)
 	}
+	automationChanged := false
 	for _, setting := range settings {
+		if isChannelAutomationSetting(setting.Key) {
+			previous, exists := settingCache.Get(setting.Key)
+			automationChanged = automationChanged || !exists || previous != setting.Value
+		}
 		settingCache.Set(setting.Key, setting.Value)
 	}
+	if automationChanged {
+		automationSettingsSignal.notify()
+	}
 	return nil
+}
+
+func isChannelAutomationSetting(key model.SettingKey) bool {
+	return key == model.SettingKeyChannelAutoUpdateEnabled || key == model.SettingKeyChannelAutoUpdateInterval || key == model.SettingKeyChannelAutoAddGroups
 }

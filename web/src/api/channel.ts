@@ -51,6 +51,8 @@ export type ChannelDetail = {
     dialect: Dialect;
     enabled: boolean;
     allowed_protocols: number; // 渠道允许参与的 Protocol 位掩码。
+    follow_global_auto_update: boolean;
+    max_concurrency: number;
     base_url: string; // 上游地址，各协议共用。
     openai_chat_completion_path: string;
     openai_response_path: string;
@@ -79,6 +81,10 @@ export type ChannelStats = StatsMetrics & {
     channel_name: string;
     enabled: boolean;
     models: ChannelModelStats[];
+    follow_global_auto_update: boolean;
+    max_concurrency: number;
+    refresh?: ChannelRefreshSummary;
+    concurrency: { active: number; waiting: number };
 };
 
 // ChannelModelStatsFormatted 是单个渠道模型的展示用统计。
@@ -97,6 +103,10 @@ export type ChannelStatsFormatted = {
     enabled: boolean;
     models: ChannelModelStatsFormatted[];
     formatted: StatsMetricsFormatted;
+    follow_global_auto_update: boolean;
+    max_concurrency: number;
+    refresh?: ChannelRefreshSummary;
+    concurrency: { active: number; waiting: number };
 };
 
 // FetchModelRequest 按指定凭据试拉上游模型列表。
@@ -136,6 +146,41 @@ export type ChannelModelRefreshResult = {
     key_results: ChannelModelRefreshKeyResult[];
 };
 
+export type ChannelRefreshStatus = {
+    running: boolean;
+    started_at?: string;
+    last?: {
+        started_at: string;
+        finished_at: string;
+        source: 'manual' | 'automatic';
+        status: 'success' | 'failed' | 'canceled';
+        before_count: number;
+        after_count: number;
+        result: ChannelModelRefreshResult;
+    };
+};
+
+export type ChannelRefreshSummary = {
+    running: boolean;
+    started_at?: string;
+    last?: Omit<NonNullable<ChannelRefreshStatus['last']>, 'result'> & {
+        added_count: number;
+        removed_count: number;
+        warning_count: number;
+    };
+};
+
+// 只有展开某个渠道的刷新诊断时才轮询正文。
+export function useChannelRefreshStatus(id: number, enabled: boolean) {
+    return useQuery({
+        queryKey: ['channels', 'refresh-status', id],
+        queryFn: () => apiRequest<ChannelRefreshStatus>(`/api/v1/channel/refresh-status/${id}`),
+        enabled,
+        refetchInterval: 5000,
+        refetchOnMount: 'always',
+    });
+}
+
 // channelStatsFormattedQueryOptions 统一渠道统计查询, 格式化和刷新策略。
 // 与配置分开刷新: 统计每次转发都在变, 配置只在人工改动后由 mutation 失效。
 const channelStatsFormattedQueryOptions = queryOptions({
@@ -144,6 +189,10 @@ const channelStatsFormattedQueryOptions = queryOptions({
         channel_id: item.channel_id,
         channel_name: item.channel_name,
         enabled: item.enabled,
+        follow_global_auto_update: item.follow_global_auto_update ?? true,
+        max_concurrency: item.max_concurrency ?? 0,
+        refresh: item.refresh,
+        concurrency: item.concurrency ?? { active: 0, waiting: 0 },
         models: item.models.map((channelModel) => ({
             model_id: channelModel.model_id,
             model_name: channelModel.model_name,
@@ -151,7 +200,7 @@ const channelStatsFormattedQueryOptions = queryOptions({
         })),
         formatted: formatStatsMetrics(item),
     })),
-    refetchInterval: 30000,
+    refetchInterval: 5000,
     refetchOnMount: 'always',
 });
 

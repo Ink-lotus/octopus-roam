@@ -34,10 +34,11 @@ type routeSelection struct {
 }
 
 type routeRuntime struct {
-	state      RouteState
-	generation uint64
-	probeToken uint64
-	changed    chan struct{} // 手动模式也保存版本与通知, 但不建立当前成员、冷却或探测状态。
+	state           RouteState
+	generation      uint64
+	probeToken      uint64
+	probeRetryAfter map[int]time.Time // 额度不足只推迟探测，不记为上游失败或冷却。
+	changed         chan struct{}     // 手动模式也保存版本与通知, 但不建立当前成员、冷却或探测状态。
 }
 
 type routeConfigSignature struct {
@@ -57,10 +58,11 @@ type routeMemberSignature struct {
 }
 
 const (
-	routeStreamBuffer             = 16                    // 单个路由流连接的非阻塞消息缓冲容量。
-	routeConfigMismatchRetryDelay = 10 * time.Millisecond // 配置指纹短暂失配时限制重读频率。
-	routeBlockRetention           = time.Minute           // 保留删除墓碑以拦截短暂持有旧快照的请求。
-	routeBlockCleanupInterval     = time.Minute           // 限频扫描过期墓碑, 避免每次选路遍历整张表。
+	routeStreamBuffer             = 16                     // 单个路由流连接的非阻塞消息缓冲容量。
+	routeConfigMismatchRetryDelay = 10 * time.Millisecond  // 配置指纹短暂失配时限制重读频率。
+	routeCapacityRetryDelay       = 250 * time.Millisecond // 所有候选额度占满时有界重查，避免空转。
+	routeBlockRetention           = time.Minute            // 保留删除墓碑以拦截短暂持有旧快照的请求。
+	routeBlockCleanupInterval     = time.Minute            // 限频扫描过期墓碑, 避免每次选路遍历整张表。
 )
 
 var (
@@ -203,6 +205,13 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 				continue
 			}
 			// 冷却到期后只允许一个探测持有者; 同成员的重试由持有者令牌识别。
+			if retryAt := route.probeRetryAfter[item.ID]; retryAt.After(now) {
+				if earliest.IsZero() || retryAt.Before(earliest) {
+					earliest = retryAt
+				}
+				continue
+			}
+			delete(route.probeRetryAfter, item.ID)
 			route.state.ProbeItemID = item.ID
 			route.probeToken = routeProbeID.Add(1)
 			advanceRouteLocked(route)
@@ -341,7 +350,26 @@ func releaseRouteProbe(group model.Group, itemID int, generation, probeToken uin
 	}
 }
 
-// waitRoute 等待路由变化、最早冷却截止时间或请求取消, 不用固定间隔轮询冷却状态。
+// deferRouteProbeForCapacity 原子地归还探测并推迟同成员重试，让下一轮扫描备用成员。
+func deferRouteProbeForCapacity(group model.Group, selection routeSelection) {
+	routeMu.Lock()
+	defer routeMu.Unlock()
+	route := routes[group.ID]
+	if route == nil || selection.ProbeToken == 0 || route.probeToken != selection.ProbeToken ||
+		route.state.ProbeItemID != selection.Item.ID {
+		return
+	}
+	if route.probeRetryAfter == nil {
+		route.probeRetryAfter = make(map[int]time.Time)
+	}
+	route.probeRetryAfter[selection.Item.ID] = time.Now().Add(routeCapacityRetryDelay)
+	route.state.ProbeItemID, route.probeToken = 0, 0
+	advanceRouteLocked(route)
+	signalRouteLocked(route)
+	publishRouteLocked(route)
+}
+
+// waitRoute 等待路由变化、最早冷却/探测截止时间或请求取消。
 func waitRoute(ctxDone <-chan struct{}, selection routeSelection) bool {
 	if selection.Changed == nil && selection.WaitUntil.IsZero() {
 		return false

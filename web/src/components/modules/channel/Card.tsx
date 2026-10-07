@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/morphing-dialog';
 import { AnimatePresence, motion } from 'motion/react';
 import { CheckCircle2, DollarSign, Layers, LoaderCircle, MessageSquare, RefreshCw, XCircle } from 'lucide-react';
-import { type ChannelModelRefreshResult, type ChannelStatsFormatted, useEnableChannel, useRefreshChannelModels } from '@/api/channel';
+import { type ChannelModelRefreshResult, type ChannelStatsFormatted, useEnableChannel, useRefreshChannelModels, useChannelRefreshStatus } from '@/api/channel';
 import { usePageActionsStore } from '@/components/common/PageActions';
 import { ChannelStats } from './Stats';
 import { ChannelForm } from './Form';
@@ -21,6 +21,7 @@ import { useRef, useState } from 'react';
 // Card 展示单个渠道的概览; 名称, 启停与统计都在同一条统计查询里, 整份配置只在点开编辑时另取。
 export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     const t = useTranslations('channel.card');
+    const tAuto = useTranslations('automation');
     // 布局是渠道页共享的视图选项, 直接取用而不由列表层层传入。
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
     const enableChannel = useEnableChannel();
@@ -28,7 +29,13 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     // 弹窗默认展示统计, 编辑入口在统计视图的头部; 关闭后下次打开仍回到统计, 故点卡片时复位。
     const [openInEditing, setOpenInEditing] = useState(false);
     const [autoAddGroups, setAutoAddGroups] = useState(false);
-    const [refreshResult, setRefreshResult] = useState<ChannelModelRefreshResult | null>(null);
+    const [showRefreshDetails, setShowRefreshDetails] = useState(false);
+    const refreshStatus = useChannelRefreshStatus(channel.channel_id, showRefreshDetails);
+    const [localRefresh, setLocalRefresh] = useState<{ result: ChannelModelRefreshResult | null; previousFinishedAt?: string } | null>(null);
+    const lastRefresh = channel.refresh?.last;
+    const refreshResult = localRefresh && localRefresh.previousFinishedAt === lastRefresh?.finished_at
+        ? localRefresh.result : refreshStatus.data?.last?.result;
+    const setRefreshResult = (result: ChannelModelRefreshResult | null) => setLocalRefresh({ result, previousFinishedAt: lastRefresh?.finished_at });
     const refreshInFlight = useRef(false);
     const metrics = channel.formatted;
 
@@ -64,8 +71,9 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     const handleRefresh = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         event.stopPropagation();
-        if (refreshInFlight.current || refreshChannelModels.isPending) return;
+        if (refreshInFlight.current || refreshChannelModels.isPending || channel.refresh?.running) return;
         refreshInFlight.current = true;
+        setShowRefreshDetails(true);
         setRefreshResult(null);
         refreshChannelModels.mutate(
             { id: channel.channel_id, autoAddGroups },
@@ -140,7 +148,7 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                             <button
                                 type="button"
                                 onClick={handleRefresh}
-                                disabled={refreshChannelModels.isPending}
+                                disabled={refreshChannelModels.isPending || channel.refresh?.running}
                                 aria-label={t('refresh.button')}
                                 title={t('refresh.button')}
                                 className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
@@ -189,6 +197,30 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                         </dl>
                     )}
 
+                    <div className="space-y-1 text-xs text-muted-foreground" aria-live="polite">
+                        <p>{channel.follow_global_auto_update ? tAuto('following') : tAuto('optedOut')}</p>
+                        <p>{tAuto('capacity', { active: channel.concurrency.active, waiting: channel.concurrency.waiting,
+                            limit: channel.max_concurrency === 0 ? tAuto('unlimited') : channel.max_concurrency })}</p>
+                        {channel.refresh?.running && <p className="flex items-center gap-1"><LoaderCircle className="size-3 animate-spin" />{tAuto('running')}</p>}
+                        {lastRefresh && <p>{tAuto('lastRefresh', { source: tAuto(lastRefresh.source), time: new Date(lastRefresh.finished_at).toLocaleString() })}</p>}
+                        {lastRefresh?.status === 'canceled' && <p>{tAuto('canceled')}</p>}
+                        {lastRefresh && <p>{lastRefresh.status === 'success' ? t('refresh.successTitle') : lastRefresh.status === 'failed' ? t('refresh.failed') : tAuto('canceled')}
+                            {' · '}{t('refresh.changeSummary', { added: lastRefresh.added_count, removed: lastRefresh.removed_count })}</p>}
+                        {!!lastRefresh?.warning_count && <p className="text-amber-700 dark:text-amber-300">{tAuto('warningCount', { count: lastRefresh.warning_count })}</p>}
+                    </div>
+
+                    <details
+                        open={showRefreshDetails}
+                        onToggle={(event) => setShowRefreshDetails(event.currentTarget.open)}
+                        onClick={stopCardTrigger}
+                        onPointerDown={stopCardTrigger}
+                        onKeyDown={stopCardTrigger}
+                        className="space-y-2 text-xs"
+                    >
+                        <summary className="cursor-pointer text-muted-foreground">{tAuto('refreshDetails')}</summary>
+                        {showRefreshDetails && refreshStatus.isPending && <p role="status">{tAuto('loadingDetails')}</p>}
+                        {showRefreshDetails && refreshStatus.isError && <p role="alert" className="text-destructive">{refreshStatus.error.message}</p>}
+                        {showRefreshDetails && !refreshStatus.isPending && !refreshStatus.isError && !refreshResult && !refreshChannelModels.isPending && <p>{tAuto('noRefresh')}</p>}
                     {refreshResult && (
                         <div
                             className={`rounded-2xl border p-3 text-xs ${refreshResult.success ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-destructive/30 bg-destructive/5'}`}
@@ -234,6 +266,7 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                             </ul>
                         </div>
                     )}
+                    </details>
 
                 </article>
             </MorphingDialogTrigger>

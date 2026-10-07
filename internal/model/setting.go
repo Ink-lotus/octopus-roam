@@ -20,6 +20,9 @@ const (
 	SettingKeyWebhookManualFailureThreshold   SettingKey = "webhook_manual_failure_threshold"
 	SettingKeyWebhookFailoverChannelThreshold SettingKey = "webhook_failover_channel_threshold"
 	SettingKeyGroupRouteDefaults              SettingKey = "group_route_defaults"
+	SettingKeyChannelAutoUpdateEnabled        SettingKey = "channel_auto_update_enabled"
+	SettingKeyChannelAutoUpdateInterval       SettingKey = "channel_auto_update_interval_minutes"
+	SettingKeyChannelAutoAddGroups            SettingKey = "channel_auto_update_auto_add_groups"
 )
 
 type Setting struct {
@@ -38,11 +41,25 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyWebhookManualFailureThreshold, Value: "10"},
 		{Key: SettingKeyWebhookFailoverChannelThreshold, Value: "3"},
 		{Key: SettingKeyGroupRouteDefaults, Value: string(routeDefaults)},
+		{Key: SettingKeyChannelAutoUpdateEnabled, Value: "false"},
+		{Key: SettingKeyChannelAutoUpdateInterval, Value: "1440"},
+		{Key: SettingKeyChannelAutoAddGroups, Value: "false"},
 	}
 }
 
 func (s *Setting) Validate() error {
 	switch s.Key {
+	case SettingKeyChannelAutoUpdateEnabled, SettingKeyChannelAutoAddGroups:
+		if s.Value != "true" && s.Value != "false" {
+			return fmt.Errorf("channel automation switch must be true or false")
+		}
+		return nil
+	case SettingKeyChannelAutoUpdateInterval:
+		value, err := strconv.Atoi(s.Value)
+		if err != nil || value < 1 || value > 10080 {
+			return fmt.Errorf("channel auto update interval must be between 1 and 10080 minutes")
+		}
+		return nil
 	case SettingKeyModelInfoUpdateInterval:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {

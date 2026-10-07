@@ -8,6 +8,7 @@ import { SettingLog } from './Log';
 import { SettingBackup } from './Backup';
 import { SettingWebhook } from './Webhook';
 import { SettingRouteDefaults } from './RouteDefaults';
+import { SettingAutomation } from './Automation';
 
 // Setting 渲染设置页面正文。
 export function Setting() {
@@ -18,6 +19,7 @@ export function Setting() {
                 <SettingAppearance />
                 <SettingAccount />
                 <SettingSystem />
+                <SettingAutomation />
                 <SettingRouteDefaults />
                 <SettingLog />
                 <SettingLLMPrice />

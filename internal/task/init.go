@@ -7,6 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/utils/shutdown"
 	"github.com/charmbracelet/log"
 )
 
@@ -17,6 +18,8 @@ const (
 )
 
 func Init() {
+	updater := startChannelUpdater(context.Background())
+	shutdown.Register(func() error { updater.Close(); return nil })
 	priceUpdateIntervalHours, err := op.SettingGetInt(model.SettingKeyModelInfoUpdateInterval)
 	if err != nil {
 		log.Errorf("failed to get model info update interval: %v", err)

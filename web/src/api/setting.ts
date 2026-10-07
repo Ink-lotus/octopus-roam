@@ -16,6 +16,9 @@ export const SettingKey = {
     ModelInfoUpdateInterval: 'model_info_update_interval',
     CORSAllowOrigins: 'cors_allow_origins',
     ModelFilter: 'model_filter',
+    ChannelAutoUpdateEnabled: 'channel_auto_update_enabled',
+    ChannelAutoUpdateInterval: 'channel_auto_update_interval_minutes',
+    ChannelAutoAddGroups: 'channel_auto_update_auto_add_groups',
 } as const;
 
 /**

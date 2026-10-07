@@ -98,6 +98,11 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	}
 	var importedDefaults *string
 	for i := range dump.Settings {
+		if isChannelAutomationSetting(dump.Settings[i].Key) {
+			if err := dump.Settings[i].Validate(); err != nil {
+				return nil, err
+			}
+		}
 		if dump.Settings[i].Key != model.SettingKeyGroupRouteDefaults {
 			continue
 		}

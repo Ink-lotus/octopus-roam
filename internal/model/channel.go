@@ -44,6 +44,8 @@ type ChannelConfig struct {
 	Name                     string         `json:"name" gorm:"unique;not null"`                                                                        // 渠道名称。
 	Dialect                  Dialect        `json:"dialect" gorm:"not null;default:generic"`                                                            // 上游方言, 决定出站转换器的厂商特化配置。
 	Enabled                  bool           `json:"enabled" gorm:"default:true"`                                                                        // 渠道是否可用。
+	FollowGlobalAutoUpdate   *bool          `json:"follow_global_auto_update" gorm:"default:true"`                                                      // nil 兼容旧配置，表示跟随；显式 false 必须保留。
+	MaxConcurrency           int            `json:"max_concurrency" gorm:"not null;default:0"`                                                          // 0 表示不限。
 	AllowedProtocols         Protocol       `json:"allowed_protocols" gorm:"not null;default:14"`                                                       // 渠道允许参与的协议位掩码。
 	BaseURL                  string         `json:"base_url"`                                                                                           // 上游地址, 各协议共用。
 	OpenAIChatCompletionPath string         `json:"openai_chat_completion_path" gorm:"column:openai_chat_completion_path;default:/v1/chat/completions"` // OpenAI Chat Completions 请求路径; 留空由后端填默认路径。
@@ -126,11 +128,15 @@ type ChannelGrantConfig struct {
 // 故不再另给渠道概览接口 —— 列表页与首页榜单共用这一条响应, 整份配置在点开编辑时由 /channel/detail 单独取。
 // 名称与渠道配置重复给出是有意的: 消费方由此无需再按主键回查渠道。
 type ChannelStats struct {
-	ChannelID    int                 `json:"channel_id"`   // 渠道主键。
-	ChannelName  string              `json:"channel_name"` // 渠道名称。
-	Enabled      bool                `json:"enabled"`      // 渠道是否可用, 供列表页的开关与过滤使用。
-	Models       []ChannelModelStats `json:"models"`       // 该渠道各模型的独立统计, 恒为数组; 长度即渠道的模型个数。
-	StatsMetrics                     // 渠道自身的累计统计。
+	ChannelID              int                      `json:"channel_id"`   // 渠道主键。
+	ChannelName            string                   `json:"channel_name"` // 渠道名称。
+	Enabled                bool                     `json:"enabled"`      // 渠道是否可用, 供列表页的开关与过滤使用。
+	Models                 []ChannelModelStats      `json:"models"`       // 该渠道各模型的独立统计, 恒为数组; 长度即渠道的模型个数。
+	FollowGlobalAutoUpdate bool                     `json:"follow_global_auto_update"`
+	MaxConcurrency         int                      `json:"max_concurrency"`
+	Refresh                *ChannelRefreshSummary   `json:"refresh,omitempty"`
+	Concurrency            ChannelConcurrencyStatus `json:"concurrency"`
+	StatsMetrics                                    // 渠道自身的累计统计。
 }
 
 // 单个渠道模型的累计统计。
@@ -177,6 +183,7 @@ type ChannelFetchModel struct {
 // 渠道模型刷新选项; AutoAddGroups 控制是否按已有分组规则追加本次刷新得到的新授权。
 type ChannelModelRefreshOptions struct {
 	AutoAddGroups bool `json:"auto_add_groups"`
+	Automatic     bool `json:"-"` // 只由服务端调度器设置。
 }
 
 // 单个启用凭据的模型探测结果; Error 也会说明不影响提交的单侧探测失败。

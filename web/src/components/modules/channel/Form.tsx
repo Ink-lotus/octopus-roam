@@ -59,6 +59,7 @@ export function ChannelForm({ channelId, onBack }: {
 // 模板给出地址与路径 -> 拉取需要地址与凭据 -> 授权引用凭据与模型。
 function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBack?: () => void }) {
     const t = useTranslations('channel.form');
+    const tAuto = useTranslations('automation');
     const { setIsOpen } = useMorphingDialog();
     const createChannel = useCreateChannel();
     const updateChannel = useUpdateChannel();
@@ -75,6 +76,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
             .every((path) => path === '' || path.startsWith('/'))
         && state.keys.length > 0
         && state.keys.every((k) => k.key.trim() !== '')
+        && Number.isSafeInteger(state.max_concurrency) && state.max_concurrency >= 0
         && (channel !== undefined || state.models.length > 0);
 
     const steps: { id: StepID; label: string }[] = [
@@ -247,6 +249,23 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
 
                     {step === 'advanced' && (
                         <div className="space-y-4 pt-2">
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                    <Label htmlFor={`${idPrefix}-follow`}>{tAuto('follow')}</Label>
+                                    <Switch id={`${idPrefix}-follow`} checked={state.follow_global_auto_update}
+                                        onCheckedChange={(checked) => setState({ ...state, follow_global_auto_update: checked })}
+                                        aria-describedby={`${idPrefix}-follow-hint`} />
+                                </div>
+                                <p id={`${idPrefix}-follow-hint`} className="text-xs text-muted-foreground">{tAuto('followHint')}</p>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor={`${idPrefix}-concurrency`}>{tAuto('maxConcurrency')}</Label>
+                                <Input id={`${idPrefix}-concurrency`} type="number" min={0} step={1}
+                                    value={Number.isNaN(state.max_concurrency) ? '' : state.max_concurrency}
+                                    onChange={(event) => setState({ ...state, max_concurrency: event.target.valueAsNumber })}
+                                    aria-describedby={`${idPrefix}-concurrency-hint`} className="rounded-xl" />
+                                <p id={`${idPrefix}-concurrency-hint`} className="text-xs text-muted-foreground">{tAuto('concurrencyHint')}</p>
+                            </div>
                             {([
                                 ['channel_proxy', t('channelProxy')],
                             ] as const).map(([field, label]) => (

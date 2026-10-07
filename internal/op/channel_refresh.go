@@ -196,19 +196,13 @@ func RefreshChannelModelsWithClient(ctx context.Context, channelID int, options 
 	return refreshChannelModelsWithClient(ctx, channelID, options, client)
 }
 
-func refreshChannelModelsWithClient(ctx context.Context, channelID int, options model.ChannelModelRefreshOptions, client *http.Client) (model.ChannelModelRefreshResult, error) {
+func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.ChannelModelRefreshOptions, client *http.Client) (model.ChannelModelRefreshResult, error) {
 	result := model.ChannelModelRefreshResult{
 		ChannelID:     channelID,
 		AddedModels:   make([]string, 0),
 		RemovedModels: make([]string, 0),
 		KeyResults:    make([]model.ChannelModelRefreshKeyResult, 0),
 	}
-	release, acquired := lockChannelModelRefresh(channelID)
-	if !acquired {
-		result.Error = ErrChannelRefreshInProgress.Error()
-		return result, nil
-	}
-	defer release()
 	channel, ok := channelCache.Get(channelID)
 	if !ok {
 		return result, fmt.Errorf("channel not found")
@@ -255,6 +249,9 @@ func refreshChannelModelsWithClient(ctx context.Context, channelID int, options 
 	grants := make([]model.ChannelGrantConfig, 0)
 	failed := false
 	for _, channelKey := range keys {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		probe, err := ChannelFetchModelsWithClient(ctx, channel.ChannelConfig, channelKey.Key, client)
 		if err != nil {
 			return result, err
@@ -330,6 +327,7 @@ func refreshChannelModelsWithClient(ctx context.Context, channelID int, options 
 		}
 	}
 	if failed {
+		result.Error = "one or more enabled keys failed; previous models preserved"
 		return result, nil
 	}
 
@@ -341,6 +339,9 @@ func refreshChannelModelsWithClient(ctx context.Context, channelID int, options 
 	defer groupWriteMu.Unlock()
 	oldNames := make(map[string]struct{})
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if options.Automatic && !ChannelAutoUpdateEligible(channelID) {
+			return ErrChannelRefreshStale
+		}
 		if err := verifyChannelRefreshSnapshot(tx, channelID, channel.ChannelConfig, keySnapshot, grantSnapshot); err != nil {
 			return err
 		}
@@ -558,6 +559,8 @@ func verifyChannelRefreshSnapshot(tx *gorm.DB, channelID int, config model.Chann
 		current.CustomHeader = []model.CustomHeader{}
 	}
 	current.AllowedProtocols = model.NormalizeProtocols(current.AllowedProtocols)
+	currentFollow, expectedFollow := current.FollowsGlobalAutoUpdate(), config.FollowsGlobalAutoUpdate()
+	current.FollowGlobalAutoUpdate, config.FollowGlobalAutoUpdate = &currentFollow, &expectedFollow
 	if config.CustomHeader == nil {
 		config.CustomHeader = []model.CustomHeader{}
 	}

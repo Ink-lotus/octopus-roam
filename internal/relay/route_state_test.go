@@ -11,6 +11,50 @@ import (
 
 var routeTestGroupID atomic.Int64
 
+func TestBusyProbesYieldAllCandidatesAndRetryWithoutChangingCooldowns(t *testing.T) {
+	group := routeTestGroup(t, 31, 32)
+	now := time.Now()
+	old := now.Add(-2 * time.Minute)
+	for range group.Items {
+		selection := pickGroupItemAt(group, 0, old)
+		recordRouteFailureAt(group, selection.Item.ID, 1, selection.Generation, 0, old)
+	}
+	before := RouteStateOf(group)
+	first := pickGroupItemAt(group, 0, now)
+	if first.ProbeToken == 0 {
+		t.Fatal("first recovery probe missing")
+	}
+	deferRouteProbeForCapacity(group, first)
+	second := pickGroupItemAt(group, 0, now)
+	if second.Item.ID != 32 || second.ProbeToken == 0 {
+		t.Fatalf("did not yield to next candidate: %+v", second)
+	}
+	deferRouteProbeForCapacity(group, second)
+	wait := pickGroupItemAt(group, 0, now)
+	if !wait.Wait || wait.WaitUntil.IsZero() || !wait.WaitUntil.After(now) || wait.WaitUntil.After(now.Add(time.Second)) {
+		t.Fatalf("all busy probes should wait with a bounded retry: %+v", wait)
+	}
+	after := RouteStateOf(group)
+	if after.ProbeItemID != 0 {
+		t.Fatal("capacity wait retained probe")
+	}
+	for id, deadline := range before.Cooldowns {
+		if after.Cooldowns[id] != deadline {
+			t.Fatal("capacity shortage changed failure cooldown")
+		}
+	}
+	retry := pickGroupItemAt(group, 0, now.Add(time.Second))
+	if retry.Item.ID != 31 || retry.ProbeToken == 0 {
+		t.Fatalf("probe never became eligible again: %+v", retry)
+	}
+	deferRouteProbeForCapacity(group, first) // 迟到的持有者不得释放新探测。
+	held := pickGroupItemAt(group, retry.ProbeToken, now.Add(time.Second))
+	if held.ProbeToken != retry.ProbeToken {
+		t.Fatal("stale capacity report released new probe")
+	}
+	recordRouteSuccess(group, retry.Item.ID, retry.Generation, retry.ProbeToken)
+}
+
 func routeTestGroup(t *testing.T, itemIDs ...int) model.Group {
 	t.Helper()
 	groupID := 1000000 + int(routeTestGroupID.Add(1))

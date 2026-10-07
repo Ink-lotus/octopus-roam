@@ -86,6 +86,64 @@ func TestRefreshChannelModelsHandlerReturnsPerKeyResult(t *testing.T) {
 	if envelope.Data.AddedModels == nil || len(envelope.Data.AddedModels) != 1 || envelope.Data.AddedModels[0] != "handler-new-model" {
 		t.Fatalf("unexpected refresh delta: %+v", envelope.Data)
 	}
+	engine.GET("/stats", listChannelStats)
+	stats := httptest.NewRecorder()
+	engine.ServeHTTP(stats, httptest.NewRequest(http.MethodGet, "/stats", nil))
+	for _, field := range []string{`"added_models"`, `"removed_models"`, `"key_results"`, `"warnings"`} {
+		if strings.Contains(stats.Body.String(), field) {
+			t.Errorf("stats contains full refresh diagnostic field %s", field)
+		}
+	}
+	var statsEnvelope struct {
+		Data []struct {
+			ChannelID int `json:"channel_id"`
+			Refresh   struct {
+				Last struct {
+					Status       string `json:"status"`
+					AddedCount   int    `json:"added_count"`
+					RemovedCount int    `json:"removed_count"`
+				} `json:"last"`
+			} `json:"refresh"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stats.Body.Bytes(), &statsEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range statsEnvelope.Data {
+		if item.ChannelID == created.ID {
+			found = true
+			if item.Refresh.Last.Status != "success" || item.Refresh.Last.AddedCount != 1 || item.Refresh.Last.RemovedCount != 1 {
+				t.Errorf("refresh summary lost counts: %+v", item.Refresh)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("channel missing from stats")
+	}
+	engine.GET("/refresh-status/:id", getChannelRefreshStatus)
+	diagnostic := httptest.NewRecorder()
+	engine.ServeHTTP(diagnostic, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/refresh-status/%d", created.ID), nil))
+	var diagnosticEnvelope struct {
+		Data model.ChannelRefreshStatus `json:"data"`
+	}
+	if err := json.Unmarshal(diagnostic.Body.Bytes(), &diagnosticEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if diagnostic.Code != http.StatusOK || diagnosticEnvelope.Data.Last == nil ||
+		len(diagnosticEnvelope.Data.Last.Result.KeyResults) != 1 || len(diagnosticEnvelope.Data.Last.Result.AddedModels) != 1 {
+		t.Fatalf("full diagnostic unavailable: %s", diagnostic.Body.String())
+	}
+	for _, target := range []struct {
+		id   string
+		code int
+	}{{"bad", 400}, {"0", 400}, {"999999999", 404}} {
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/refresh-status/"+target.id, nil))
+		if response.Code != target.code {
+			t.Errorf("diagnostic status=%d want=%d", response.Code, target.code)
+		}
+	}
 }
 
 func TestRefreshChannelModelsHandlerReportsPriceMaintenanceWarnings(t *testing.T) {

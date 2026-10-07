@@ -91,6 +91,12 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		failures := 0                 // 该成员包含首次请求的连续失败次数。
 		failedGeneration := uint64(0) // 路由改变或恢复探测重新开始时重置成员尝试预算。
 		probeToken := uint64(0)       // 本请求持有的恢复探测令牌, 取消时必须归还。
+		var releaseCapacity func()
+		defer func() {
+			if releaseCapacity != nil {
+				releaseCapacity()
+			}
+		}()
 		var activeProbe struct {
 			group      model.Group
 			itemID     int
@@ -196,6 +202,50 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			// 在渠道授权支持的协议内选出本轮上游协议, 按该协议的路径与授权绑定的凭据构造出站转换器。
 			// 先于登记本轮目标: 选中的协议是本轮目标的一部分, 需与渠道和模型一并推给界面。
 			outbound, targetProtocol, passthrough, err := buildOutbound(channel, grant, *channelKey, requestProtocol)
+			if err == nil {
+				var capacityErr error
+				if selection.ProbeToken != 0 {
+					releaseCapacity, capacityErr = tryAcquireChannelCapacity(ctx, channel.ID, selection.Changed)
+				} else {
+					releaseCapacity, capacityErr = acquireChannelCapacity(ctx, channel.ID, selection.Changed, func() { request.markRetryingAt(time.Time{}) })
+				}
+				if capacityErr != nil {
+					if errors.Is(capacityErr, errChannelCapacityBusy) {
+						deferRouteProbeForCapacity(group, selection)
+					} else {
+						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					}
+					probeToken, activeProbe.token = 0, 0
+					if ctx.Err() != nil {
+						request.markCanceled(ctx.Err(), "", nil)
+						return
+					}
+					continue
+				}
+				// 排队期间渠道配置可能已更新。重读授权和渠道，避免使用旧凭据或协议。
+				freshGrant, grantErr := op.ChannelGrantGet(item.ChannelGrantID)
+				freshChannel, channelErr := op.ChannelGet(channel.ID)
+				if grantErr != nil || channelErr != nil || !freshChannel.Enabled {
+					releaseCapacity()
+					releaseCapacity = nil
+					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					probeToken, activeProbe.token = 0, 0
+					continue
+				}
+				grant, channel = freshGrant, freshChannel
+				select {
+				case <-selection.Changed:
+					releaseCapacity()
+					releaseCapacity = nil
+					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					probeToken, activeProbe.token = 0, 0
+					continue
+				default:
+				}
+				channelKey = freshGrant.ChannelKey
+				rememberChannelSecrets(redactor, channel, channelKey.Key, raw.Headers)
+				outbound, targetProtocol, passthrough, err = buildOutbound(channel, grant, *channelKey, requestProtocol)
+			}
 
 			// 为本轮上游调用建立独立取消入口并登记当前目标; 取消原因用于区分人工中止与响应超时。
 			roundCtx, cancelRoundCause := context.WithCancelCause(ctx)
@@ -249,7 +299,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			if err != nil {
 				// 记录本轮上游调用已经结束及其失败原因。
-				countError := ctx.Err() == nil && context.Cause(roundCtx) != context.Canceled
+				if releaseCapacity != nil {
+					releaseCapacity()
+					releaseCapacity = nil
+				}
+				cancelCause := context.Cause(roundCtx)
+				cancelRound()
+				countError := ctx.Err() == nil && cancelCause != context.Canceled
 				if !sent && startsAttempt {
 					request.discardUnsentAttempt()
 				}
@@ -263,7 +319,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					return
 				}
 				// 仅人工中止本轮时不计失败也不等待; 响应超时属于真实失败并消耗尝试次数。
-				if context.Cause(roundCtx) == context.Canceled {
+				if cancelCause == context.Canceled {
 					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 					probeToken = 0
 					activeProbe.token = 0
@@ -335,6 +391,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			request.finishRound("", false)
 			// 请求级取消可能与上游成功同时到达, 此时不应提交响应或继续重试。
 			if ctx.Err() != nil {
+				if result.events != nil {
+					result.events.Close()
+				}
+				if result.closeIdle != nil {
+					result.closeIdle()
+				}
+				cancelRound()
 				releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 				activeProbe.token = 0
 				request.markCanceled(ctx.Err(), "", result.usage)
@@ -353,6 +416,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			// 非流式响应已经完整取得, 提交后一次写给客户端。
 			if !metadata.Streaming {
 				cancelRound()
+				if releaseCapacity != nil {
+					releaseCapacity()
+					releaseCapacity = nil
+				}
 				if c.Writer.Header().Get("Content-Type") == "" {
 					c.Header("Content-Type", "application/json")
 				}
@@ -438,6 +505,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			}
 			cancelRound()
 			// 使用客户端协议转换器聚合已转发事件, 统一取得最终响应正文和用量。
+			if releaseCapacity != nil {
+				releaseCapacity()
+				releaseCapacity = nil
+			}
 			responseBody, meta, aggregateErr := inbound.AggregateStreamChunks(context.WithoutCancel(ctx), chunks)
 			if aggregateErr == nil {
 				result.usage = meta.Usage
