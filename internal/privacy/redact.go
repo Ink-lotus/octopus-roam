@@ -18,12 +18,28 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 )
 
 // Diagnostics are process-local. A random HMAC key makes fingerprints stable
 // across their outputs without publishing a dictionary-testable credential hash.
 var fingerprintKey = []byte(rand.Text())
+
+// Experimental diagnostic redaction is opt-in. Each new request snapshots the
+// setting so changing it does not mix redacted and original data in one request.
+var diagnosticsEnabled atomic.Bool
+
+func SetDiagnosticsEnabled(enabled bool) { diagnosticsEnabled.Store(enabled) }
+
+func DiagnosticsEnabled() bool { return diagnosticsEnabled.Load() }
+
+func NewDiagnostic(values ...string) *Redactor {
+	if !DiagnosticsEnabled() {
+		return &Redactor{disabled: true}
+	}
+	return New(values...)
+}
 
 var (
 	markerRE = regexp.MustCompile(`\[redacted:[0-9a-f]{24}\]`)
@@ -103,6 +119,7 @@ func isSensitiveBodyName(name string) bool {
 // is later changed or deleted. Its synchronization also permits body reads
 // while the relay moves to the next member.
 type Redactor struct {
+	disabled bool // Immutable after construction; New remains available for mandatory credential masking.
 	mu       sync.RWMutex
 	secrets  map[string]string
 	revision uint64
@@ -129,9 +146,10 @@ func FromContext(ctx context.Context) *Redactor {
 	if r, ok := ctx.Value(contextKey{}).(*Redactor); ok && r != nil {
 		return r
 	}
-	return New()
+	return NewDiagnostic()
 }
 
+// New always redacts, including credentials in configuration editing APIs.
 func New(values ...string) *Redactor {
 	r := &Redactor{secrets: make(map[string]string)}
 	r.Add(values...)
@@ -139,7 +157,7 @@ func New(values ...string) *Redactor {
 }
 
 func (r *Redactor) Add(values ...string) {
-	if r == nil {
+	if r == nil || r.disabled {
 		return
 	}
 	r.mu.Lock()
@@ -188,6 +206,9 @@ func (r *Redactor) Revision() uint64 {
 }
 
 func (r *Redactor) AddHeaders(headers http.Header) {
+	if r != nil && r.disabled {
+		return
+	}
 	for name, values := range headers {
 		if IsSensitiveName(name) {
 			r.Add(values...)
@@ -212,6 +233,9 @@ func (r *Redactor) AddHeaders(headers http.Header) {
 }
 
 func (r *Redactor) AddURL(raw string) {
+	if r != nil && r.disabled {
+		return
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		r.Add(raw)
@@ -230,6 +254,9 @@ func (r *Redactor) AddURL(raw string) {
 
 // URL retains the host/path and ordinary query parameters needed for diagnosis.
 func (r *Redactor) URL(raw string) string {
+	if r != nil && r.disabled {
+		return raw
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return Mask(raw)
@@ -262,6 +289,9 @@ func (r *Redactor) URL(raw string) string {
 }
 
 func (r *Redactor) Text(value string) string {
+	if r != nil && r.disabled {
+		return value
+	}
 	var output strings.Builder
 	start := 0
 	for _, match := range urlRE.FindAllStringIndex(value, -1) {
@@ -319,6 +349,9 @@ func (r *Redactor) plainText(value string) string {
 // in ordinary text. It preserves ordinary prompts/responses; it does not claim
 // to identify arbitrary personal information inside free-form conversation.
 func (r *Redactor) Body(body string) string {
+	if r != nil && r.disabled {
+		return body
+	}
 	// Keep encoding/json's nesting limit before the duplicate-aware token walk.
 	if !json.Valid([]byte(body)) {
 		return r.Text(body)

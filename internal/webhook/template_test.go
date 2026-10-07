@@ -142,6 +142,9 @@ func TestStaleEndpointFingerprintCannotBeSavedAsCredential(t *testing.T) {
 }
 
 func TestCredentialSuffixesRemainPrivateInWebhookViewsAndEvents(t *testing.T) {
+	previous := privacy.DiagnosticsEnabled()
+	privacy.SetDiagnosticsEnabled(true)
+	t.Cleanup(func() { privacy.SetDiagnosticsEnabled(previous) })
 	for _, name := range []string{"X-Secret-Id", "X-Token-Value", "api_key_id", "credential_name"} {
 		t.Run(name, func(t *testing.T) {
 			const secret = "fixture-webhook-suffix-value"

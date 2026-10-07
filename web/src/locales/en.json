@@ -16,7 +16,7 @@
         "capacity": "Active {active} / {limit} · Waiting {waiting}",
         "unlimited": "Unlimited",
         "running": "Refreshing models…",
-        "lastRefresh": "Last {source} refresh: {time}",
+        "lastRefresh": "Last refresh: {time}",
         "refreshDetails": "Refresh details",
         "loadingDetails": "Loading refresh details…",
         "noRefresh": "No refresh records yet",
@@ -178,6 +178,10 @@
     "setting": {
         "appearance": "Appearance",
         "system": "System",
+        "privacyProtection": {
+            "label": "Deterministic privacy protection",
+            "hint": "Experimental, off by default, and not yet widely validated by users. Redacts sensitive content in request diagnostics, errors, and notifications. Changes apply to subsequent requests."
+        },
         "theme": {
             "label": "Theme",
             "light": "Light",
@@ -535,7 +539,6 @@
             "unknownModel": "Unknown model",
             "detailUnavailable": "Body content unavailable",
             "requestContent": "Request Body",
-            "bodyPrivacyHint": "Sensitive fields and known credentials are redacted; conversation content is still shown on demand.",
             "group": "Group",
             "groupUnavailable": "No group matches this request model",
             "noGroupItems": "No channels are available in this group",
@@ -573,7 +576,22 @@
         }
     },
     "channel": {
+        "refreshAll": {
+            "button": "Refresh all channel models",
+            "pending": "Refreshing all channel models…",
+            "progress": "Refreshing channel models: {completed}/{total}",
+            "finished": "All-channel model refresh completed",
+            "failed": "All-channel model refresh failed",
+            "channelFailed": "Channel model refresh failed",
+            "summary": "Succeeded: {success}, failed: {failed}, skipped: {skipped}",
+            "empty": "{count} channels returned no models",
+            "warnings": "{count} channels have price maintenance warnings",
+            "details": "See the refresh details on each channel card for results.",
+            "skipped": "Channels already refreshing were skipped."
+        },
         "card": {
+            "concurrency": "Concurrency",
+            "waiting": "Waiting {count}",
             "requestCount": "Requests",
             "totalCost": "Total Cost",
             "model": "Model",

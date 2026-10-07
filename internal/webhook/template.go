@@ -143,7 +143,7 @@ func NormalizeAndValidate(endpoint *model.WebhookEndpoint) error {
 }
 
 func Render(bodyTemplate string, event Event) ([]byte, error) {
-	event.LastError = privacy.New().Text(event.LastError)
+	event.LastError = privacy.NewDiagnostic().Text(event.LastError)
 	parsed, err := template.New("webhook").Option("missingkey=error").Funcs(template.FuncMap{
 		"json": func(value any) (string, error) {
 			encoded, err := json.Marshal(value)

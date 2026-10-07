@@ -346,12 +346,12 @@ export function useFetchModel() {
 }
 
 // useRefreshChannelModels 持久化刷新一个已保存渠道的模型与授权。
-// auto_add_groups 只作用于本次请求，默认由调用方传入 false，不读取或写入持久化设置。
+// 调用方传入该渠道已保存的手动刷新选项，服务端只将它用于本次请求。
 export function useRefreshChannelModels() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: ({ id, autoAddGroups = false }: { id: number; autoAddGroups?: boolean }) =>
+        mutationFn: ({ id, autoAddGroups }: { id: number; autoAddGroups: boolean }) =>
             apiRequest<ChannelModelRefreshResult>(`/api/v1/channel/refresh-model/${id}`, {
                 method: 'POST',
                 body: { auto_add_groups: autoAddGroups },

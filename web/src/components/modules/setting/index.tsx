@@ -14,18 +14,23 @@ import { SettingAutomation } from './Automation';
 export function Setting() {
     return (
         <div className="h-full min-h-0 overflow-y-auto overscroll-contain rounded-t-3xl pb-24 md:pb-4">
-            <div className="columns-1 gap-4 md:columns-2 *:mb-4 *:break-inside-avoid">
-                <SettingInfo />
-                <SettingAppearance />
-                <SettingAccount />
-                <SettingSystem />
-                <SettingAutomation />
-                <SettingRouteDefaults />
-                <SettingLog />
-                <SettingLLMPrice />
-                <SettingAPIKey />
-                <SettingWebhook />
-                <SettingBackup />
+            {/* 两列独立堆叠，避免卡片高度变化时自动重新分栏。 */}
+            <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+                <div className="min-w-0 space-y-4">
+                    <SettingInfo />
+                    <SettingAppearance />
+                    <SettingAccount />
+                    <SettingSystem />
+                    <SettingAutomation />
+                    <SettingBackup />
+                </div>
+                <div className="min-w-0 space-y-4">
+                    <SettingRouteDefaults />
+                    <SettingLog />
+                    <SettingLLMPrice />
+                    <SettingAPIKey />
+                    <SettingWebhook />
+                </div>
             </div>
         </div>
     );

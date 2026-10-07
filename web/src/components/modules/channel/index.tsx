@@ -6,6 +6,7 @@ import { PageActions, usePageActionsStore } from '@/components/common/PageAction
 import { MorphingDialogDescription } from '@/components/ui/morphing-dialog';
 import { Card } from './Card';
 import { ChannelForm } from './Form';
+import { RefreshAllButton } from './RefreshAllButton';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 
 // ChannelActions 向稳定顶栏提供渠道页面的搜索、视图选项和创建入口。
@@ -43,6 +44,7 @@ export function ChannelActions() {
             onFilterChange={(value) => {
                 if (value === 'all' || value === 'enabled' || value === 'disabled') setFilter(value);
             }}
+            actions={<RefreshAllButton />}
         >
             <div className="w-screen max-w-full md:max-w-3xl flex flex-col">
                 <MorphingDialogDescription disableLayoutAnimation>
@@ -83,7 +85,7 @@ export function Channel() {
             items={visibleChannels}
             layout={layout}
             columns={{ default: 1, sm: 2, md: 3, lg: 4, xl: 5, '2xl': 6 }}
-            estimateItemHeight={232}
+            estimateItemHeight={350}
             getItemKey={(channel) => `channel-${channel.channel_id}`}
             renderItem={(channel) => (
                 <Card channel={channel} />

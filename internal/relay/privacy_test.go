@@ -39,6 +39,7 @@ func latestPrivacyRequest(t *testing.T, groupID int) RequestState {
 }
 
 func TestRelayErrorsUseSameRedactionAcrossProtocolsAndDiagnostics(t *testing.T) {
+	setTestPrivacyProtection(t, true)
 	for _, format := range []llm.APIFormat{llm.APIFormatOpenAIChatCompletion, llm.APIFormatOpenAIResponse, llm.APIFormatAnthropicMessage} {
 		t.Run(string(format), func(t *testing.T) {
 			const inboundSecret, customSecret, bodySecret = "fixture-inbound-key", "fixture-custom-value", "fixture-body-password"
@@ -99,10 +100,35 @@ func TestRelayErrorsUseSameRedactionAcrossProtocolsAndDiagnostics(t *testing.T) 
 }
 
 func TestDiagnosticBodyRedactionDoesNotChangeSuccessfulForwarding(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			setTestPrivacyProtection(t, enabled)
+			checkDiagnosticBodyForwarding(t, enabled)
+		})
+	}
+}
+
+func setTestPrivacyProtection(t *testing.T, enabled bool) {
+	t.Helper()
+	previous, err := op.SettingGetString(model.SettingKeyPrivacyProtectionEnabled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, previous) })
+	if err := op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, fmt.Sprint(enabled)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkDiagnosticBodyForwarding(t *testing.T, enabled bool) {
+	t.Helper()
 	const bodySecret = "fixture-success-body-key"
 	responseBody := strings.Replace(chatCompletionBody, `"content":"pong"`, `"content":"pong test-upstream-credential","api_key":"fixture-response-key"`, 1)
 	received := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-upstream-credential" {
+			t.Error("privacy setting changed the upstream credential")
+		}
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
 		w.Header().Set("Content-Type", "application/json")
@@ -128,14 +154,19 @@ func TestDiagnosticBodyRedactionDoesNotChangeSuccessfulForwarding(t *testing.T) 
 	if err := op.ChannelDel(channelIDOfGrant(t, grantID), t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	assertDiagnosticPrivate(t, RequestBody(state.ID), bodySecret)
-	assertDiagnosticPrivate(t, ResponseBody(state.ID), "test-upstream-credential", "fixture-response-key")
+	if enabled {
+		assertDiagnosticPrivate(t, RequestBody(state.ID), bodySecret)
+		assertDiagnosticPrivate(t, ResponseBody(state.ID), "test-upstream-credential", "fixture-response-key")
+	} else if RequestBody(state.ID) != body || ResponseBody(state.ID) != responseBody {
+		t.Fatal("disabled privacy changed diagnostic bodies")
+	}
 	if !strings.Contains(ResponseBody(state.ID), "pong") {
 		t.Fatal("response diagnostic lost ordinary output")
 	}
 }
 
 func TestCommittedStreamErrorIsRedacted(t *testing.T) {
+	setTestPrivacyProtection(t, true)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		io.WriteString(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n")

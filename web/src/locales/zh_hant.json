@@ -16,7 +16,7 @@
         "capacity": "並行 {active} / {limit} · 等待 {waiting}",
         "unlimited": "不限",
         "running": "正在重新整理模型…",
-        "lastRefresh": "最近{source}更新：{time}",
+        "lastRefresh": "最近更新：{time}",
         "refreshDetails": "更新詳情",
         "loadingDetails": "正在讀取更新詳情…",
         "noRefresh": "暫無更新記錄",
@@ -178,6 +178,10 @@
     "setting": {
         "appearance": "外觀",
         "system": "系統",
+        "privacyProtection": {
+            "label": "確定性隱私保護",
+            "hint": "實驗性功能，預設關閉，尚未經過充分的使用者驗證。開啟後，對請求診斷、錯誤資訊和通知中的敏感內容進行確定性去識別化。修改對後續請求生效。"
+        },
         "theme": {
             "label": "主題",
             "light": "淺色",
@@ -535,7 +539,6 @@
             "unknownModel": "未知模型",
             "detailUnavailable": "正文內容不可用",
             "requestContent": "請求體",
-            "bodyPrivacyHint": "敏感欄位與已知憑據已遮蔽；對話正文仍按需顯示。",
             "group": "分組",
             "groupUnavailable": "目前請求模型沒有對應分組",
             "noGroupItems": "目前分組沒有可用供應源",
@@ -573,7 +576,22 @@
         }
     },
     "channel": {
+        "refreshAll": {
+            "button": "重新整理全部渠道模型",
+            "pending": "正在重新整理全部渠道模型…",
+            "progress": "正在重新整理渠道模型：{completed}/{total}",
+            "finished": "全域渠道模型重新整理完成",
+            "failed": "全域渠道模型重新整理失敗",
+            "channelFailed": "渠道模型重新整理失敗",
+            "summary": "成功 {success} 個，失敗 {failed} 個，略過 {skipped} 個",
+            "empty": "其中 {count} 個渠道返回空模型清單",
+            "warnings": "其中 {count} 個渠道有價格維護警告",
+            "details": "可在渠道卡片的重新整理詳情中查看具體結果。",
+            "skipped": "正在重新整理的渠道已略過。"
+        },
         "card": {
+            "concurrency": "並行",
+            "waiting": "等待 {count}",
             "requestCount": "請求次數",
             "totalCost": "總成本",
             "model": "模型",

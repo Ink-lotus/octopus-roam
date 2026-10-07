@@ -14,6 +14,7 @@ import (
 )
 
 func TestModelDiscoveryErrorsRedactSubmittedCredentials(t *testing.T) {
+	enableHandlerPrivacy(t)
 	const key, custom = "fixture-discovery-key", "fixture-discovery-custom"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+key && r.Header.Get("X-API-Key") != key {

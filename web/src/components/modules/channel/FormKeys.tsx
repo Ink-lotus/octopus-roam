@@ -68,51 +68,65 @@ export function FormKeys({ state, setState }: {
     };
 
     return (
-        // 撑满步骤区高度, 凭据列表内部滚动。
-        <div className="flex flex-col gap-3 h-full min-h-0">
+        <div className="min-w-0 space-y-2">
             <div className="flex items-center justify-between shrink-0">
                 <span className="text-sm font-medium">{t('keys')} ({state.keys.length})</span>
-                <IconButton onClick={add} className="size-9" tip={t('keyAdd')}>
+                <IconButton onClick={add} disabled={editing !== null} className="size-9" tip={t('keyAdd')} aria-label={t('keyAdd')}>
                     <Plus className="size-4" />
                 </IconButton>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-2">
+            <div className="space-y-2">
                 {state.keys.map((channelKey, index) => editing === index ? (
-                    <div key={index} className="flex items-center gap-2 rounded-xl border border-border p-2">
-                        <Input
-                            value={draft.name}
-                            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                            placeholder={t('keyName')}
-                            className="rounded-lg h-9 w-32"
-                        />
-                        <Input
-                            value={draft.key}
-                            onChange={(e) => setDraft({ ...draft, key: e.target.value })}
-                            placeholder={t('apiKey')}
-                            className="rounded-lg h-9 flex-1"
-                        />
+                    <div key={index} className="flex min-w-0 items-center gap-3 rounded-xl border border-border p-2"
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                                event.preventDefault();
+                                commit(index);
+                            }
+                        }}>
+                        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-4">
+                            <Input
+                                value={draft.name}
+                                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                                placeholder={t('keyName')}
+                                aria-label={t('keyName')}
+                                className="rounded-lg h-9 min-w-0"
+                            />
+                            <Input
+                                value={draft.key}
+                                onChange={(e) => setDraft({ ...draft, key: e.target.value })}
+                                placeholder={t('apiKey')}
+                                aria-label={t('apiKey')}
+                                className="rounded-lg h-9 min-w-0"
+                            />
+                        </div>
                         <IconButton
                             onClick={() => commit(index)}
-                            disabled={!draft.name.trim()}
-                            className="size-9"
+                            disabled={!draft.name.trim() || state.keys.some((key, i) => i !== index && key.name === draft.name.trim())}
+                            className="size-9 shrink-0"
                             tip={t('save')}
+                            aria-label={t('save')}
                         >
                             <Check className="size-4" />
                         </IconButton>
                     </div>
                 ) : (
-                    <div key={index} className="flex items-center gap-3 rounded-xl border border-border px-3 py-2">
-                        <span className="text-sm font-medium truncate w-32">{channelKey.name}</span>
-                        <span className="text-xs font-mono text-muted-foreground flex-1 truncate">
-                            {channelKey.key ? maskKey(channelKey.key) : t('keyEmpty')}
-                        </span>
+                    <div key={index} className="flex flex-wrap items-center gap-2 rounded-xl border border-border px-3 py-2">
+                        <div className="grid min-w-0 flex-1 basis-40 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-4">
+                            <span className="min-w-0 truncate text-sm font-medium" title={channelKey.name}>{channelKey.name}</span>
+                            <span className="min-w-0 truncate text-xs font-mono text-muted-foreground">
+                                {channelKey.key ? maskKey(channelKey.key) : t('keyEmpty')}
+                            </span>
+                        </div>
+                        <div className="ml-auto flex shrink-0 items-center gap-1">
                         {/* 只显示该凭据自己的授权数, 模型集合是渠道级共享的, 总数对每条凭据都一样, 摆出来会被误读成它已获取的模型数。 */}
                         <span className="text-xs text-muted-foreground tabular-nums">
                             {grantCount(channelKey.name)}
                         </span>
                         <Switch
                             checked={channelKey.enabled}
+                            aria-label={`${channelKey.name} ${t('enabled')}`}
                             onCheckedChange={(checked) => setState({
                                 ...state,
                                 keys: state.keys.map((k, i) => (i === index ? { ...k, enabled: checked } : k)),
@@ -124,6 +138,7 @@ export function FormKeys({ state, setState }: {
                             disabled={pendingKey !== null || !channelKey.key.trim() || !state.base_url.trim()}
                             className="size-8"
                             tip={t('modelRefresh')}
+                            aria-label={t('modelRefresh')}
                         >
                             <RefreshCw className={`size-4 ${pendingKey === channelKey.name ? 'animate-spin' : ''}`} />
                         </IconButton>
@@ -131,6 +146,8 @@ export function FormKeys({ state, setState }: {
                             onClick={() => { setDraft({ name: channelKey.name, key: channelKey.key }); setEditing(index); }}
                             className="size-8"
                             tip={t('edit')}
+                            aria-label={t('edit')}
+                            disabled={editing !== null}
                         >
                             <Pencil className="size-4" />
                         </IconButton>
@@ -138,9 +155,12 @@ export function FormKeys({ state, setState }: {
                             onClick={() => remove(index)}
                             className="size-8 hover:text-destructive"
                             tip={t('delete')}
+                            aria-label={t('delete')}
+                            disabled={editing !== null}
                         >
                             <Trash2 className="size-4" />
                         </IconButton>
+                        </div>
                     </div>
                 ))}
             </div>

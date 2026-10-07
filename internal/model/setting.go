@@ -17,6 +17,7 @@ const (
 	SettingKeyModelInfoUpdateInterval         SettingKey = "model_info_update_interval" // 模型信息更新间隔(小时)
 	SettingKeyCORSAllowOrigins                SettingKey = "cors_allow_origins"         // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
 	SettingKeyModelFilter                     SettingKey = "model_filter"               // 渠道获取模型时的全局过滤表达式; 留空表示不过滤
+	SettingKeyPrivacyProtectionEnabled        SettingKey = "privacy_protection_enabled"
 	SettingKeyWebhookManualFailureThreshold   SettingKey = "webhook_manual_failure_threshold"
 	SettingKeyWebhookFailoverChannelThreshold SettingKey = "webhook_failover_channel_threshold"
 	SettingKeyGroupRouteDefaults              SettingKey = "group_route_defaults"
@@ -34,10 +35,11 @@ func DefaultSettings() []Setting {
 	routeDefaults, _ := json.Marshal(DefaultGroupRelayConfig())
 	return []Setting{
 		{Key: SettingKeyProxyURL, Value: ""},
-		{Key: SettingKeyStatsSaveInterval, Value: "10"},       // 默认10分钟保存一次统计信息
-		{Key: SettingKeyCORSAllowOrigins, Value: ""},          // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
-		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"}, // 默认24小时更新一次模型信息
-		{Key: SettingKeyModelFilter, Value: ""},               // 默认不过滤模型
+		{Key: SettingKeyStatsSaveInterval, Value: "10"},           // 默认10分钟保存一次统计信息
+		{Key: SettingKeyCORSAllowOrigins, Value: ""},              // CORS 默认不允许跨域，设置为 "*" 才允许所有来源
+		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"},     // 默认24小时更新一次模型信息
+		{Key: SettingKeyModelFilter, Value: ""},                   // 默认不过滤模型
+		{Key: SettingKeyPrivacyProtectionEnabled, Value: "false"}, // 实验性诊断脱敏，默认关闭
 		{Key: SettingKeyWebhookManualFailureThreshold, Value: "10"},
 		{Key: SettingKeyWebhookFailoverChannelThreshold, Value: "3"},
 		{Key: SettingKeyGroupRouteDefaults, Value: string(routeDefaults)},
@@ -49,6 +51,11 @@ func DefaultSettings() []Setting {
 
 func (s *Setting) Validate() error {
 	switch s.Key {
+	case SettingKeyPrivacyProtectionEnabled:
+		if s.Value != "true" && s.Value != "false" {
+			return fmt.Errorf("privacy protection switch must be true or false")
+		}
+		return nil
 	case SettingKeyChannelAutoUpdateEnabled, SettingKeyChannelAutoAddGroups:
 		if s.Value != "true" && s.Value != "false" {
 			return fmt.Errorf("channel automation switch must be true or false")

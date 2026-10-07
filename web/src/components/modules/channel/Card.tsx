@@ -4,31 +4,42 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
     MorphingDialogDescription,
+    useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, DollarSign, Layers, LoaderCircle, MessageSquare, RefreshCw, XCircle } from 'lucide-react';
-import { type ChannelModelRefreshResult, type ChannelStatsFormatted, useEnableChannel, useRefreshChannelModels, useChannelRefreshStatus } from '@/api/channel';
+import { Activity, Check, CheckCircle2, DollarSign, Layers, LoaderCircle, MessageSquare, Pencil, RefreshCw, Trash2, X, XCircle } from 'lucide-react';
+import { type ChannelModelRefreshResult, type ChannelStatsFormatted, useDeleteChannel, useEnableChannel, useRefreshChannelModels, useChannelRefreshStatus } from '@/api/channel';
 import { usePageActionsStore } from '@/components/common/PageActions';
 import { ChannelStats } from './Stats';
 import { ChannelForm } from './Form';
 import { useTranslations } from 'use-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
+import { IconButton } from '@/components/common/IconButton';
+import { useChannelPreferences } from '@/stores/channel';
 import { toast } from 'sonner';
 import { useRef, useState } from 'react';
 
 // Card 展示单个渠道的概览; 名称, 启停与统计都在同一条统计查询里, 整份配置只在点开编辑时另取。
 export function Card({ channel }: { channel: ChannelStatsFormatted }) {
+    return <MorphingDialog><ChannelCard channel={channel} /></MorphingDialog>;
+}
+
+function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
     const t = useTranslations('channel.card');
     const tAuto = useTranslations('automation');
+    const tStats = useTranslations('channel.stats');
+    const tForm = useTranslations('channel.form');
+    const { setIsOpen } = useMorphingDialog();
     // 布局是渠道页共享的视图选项, 直接取用而不由列表层层传入。
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
     const enableChannel = useEnableChannel();
     const refreshChannelModels = useRefreshChannelModels();
-    // 弹窗默认展示统计, 编辑入口在统计视图的头部; 关闭后下次打开仍回到统计, 故点卡片时复位。
+    const deleteChannel = useDeleteChannel();
+    const [confirmingDelete, setConfirmingDelete] = useState(false);
+    // 点击卡片查看统计，独立编辑按钮直接打开表单。
     const [openInEditing, setOpenInEditing] = useState(false);
-    const [autoAddGroups, setAutoAddGroups] = useState(false);
+    const autoAddGroups = useChannelPreferences((preferences) => preferences.autoAddGroups[channel.channel_id] ?? true);
     const [showRefreshDetails, setShowRefreshDetails] = useState(false);
     const refreshStatus = useChannelRefreshStatus(channel.channel_id, showRefreshDetails);
     const [localRefresh, setLocalRefresh] = useState<{ result: ChannelModelRefreshResult | null; previousFinishedAt?: string } | null>(null);
@@ -38,21 +49,34 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     const setRefreshResult = (result: ChannelModelRefreshResult | null) => setLocalRefresh({ result, previousFinishedAt: lastRefresh?.finished_at });
     const refreshInFlight = useRef(false);
     const metrics = channel.formatted;
+    const concurrencyMetric = {
+        icon: <Activity className="size-4 shrink-0 text-primary" />,
+        label: t('concurrency'),
+        value: `${channel.concurrency.active}/${channel.concurrency.waiting}/${channel.max_concurrency === 0 ? '∞' : channel.max_concurrency}`,
+        title: tAuto('capacity', {
+            active: channel.concurrency.active,
+            waiting: channel.concurrency.waiting,
+            limit: channel.max_concurrency === 0 ? tAuto('unlimited') : channel.max_concurrency,
+        }),
+    };
 
     // 列表布局的统计项, 缺少 unit 时只显示数值
-    const listMetrics: { icon: React.ReactNode; label: string; value: string | number; unit?: string }[] = [
+    const listMetrics = [
         { icon: <MessageSquare className="size-4 shrink-0 text-primary" />, label: t('requestCount'), value: metrics.request_count.formatted.value, unit: metrics.request_count.formatted.unit },
         { icon: <Layers className="size-4 shrink-0 text-primary" />, label: t('model'), value: channel.models.length },
         { icon: <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />, label: t('successRequests'), value: metrics.request_success.formatted.value },
         { icon: <XCircle className="size-4 shrink-0 text-destructive" />, label: t('failedRequests'), value: metrics.request_failed.formatted.value },
         { icon: <DollarSign className="size-4 shrink-0 text-primary" />, label: t('totalCost'), value: metrics.total_cost.formatted.value, unit: metrics.total_cost.formatted.unit },
+        concurrencyMetric,
     ];
 
     // 网格布局的统计项
     const gridMetrics = [
-        { icon: <MessageSquare className="size-4 shrink-0 text-primary" />, label: t('requestCount'), metric: metrics.request_count },
-        { icon: <DollarSign className="size-4 shrink-0 text-primary" />, label: t('totalCost'), metric: metrics.total_cost },
+        listMetrics[0],
+        listMetrics[4],
+        concurrencyMetric,
     ];
+    const visibleMetrics: { icon: React.ReactNode; label: string; value: string | number; unit?: string; title?: string }[] = layout === 'list' ? listMetrics : gridMetrics;
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -121,93 +145,79 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
     };
 
     return (
-        <MorphingDialog>
-            <MorphingDialogTrigger className="w-full">
+        <>
+            <MorphingDialogTrigger className="w-full min-w-0">
                 <article
                     onClickCapture={() => setOpenInEditing(false)}
-                    className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4"
+                    className="flex min-w-0 flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4"
                 >
-                    <header className="flex items-center justify-between gap-2">
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <h3 className="text-lg font-bold truncate min-w-0">{channel.channel_name}</h3>
-                            </TooltipTrigger>
-                            <TooltipContent key={channel.channel_name} side="top" sideOffset={10} align="center">
-                                {channel.channel_name}
-                            </TooltipContent>
-                        </Tooltip>
-                        <div className="flex shrink-0 items-center gap-1" onClick={stopCardTrigger} onPointerDown={stopCardTrigger} onKeyDown={stopCardTrigger}>
-                            <label className="flex items-center gap-1 text-xs text-muted-foreground" title={t('refresh.autoAddGroups')}>
-                                <Checkbox
-                                    checked={autoAddGroups}
-                                    onCheckedChange={(checked) => setAutoAddGroups(checked === true)}
-                                    aria-label={t('refresh.autoAddGroups')}
+                    <header className="min-w-0 space-y-2">
+                        <div className="flex min-w-0 items-center justify-between gap-3">
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <h3 className="min-w-0 flex-1 truncate text-lg font-bold">{channel.channel_name}</h3>
+                                </TooltipTrigger>
+                                <TooltipContent key={channel.channel_name} side="top" sideOffset={10} align="center">
+                                    {channel.channel_name}
+                                </TooltipContent>
+                            </Tooltip>
+                            <div className="flex shrink-0 items-center" onClick={stopCardTrigger} onPointerDown={stopCardTrigger} onKeyDown={stopCardTrigger}>
+                                <Switch
+                                    checked={channel.enabled}
+                                    onCheckedChange={handleEnableChange}
+                                    disabled={enableChannel.isPending}
+                                    aria-label={tForm('enabled')}
                                 />
-                                <span className="hidden lg:inline">{t('refresh.autoAddGroups')}</span>
-                            </label>
-                            <button
-                                type="button"
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-1" onClick={stopCardTrigger} onPointerDown={stopCardTrigger} onKeyDown={stopCardTrigger}>
+                            <IconButton
                                 onClick={handleRefresh}
                                 disabled={refreshChannelModels.isPending || channel.refresh?.running}
                                 aria-label={t('refresh.button')}
-                                title={t('refresh.button')}
-                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+                                tip={t('refresh.button')}
+                                className="size-8 shrink-0"
                             >
-                                {refreshChannelModels.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                                <span className="hidden md:inline">{refreshChannelModels.isPending ? t('refresh.pending') : t('refresh.button')}</span>
-                            </button>
-                            <Switch
-                                checked={channel.enabled}
-                                onCheckedChange={handleEnableChange}
-                                disabled={enableChannel.isPending}
-                                onClick={(e) => e.stopPropagation()}
-                            />
+                                {refreshChannelModels.isPending || channel.refresh?.running ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                            </IconButton>
+                            <IconButton className="size-8 shrink-0" tip={tStats('edit')} aria-label={tStats('edit')}
+                                onClick={() => { setOpenInEditing(true); setIsOpen(true); }}>
+                                <Pencil className="size-4" />
+                            </IconButton>
+                            <IconButton className="size-8 shrink-0 hover:text-destructive" tip={tStats('delete')} aria-label={tStats('delete')}
+                                onClick={() => setConfirmingDelete(true)}>
+                                <Trash2 className="size-4" />
+                            </IconButton>
                         </div>
                     </header>
 
-                    {layout === 'list' ? (
-                        <dl className="grid grid-cols-2 gap-2 lg:grid-cols-5">
-                            {listMetrics.map(({ icon, label, value, unit }) => (
-                                <div key={label} className="rounded-2xl border border-border/70 bg-background/80 p-2">
+                    {confirmingDelete && (
+                        <div className="flex flex-wrap items-center justify-end gap-2 rounded-xl border border-destructive/30 p-2"
+                            onClick={stopCardTrigger} onPointerDown={stopCardTrigger} onKeyDown={stopCardTrigger}>
+                            <span className="mr-auto text-xs text-destructive">{tStats('confirmDelete')}</span>
+                            <IconButton className="size-8" tip={tStats('cancel')} aria-label={tStats('cancel')}
+                                disabled={deleteChannel.isPending} onClick={() => setConfirmingDelete(false)}><X className="size-4" /></IconButton>
+                            <IconButton className="size-8 text-destructive" tip={tStats('confirmDelete')} aria-label={tStats('confirmDelete')}
+                                disabled={deleteChannel.isPending} onClick={() => deleteChannel.mutate(channel.channel_id, {
+                                    onError: (error) => toast.error(error.message),
+                                })}><Check className="size-4" /></IconButton>
+                        </div>
+                    )}
+
+                        <dl className={layout === 'list' ? 'grid grid-cols-2 gap-2 lg:grid-cols-6' : 'grid grid-cols-1 gap-3'}>
+                            {visibleMetrics.map(({ icon, label, value, unit, title }) => (
+                                <div key={label} className="min-w-0 rounded-2xl border border-border/70 bg-background/80 p-2">
                                     <dt className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                                         {icon}
                                         <span className="truncate">{label}</span>
                                     </dt>
-                                    <dd className="text-right text-xl font-bold">
+                                    <dd className="truncate text-right text-xl font-bold tabular-nums" title={title} aria-label={title}>
                                         {value}
                                         {unit && <span className="ml-1 text-xs font-normal text-muted-foreground">{unit}</span>}
                                     </dd>
                                 </div>
                             ))}
                         </dl>
-                    ) : (
-                        <dl className="grid grid-cols-1 gap-3">
-                            {gridMetrics.map(({ icon, label, metric }) => (
-                                <div key={label} className="rounded-2xl border border-border/70 bg-background/80 p-2">
-                                    <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                        {icon}
-                                        <span className="truncate">{label}</span>
-                                    </dt>
-                                    <dd className="mt-1 text-right text-xl font-bold">
-                                        {metric.formatted.value}
-                                        <span className="ml-1 text-xs font-normal text-muted-foreground">{metric.formatted.unit}</span>
-                                    </dd>
-                                </div>
-                            ))}
-                        </dl>
-                    )}
-
-                    <div className="space-y-1 text-xs text-muted-foreground" aria-live="polite">
-                        <p>{channel.follow_global_auto_update ? tAuto('following') : tAuto('optedOut')}</p>
-                        <p>{tAuto('capacity', { active: channel.concurrency.active, waiting: channel.concurrency.waiting,
-                            limit: channel.max_concurrency === 0 ? tAuto('unlimited') : channel.max_concurrency })}</p>
-                        {channel.refresh?.running && <p className="flex items-center gap-1"><LoaderCircle className="size-3 animate-spin" />{tAuto('running')}</p>}
-                        {lastRefresh && <p>{tAuto('lastRefresh', { source: tAuto(lastRefresh.source), time: new Date(lastRefresh.finished_at).toLocaleString() })}</p>}
-                        {lastRefresh?.status === 'canceled' && <p>{tAuto('canceled')}</p>}
-                        {lastRefresh && <p>{lastRefresh.status === 'success' ? t('refresh.successTitle') : lastRefresh.status === 'failed' ? t('refresh.failed') : tAuto('canceled')}
-                            {' · '}{t('refresh.changeSummary', { added: lastRefresh.added_count, removed: lastRefresh.removed_count })}</p>}
-                        {!!lastRefresh?.warning_count && <p className="text-amber-700 dark:text-amber-300">{tAuto('warningCount', { count: lastRefresh.warning_count })}</p>}
-                    </div>
 
                     <details
                         open={showRefreshDetails}
@@ -215,9 +225,12 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                         onClick={stopCardTrigger}
                         onPointerDown={stopCardTrigger}
                         onKeyDown={stopCardTrigger}
-                        className="space-y-2 text-xs"
+                        className="min-w-0 space-y-2 break-words text-xs"
                     >
                         <summary className="cursor-pointer text-muted-foreground">{tAuto('refreshDetails')}</summary>
+                        {channel.refresh?.running && <p className="flex items-center gap-1" role="status"><LoaderCircle className="size-3 animate-spin" />{tAuto('running')}</p>}
+                        {lastRefresh?.status === 'canceled' && <p>{tAuto('canceled')}</p>}
+                        {!refreshResult && lastRefresh && <p className="text-muted-foreground">{tAuto('lastRefresh', { time: new Date(lastRefresh.finished_at).toLocaleString() })}</p>}
                         {showRefreshDetails && refreshStatus.isPending && <p role="status">{tAuto('loadingDetails')}</p>}
                         {showRefreshDetails && refreshStatus.isError && <p role="alert" className="text-destructive">{refreshStatus.error.message}</p>}
                         {showRefreshDetails && !refreshStatus.isPending && !refreshStatus.isError && !refreshResult && !refreshChannelModels.isPending && <p>{tAuto('noRefresh')}</p>}
@@ -227,7 +240,7 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                             onClick={stopCardTrigger}
                             onPointerDown={stopCardTrigger}
                         >
-                            <div className="flex items-center justify-between gap-2 font-medium">
+                            <div className="flex flex-wrap items-center justify-between gap-2 font-medium">
                                 <span>{refreshResult.success ? (refreshResult.zero_models ? t('refresh.empty') : t('refresh.successTitle')) : t('refresh.failed')}</span>
                                 {refreshResult.success && (
                                     <span className="text-muted-foreground">
@@ -235,6 +248,7 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                                     </span>
                                 )}
                             </div>
+                            {lastRefresh && <p className="mt-1 text-muted-foreground">{tAuto('lastRefresh', { time: new Date(lastRefresh.finished_at).toLocaleString() })}</p>}
                             {refreshResult.error && (
                                 <p className={`mt-1 ${refreshResult.success ? 'text-amber-700 dark:text-amber-300' : 'text-destructive'}`}>
                                     {refreshResult.success ? t('refresh.warning', { detail: refreshResult.error }) : refreshResult.error}
@@ -315,6 +329,6 @@ export function Card({ channel }: { channel: ChannelStatsFormatted }) {
                     </MorphingDialogDescription>
                 </MorphingDialogContent>
             </MorphingDialogContainer>
-        </MorphingDialog>
+        </>
     );
 }

@@ -15,12 +15,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { useChannelPreferences } from '@/stores/channel';
 import { FormGrants } from './FormGrants';
 import { FormKeys } from './FormKeys';
 import { IconButton } from '@/components/common/IconButton';
 import { RegexFilterField } from '@/components/common/RegexFilterField';
 import { isValidRegex } from '@/lib/regex';
 import {
+    channelNameFromURL,
     emptyFormState,
     fromChannel,
     normalizeAllowedProtocols,
@@ -28,7 +30,7 @@ import {
     type ChannelFormState,
 } from './state';
 
-type StepID = 'preset' | 'connection' | 'keys' | 'grants' | 'advanced';
+type StepID = 'preset' | 'connection' | 'grants' | 'advanced';
 
 // ChannelForm 新建与编辑共用; 编辑时按 id 取回整份配置, 到齐后再进表单。
 // 配置不随渠道列表下发, 故编辑必然要等这一趟请求; 占位与表单同高, 弹窗不会因此跳动。
@@ -60,29 +62,34 @@ export function ChannelForm({ channelId, onBack }: {
 function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBack?: () => void }) {
     const t = useTranslations('channel.form');
     const tAuto = useTranslations('automation');
+    const tRefresh = useTranslations('channel.card.refresh');
     const { setIsOpen } = useMorphingDialog();
     const createChannel = useCreateChannel();
     const updateChannel = useUpdateChannel();
+    const savedAutoAddGroups = useChannelPreferences((preferences) => channel ? preferences.autoAddGroups[channel.id] ?? true : true);
+    const saveAutoAddGroups = useChannelPreferences((preferences) => preferences.setAutoAddGroups);
+    const [autoAddGroups, setAutoAddGroups] = useState(savedAutoAddGroups);
     const [state, setState] = useState<ChannelFormState>(channel ? fromChannel(channel) : emptyFormState);
+    const [automaticName, setAutomaticName] = useState(!channel?.name.trim()
+        || channel.name === channelNameFromURL(channel.base_url));
     const [step, setStep] = useState<StepID>(channel ? 'connection' : 'preset');
     const isPending = createChannel.isPending || updateChannel.isPending;
     // 新建与编辑弹窗可同时存在, 控件 id 需按渠道隔离。
     const idPrefix = channel ? `channel-${channel.id}` : 'new-channel';
 
-    // 名称、地址、路径与凭据先做前端校验。编辑已有渠道可以清空全部模型后保存。
-    const canSubmit = state.name.trim() !== ''
+    const name = state.name.trim() || channelNameFromURL(state.base_url);
+    // 凭据可先保存为空白条目，之后再填写 Key、获取模型；名称仍需有效。
+    const canSubmit = name !== ''
         && state.base_url.trim() !== ''
         && [state.openai_chat_completion_path, state.openai_response_path, state.anthropic_message_path]
             .every((path) => path === '' || path.startsWith('/'))
         && state.keys.length > 0
-        && state.keys.every((k) => k.key.trim() !== '')
-        && Number.isSafeInteger(state.max_concurrency) && state.max_concurrency >= 0
-        && (channel !== undefined || state.models.length > 0);
+        && state.keys.every((k) => k.name.trim() !== '')
+        && Number.isSafeInteger(state.max_concurrency) && state.max_concurrency >= 0;
 
     const steps: { id: StepID; label: string }[] = [
         ...(channel ? [] : [{ id: 'preset' as StepID, label: t('stepPreset') }]),
         { id: 'connection', label: t('stepConnection') },
-        { id: 'keys', label: t('stepKeys') },
         { id: 'grants', label: t('stepGrants') },
         { id: 'advanced', label: t('stepAdvanced') },
     ];
@@ -90,7 +97,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
     const applyPreset = (preset: ChannelPreset) => {
         setState({
             ...state,
-            name: state.name || preset.label,
+            name: automaticName ? channelNameFromURL(preset.base_url) : state.name,
             dialect: preset.dialect,
             base_url: preset.base_url,
             openai_chat_completion_path: preset.openai_chat_completion_path,
@@ -108,18 +115,19 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
             setStep('advanced');
             return;
         }
-        const detail = toChannelDetail(state, channel?.id ?? 0);
+        const detail = toChannelDetail({ ...state, name }, channel?.id ?? 0);
         const mutation = channel ? updateChannel : createChannel;
         mutation.mutate(detail, {
-            onSuccess: () => setIsOpen(false),
+            onSuccess: (saved) => {
+                saveAutoAddGroups(saved.id, autoAddGroups);
+                setIsOpen(false);
+            },
             onError: (error) => toast.error(t('saveFailed'), { description: error.message }),
         });
     };
 
     // 表单高度固定, 否则切换步骤时弹窗会随内容高度跳动; 内容更高的步骤由步骤区内部滚动消化。
-    // 29rem 是连接页恰好铺满所需: 首行留白 8px + 五个字段组 290px + 五道间距 80px + 开关行 20px + 底部按钮 52px。
-    // 各步骤首行统一落在同一水平线: connection 与 advanced 的首行是无边框文案, 补 8px 才能与步骤导航的按钮文案对齐;
-    // keys 与 grants 的首行是 36px 控件行, 文案居中后天然齐平, 无需补白。步骤区自带 4px 内边距供焦点环显示。
+    // 连接页合并凭据后由步骤区内部滚动，底部保存按钮始终可见。
     // calc 一项夹住矮屏, 弹窗不提供滚动, 内容超出视口时底部按钮会点不到。详情视图取同一高度以对齐尺寸。
     return (
         <form onSubmit={submit} className="flex flex-col md:flex-row gap-6 h-[min(29rem,calc(100vh-10rem))]">
@@ -172,8 +180,11 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                 <Label htmlFor={`${idPrefix}-name`}>{t('name')}</Label>
                                 <Input
                                     id={`${idPrefix}-name`}
-                                    value={state.name}
-                                    onChange={(e) => setState({ ...state, name: e.target.value })}
+                                    value={state.name || (automaticName ? name : '')}
+                                    onChange={(e) => {
+                                        setAutomaticName(e.target.value.trim() === '');
+                                        setState({ ...state, name: e.target.value });
+                                    }}
                                     className="rounded-xl"
                                     required
                                 />
@@ -184,18 +195,37 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     id={`${idPrefix}-base-url`}
                                     type="url"
                                     value={state.base_url}
-                                    onChange={(e) => setState({ ...state, base_url: e.target.value })}
+                                    onChange={(e) => setState({
+                                        ...state,
+                                        base_url: e.target.value,
+                                        name: automaticName ? channelNameFromURL(e.target.value) : state.name,
+                                    })}
                                     className="rounded-xl"
                                     required
                                 />
                             </div>
+                            <FormKeys state={state} setState={setState} />
                             {([
-                                ['openai_chat_completion_path', 'OpenAI Chat'],
-                                ['openai_response_path', 'OpenAI Responses'],
-                                ['anthropic_message_path', 'Anthropic'],
-                            ] as const).map(([field, label]) => (
+                                ['openai_chat_completion_path', 'OpenAI Chat', Protocol.OpenAIChatCompletion],
+                                ['openai_response_path', 'OpenAI Responses', Protocol.OpenAIResponse],
+                                ['anthropic_message_path', 'Anthropic', Protocol.AnthropicMessage],
+                            ] as const).map(([field, label, bit]) => (
                                 <div key={field} className="space-y-2">
-                                    <Label htmlFor={`${idPrefix}-${field}`}>{label}</Label>
+                                    <div className="flex items-center justify-between gap-2">
+                                        <Label htmlFor={`${idPrefix}-${field}`}>{label}</Label>
+                                        <Switch
+                                            aria-label={label}
+                                            title={t('allowedProtocolsHint')}
+                                            checked={(state.allowed_protocols & bit) !== 0}
+                                            disabled={state.allowed_protocols === bit}
+                                            onCheckedChange={(checked) => setState({
+                                                ...state,
+                                                allowed_protocols: normalizeAllowedProtocols(
+                                                    checked ? state.allowed_protocols | bit : state.allowed_protocols & ~bit,
+                                                ),
+                                            })}
+                                        />
+                                    </div>
                                     <Input
                                         id={`${idPrefix}-${field}`}
                                         value={state[field]}
@@ -216,39 +246,18 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     </label>
                                 ))}
                             </div>
-                            <div className="space-y-2">
-                                <Label>{t('allowedProtocols')}</Label>
-                                <p className="text-xs text-muted-foreground">{t('allowedProtocolsHint')}</p>
-                                <div className="flex flex-wrap gap-4">
-                                    {([
-                                        [Protocol.OpenAIChatCompletion, t('protocolChat')],
-                                        [Protocol.OpenAIResponse, t('protocolResponse')],
-                                        [Protocol.AnthropicMessage, t('protocolAnthropic')],
-                                    ] as const).map(([bit, label]) => (
-                                        <label key={bit} className="flex items-center gap-2 cursor-pointer">
-                                            <Switch
-                                                checked={(state.allowed_protocols & bit) !== 0}
-                                                disabled={state.allowed_protocols === bit}
-                                                onCheckedChange={(checked) => {
-                                                    const allowed_protocols = normalizeAllowedProtocols(
-                                                        checked ? state.allowed_protocols | bit : state.allowed_protocols & ~bit,
-                                                    );
-                                                    setState({ ...state, allowed_protocols });
-                                                }}
-                                            />
-                                            <span className="text-sm">{label}</span>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
                         </div>
                     )}
 
-                    {step === 'keys' && <FormKeys state={state} setState={setState} />}
                     {step === 'grants' && <FormGrants state={state} setState={setState} />}
 
                     {step === 'advanced' && (
                         <div className="space-y-4 pt-2">
+                            <div className="flex items-center justify-between gap-3">
+                                <Label htmlFor={`${idPrefix}-auto-add-groups`}>{tRefresh('autoAddGroups')}</Label>
+                                <Switch id={`${idPrefix}-auto-add-groups`} checked={autoAddGroups}
+                                    onCheckedChange={setAutoAddGroups} />
+                            </div>
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between gap-3">
                                     <Label htmlFor={`${idPrefix}-follow`}>{tAuto('follow')}</Label>

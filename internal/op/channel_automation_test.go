@@ -210,6 +210,11 @@ func TestRefreshDiagnosticCopiesDoNotMutateCachedRecord(t *testing.T) {
 }
 
 func TestChannelRefreshRecordFailureSuccessAndReload(t *testing.T) {
+	previous, _ := SettingGetString(model.SettingKeyPrivacyProtectionEnabled)
+	t.Cleanup(func() { _ = SettingSetString(model.SettingKeyPrivacyProtectionEnabled, previous) })
+	if err := SettingSetString(model.SettingKeyPrivacyProtectionEnabled, "true"); err != nil {
+		t.Fatal(err)
+	}
 	secret := "automation-private-credential"
 	var fail atomic.Bool
 	fail.Store(true)

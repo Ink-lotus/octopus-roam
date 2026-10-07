@@ -23,7 +23,20 @@ import (
 
 var channelHandlerFixtureID atomic.Int64
 
+func enableHandlerPrivacy(t *testing.T) {
+	t.Helper()
+	previous, err := op.SettingGetString(model.SettingKeyPrivacyProtectionEnabled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, previous) })
+	if err := op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, "true"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRefreshChannelModelsHandlerReturnsPerKeyResult(t *testing.T) {
+	enableHandlerPrivacy(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
@@ -288,6 +301,7 @@ func TestRefreshChannelModelsHandlerReturnsConflictWhileRefreshIsRunning(t *test
 }
 
 func TestRefreshChannelModelsHandlerRedactsEachKeyError(t *testing.T) {
+	enableHandlerPrivacy(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)

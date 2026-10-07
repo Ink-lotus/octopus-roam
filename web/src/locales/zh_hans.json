@@ -16,7 +16,7 @@
         "capacity": "并发 {active} / {limit} · 等待 {waiting}",
         "unlimited": "不限",
         "running": "正在刷新模型…",
-        "lastRefresh": "最近{source}刷新：{time}",
+        "lastRefresh": "最近刷新：{time}",
         "refreshDetails": "刷新详情",
         "loadingDetails": "正在读取刷新详情…",
         "noRefresh": "暂无刷新记录",
@@ -178,6 +178,10 @@
     "setting": {
         "appearance": "外观",
         "system": "系统",
+        "privacyProtection": {
+            "label": "确定性隐私保护",
+            "hint": "实验性功能，默认关闭，尚未经过充分的用户验证。开启后，对请求诊断、错误信息和通知中的敏感内容进行确定性脱敏。修改对后续请求生效。"
+        },
         "theme": {
             "label": "主题",
             "light": "浅色",
@@ -535,7 +539,6 @@
             "unknownModel": "未知模型",
             "detailUnavailable": "正文内容不可用",
             "requestContent": "请求体",
-            "bodyPrivacyHint": "敏感字段与已知凭据已脱敏；对话正文仍按需显示。",
             "group": "分组",
             "groupUnavailable": "当前请求模型没有对应分组",
             "noGroupItems": "当前分组没有可用渠道",
@@ -573,7 +576,22 @@
         }
     },
     "channel": {
+        "refreshAll": {
+            "button": "刷新全部渠道模型",
+            "pending": "正在刷新全部渠道模型…",
+            "progress": "正在刷新渠道模型：{completed}/{total}",
+            "finished": "全局渠道模型刷新完成",
+            "failed": "全局渠道模型刷新失败",
+            "channelFailed": "渠道模型刷新失败",
+            "summary": "成功 {success} 个，失败 {failed} 个，跳过 {skipped} 个",
+            "empty": "其中 {count} 个渠道返回空模型列表",
+            "warnings": "其中 {count} 个渠道有价格维护告警",
+            "details": "可在渠道卡片的刷新详情中查看具体结果。",
+            "skipped": "正在刷新的渠道已跳过。"
+        },
         "card": {
+            "concurrency": "并发",
+            "waiting": "等待 {count}",
             "requestCount": "请求次数",
             "totalCost": "总成本",
             "model": "模型",

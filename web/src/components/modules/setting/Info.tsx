@@ -5,7 +5,7 @@ import { useNowVersion } from '@/api/update';
 import { Button } from '@/components/ui/button';
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'unknown'; // 当前前端构建对应的应用版本。
-const GITHUB_REPO = import.meta.env.VITE_GITHUB_REPO || ''; // 独立发布时提供项目仓库地址。
+const GITHUB_REPO = (import.meta.env.VITE_GITHUB_REPO || 'https://github.com/Ink-lotus/octopus-solo').replace(/\/+$/, '');
 
 // SettingInfo 展示版本信息，并在更新后清理本项目的浏览器缓存。
 export function SettingInfo() {
@@ -77,7 +77,14 @@ export function SettingInfo() {
                 </div>
             </div>
 
-            <p className="text-sm text-muted-foreground">{t('info.manualUpgrade')}</p>
+            <a
+                href={`${GITHUB_REPO}/releases`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-sm text-primary hover:underline"
+            >
+                {t('info.manualUpgrade')}
+            </a>
 
             {/* 浏览器缓存问题警告 */}
             {isCacheMismatch && (

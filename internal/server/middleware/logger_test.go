@@ -5,10 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/gin-gonic/gin"
 )
 
 func TestRequestLogRedactsQueryAndHeaderCredentials(t *testing.T) {
+	previous := privacy.DiagnosticsEnabled()
+	privacy.SetDiagnosticsEnabled(true)
+	t.Cleanup(func() { privacy.SetDiagnosticsEnabled(previous) })
 	request := httptest.NewRequest("GET", "/v1/models?api_key=fixture-query-secret&room=ops", nil)
 	request.Header.Set("Authorization", "Bearer fixture-inbound-secret")
 	request.Header.Set("X-Secret-Id", "fixture-header-suffix-value")

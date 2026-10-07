@@ -204,6 +204,14 @@ func TestNotificationDeliveryRunsOutsideRelayProducer(t *testing.T) {
 }
 
 func TestNotificationErrorsRedactConfiguredCredentials(t *testing.T) {
+	previous, err := op.SettingGetString(model.SettingKeyPrivacyProtectionEnabled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, previous) })
+	if err := op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, "true"); err != nil {
+		t.Fatal(err)
+	}
 	baseURL := "https://user:pass@upstream.example/v1?token=query-secret"
 	headerSecret := "Bearer custom-secret"
 	channel := model.Channel{ChannelConfig: model.ChannelConfig{
@@ -239,7 +247,7 @@ func TestNotificationErrorsRedactConfiguredCredentials(t *testing.T) {
 	if err := op.InitCache(); err != nil {
 		t.Fatalf("refresh cache: %v", err)
 	}
-	group, err := op.GroupGet(group.ID)
+	group, err = op.GroupGet(group.ID)
 	if err != nil {
 		t.Fatalf("read group: %v", err)
 	}
@@ -252,6 +260,16 @@ func TestNotificationErrorsRedactConfiguredCredentials(t *testing.T) {
 		if strings.Contains(redacted, secret) {
 			t.Fatalf("notification error leaked %q: %s", secret, redacted)
 		}
+	}
+	if err := op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, "false"); err != nil {
+		t.Fatal(err)
+	}
+	if redactConfiguredError(group, message) != message {
+		t.Fatal("disabled privacy changed notification diagnostics")
+	}
+	body, err := Render(DefaultBodyTemplate, Event{LastError: "api_key=fixture-disabled-privacy"})
+	if err != nil || !strings.Contains(string(body), "fixture-disabled-privacy") {
+		t.Fatal("disabled privacy changed the rendered notification", err)
 	}
 }
 

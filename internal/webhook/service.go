@@ -341,7 +341,7 @@ func redactConfiguredError(group model.Group, message string) string {
 	if message == "" {
 		return ""
 	}
-	redactor := privacy.New()
+	redactor := privacy.NewDiagnostic()
 	for _, item := range group.Items {
 		if key, err := op.ChannelGrantKeyGet(item.ChannelGrantID); err == nil {
 			redactor.Add(key.Key)

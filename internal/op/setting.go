@@ -7,6 +7,7 @@ import (
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/bestruirui/octopus/internal/utils/cache"
 )
 
@@ -53,6 +54,9 @@ func SettingSetString(key model.SettingKey, value string) error {
 		return fmt.Errorf("failed to set setting, key not found")
 	}
 	settingCache.Set(key, value)
+	if key == model.SettingKeyPrivacyProtectionEnabled {
+		privacy.SetDiagnosticsEnabled(value == "true")
+	}
 	if isChannelAutomationSetting(key) {
 		automationSettingsSignal.notify()
 	}
@@ -76,7 +80,7 @@ func SettingGetBool(key model.SettingKey) (bool, error) {
 }
 
 func SettingSetInt(key model.SettingKey, value int) error {
-	if isChannelAutomationSetting(key) {
+	if isChannelAutomationSetting(key) || key == model.SettingKeyPrivacyProtectionEnabled {
 		return SettingSetString(key, strconv.Itoa(value))
 	}
 	if key == model.SettingKeyGroupRouteDefaults {
@@ -145,6 +149,8 @@ func settingRefreshCache(ctx context.Context) error {
 	if automationChanged {
 		automationSettingsSignal.notify()
 	}
+	privacyEnabled, _ := SettingGetBool(model.SettingKeyPrivacyProtectionEnabled)
+	privacy.SetDiagnosticsEnabled(privacyEnabled)
 	return nil
 }
 

@@ -32,18 +32,18 @@ Octopus Solo is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 
 ### 🐳 Docker
 
-After the independent release is published, use its image and explicit version tag (replace the placeholders):
+After the independent release is published, use its image and explicit version tag (replace `<version>`):
 
 ```bash
-docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/<owner>/octopus-solo:<version>
+docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-solo:<version>
 ```
 
-The inherited `docker-compose.yml` still names the upstream image. Update its image to the independent release before using it; upstream images do not contain the Solo features.
+`docker-compose.yml` uses the same independent image with the `latest` tag by default. Set `OCTOPUS_VERSION` to a published tag such as `v0.1.0-rc.1` to select a specific version. Candidate releases do not update `latest`; use a candidate tag until the first stable release. The image has not been published yet.
 
 
 ### 📦 Download from Release
 
-When available, download the binary for your platform from this fork's Releases page, then run:
+When available, download the binary for your platform from [Octopus Solo Releases](https://github.com/Ink-lotus/octopus-solo/releases), then run:
 
 ```bash
 ./octopus start
@@ -65,6 +65,8 @@ go run . start
 ```
 
 > 💡 **Tip**: The frontend build artifacts are embedded into the Go binary, so you must build the frontend before starting the backend.
+
+For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](docs/local-deployment.md).
 
 **Development Mode**
 
@@ -370,5 +372,5 @@ Edit `~/.codex/auth.json`
 
 - 🙏 [looplj/axonhub](https://github.com/looplj/axonhub) - The LLM API adaptation module in this project is directly derived from this repository
 - 📊 [sst/models.dev](https://github.com/sst/models.dev) - AI model database providing model pricing data
-- 🇨🇳 [AtomGit](https://atomgit.com/bestruirui/octopus) - China-based code hosting
+- 🇨🇳 [Upstream AtomGit](https://atomgit.com/bestruirui/octopus) - China-based hosting for the original project
 - 💬 [Linux.do](https://linux.do/)

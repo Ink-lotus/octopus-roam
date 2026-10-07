@@ -34,6 +34,21 @@ export function normalizeAllowedProtocols(protocols: number) {
     return normalized === 0 ? ProtocolAll : normalized;
 }
 
+// 用主机名去掉最后一段域名后缀作为默认名称，端口、路径和凭据不参与命名。
+export function channelNameFromURL(baseURL: string) {
+    try {
+        const url = new URL(baseURL.trim());
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+        const hostname = url.hostname.replace(/\.$/, '');
+        // IP 地址和单段主机名没有可移除的域名后缀。
+        if (hostname.includes(':') || /^\d+(\.\d+){3}$/.test(hostname)) return hostname;
+        const suffix = hostname.lastIndexOf('.');
+        return suffix > 0 ? hostname.slice(0, suffix) : hostname;
+    } catch {
+        return '';
+    }
+}
+
 export const emptyFormState: ChannelFormState = {
     name: '',
     dialect: 'generic',
@@ -46,7 +61,7 @@ export const emptyFormState: ChannelFormState = {
     openai_chat_completion_path: '/v1/chat/completions',
     openai_response_path: '/v1/responses',
     anthropic_message_path: '/v1/messages',
-    keys: [],
+    keys: [{ name: 'key-1', key: '', enabled: true }],
     models: [],
     grants: new Map(),
     custom_header: [],

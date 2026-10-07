@@ -12,6 +12,9 @@ import (
 )
 
 func TestRecoveryRedactsPanicAndDebugRequestDump(t *testing.T) {
+	previousPrivacy := privacy.DiagnosticsEnabled()
+	privacy.SetDiagnosticsEnabled(true)
+	t.Cleanup(func() { privacy.SetDiagnosticsEnabled(previousPrivacy) })
 	previousMode, previousWriter := gin.Mode(), gin.DefaultErrorWriter
 	var output bytes.Buffer
 	gin.SetMode(gin.DebugMode)

@@ -32,18 +32,18 @@ Octopus Solo 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.
 
 ### 🐳 Docker 运行
 
-独立版本发布后使用其镜像和明确版本号，替换下方占位符：
+独立版本发布后使用其镜像和明确版本号，替换下方 `<version>`：
 
 ```bash
-docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/<owner>/octopus-solo:<version>
+docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-solo:<version>
 ```
 
-继承的 `docker-compose.yml` 仍使用上游镜像。使用前将镜像替换为独立版本；上游镜像不包含本项目功能。
+`docker-compose.yml` 使用同一独立镜像，默认标签为 `latest`；可通过 `OCTOPUS_VERSION` 指定已发布标签，例如 `v0.1.0-rc.1`。候选版不会更新 `latest`，首个正式版发布前须指定候选版标签。当前镜像尚未发布。
 
 
 ### 📦 从 Release 下载
 
-独立版本发布后，从本 fork 的 Releases 页面下载对应平台的二进制文件，然后运行：
+独立版本发布后，从 [Octopus Solo Releases](https://github.com/Ink-lotus/octopus-solo/releases) 下载对应平台的二进制文件，然后运行：
 
 ```bash
 ./octopus start
@@ -65,6 +65,8 @@ go run . start
 ```
 
 > 💡 **提示**：前端构建产物会被嵌入到 Go 二进制文件中，所以必须先构建前端再启动后端。
+
+本地部署验收建议使用仓库外的独立运行目录，放置程序、配置、数据库及日志；见[本地部署说明](docs/local-deployment.md)。
 
 **开发模式**
 
@@ -372,5 +374,5 @@ experimental_bearer_token = "sk-octopus-"
 
 - 🙏 [looplj/axonhub](https://github.com/looplj/axonhub) - 本项目的 LLM API 适配模块直接源自该仓库的实现
 - 📊 [sst/models.dev](https://github.com/sst/models.dev) - AI 模型数据库，提供模型价格数据
-- 🇨🇳 [AtomGit](https://atomgit.com/bestruirui/octopus) - 国内代码托管
+- 🇨🇳 [上游 AtomGit](https://atomgit.com/bestruirui/octopus) - 原项目的国内代码托管
 - 💬 [Linux.do](https://linux.do/)
