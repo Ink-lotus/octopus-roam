@@ -16,7 +16,7 @@
 | `M1` | 路由策略拆分、全局默认策略、确定性隐私保护（实现与自动检查已完成，见[验收记录](m1-route-policy-result.md)） | [versions/v0.1.0-route-policy.md](versions/v0.1.0-route-policy.md) | 不动 |
 | `M2` | 日志置顶与筛选、渠道模型刷新、严格匹配、分组同步、协议开关、禁用渠道隐藏 | [versions/v0.2.0-channel-models.md](versions/v0.2.0-channel-models.md) | 不动 |
 | `M3` | 全局自动更新、渠道跟随开关、自动添加分组模型、渠道并发限制（实现与检查完成，见[验收记录](m3-automation-result.md)） | [versions/v0.3.0-automation.md](versions/v0.3.0-automation.md) | 不动 |
-| `R1` | 回归、迁移审计、文档、切换主分支、修 `release.yaml` | [versions/v1.0.0-independent-release.md](versions/v1.0.0-independent-release.md) | `v0.1.0-rc.1` → `v0.1.0` |
+| `R1` | 加密备份、兼容修复、回归和文档已在工作区实现；跨数据库验收与分支发布待完成，见[结果](r1-result.md) | [versions/v1.0.0-independent-release.md](versions/v1.0.0-independent-release.md) | `v0.1.0-rc.1` → `v0.1.0` |
 | 能力包 | 生图、管理界面优化（攒够一组再发） | [versions/v1.1.0-image-api.md](versions/v1.1.0-image-api.md)、[versions/v1.2.0-management-ui.md](versions/v1.2.0-management-ui.md) | `v0.2.0` |
 | 协议扩展 | WebSocket，挂客户端需求门而非排期门 | [versions/v1.3.0-websocket.md](versions/v1.3.0-websocket.md) | `v0.3.0` 或更晚 |
 
@@ -49,12 +49,12 @@
 | 线 | 当前值 | 职责 |
 | --- | --- | --- |
 | 迁移编号 | `internal/db/migrate/013.go` | 数据库结构第几次变更 |
-| 备份格式 | `internal/op/backup.go` 的 `dbDumpVersion = 6` | 备份第几代 |
+| 备份格式 | `internal/op/backup.go` 的 `dbDumpVersion = 1000`，加密容器版本 `1` | 产品内容格式与加密容器各自演进 |
 | 对外版本 | `main.go` 的 `// Version` 注释 | 用户能否安全升级 |
 
 前两条已经精确记录改动次数，因此对外版本号不承担计数职责，只回答「用户能否安全升级」。这也是它可以走得比里程碑慢的原因。
 
-注意 `dbDumpVersion` 已与上游分叉：上游 v0.13.6 为 `5`，本项目在阶段 4 Webhook（`b8abecf`）升到 `6`。上游后续自行升到 `6` 时两者含义不同，而 `internal/op/backup.go` 的导入校验对两者一律接受。这一撞号的修法属高风险改动，在 `R1` 的迁移审计中单独设计。
+R1 已通过 `product: "octopus-solo"` 和内容版本 `1000` 隔离备份身份。无标识只接受已审计的上游 `0`/`5`；无标识 `6` 明确拒绝。导出增加口令加密容器，内容版本不因加密容器版本而混用。见[身份设计](../docs/superpowers/specs/2026-09-26-backup-format-identity-design.md)与[加密设计](../docs/backup-encryption-design.md)。
 
 ### 强制升 minor 的判据
 
@@ -76,7 +76,7 @@
 | 目标 | 条件 |
 | --- | --- |
 | `v0.1.0-rc.1` | `S1` 与 `M1`～`M3` 全部验收通过；产品主分支已切换为 `main`，已修的 `release.yaml` 在其上生效 |
-| `v0.1.0` | `R1` 全量回归全绿；上游版本与阶段 4/5 备份导入成功；无 P0/P1 遗留 |
+| `v0.1.0` | `R1` 全量回归全绿；上游 `0`/`5` 与本产品加密备份恢复成功，无标识 `6` 明确拒绝；跨数据库验收完成；无 P0/P1 遗留 |
 | `v1.0.0` | 连续两个发布周期无 breaking change（API、配置字段、备份格式）；升级与回滚路径有文档且实测通过 |
 
 条件不满足就继续停在 `0.x`，不用形容词代替判定。

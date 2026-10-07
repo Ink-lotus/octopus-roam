@@ -258,9 +258,19 @@
             "saving": "儲存中..."
         },
         "backup": {
+            "password": {
+                "export": "備份口令",
+                "confirm": "再次輸入備份口令",
+                "import": "此備份的口令",
+                "help": "口令至少 12 個字元，與登入密碼獨立。口令無法找回，請妥善保存。",
+                "legacy": "匯入舊明文 JSON 時可留空。預發佈的無標識 6 號備份不支援匯入。",
+                "invalid": "口令至少 12 個字元，且不超過 1024 個 UTF-8 位元組。",
+                "mismatch": "兩次口令不一致，請重新輸入。"
+            },
             "title": "備份 / 復原",
             "export": {
-                "button": "匯出",
+                "button": "匯出加密備份",
+                "failed": "匯出失敗",
                 "exporting": "匯出中...",
                 "success": "開始匯出"
             },
@@ -369,6 +379,7 @@
             }
         },
         "info": {
+            "manualUpgrade": "已停用自動升級。請先備份資料庫，再從 Octopus Solo 獨立版本發佈頁手動升級。",
             "title": "版本資訊",
             "currentVersion": "當前版本",
             "latestVersion": "最新版本",

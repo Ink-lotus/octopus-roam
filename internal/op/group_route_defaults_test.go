@@ -263,13 +263,13 @@ func TestRouteDefaultsBackupAndInvalidWrites(t *testing.T) {
 	if _, _, err := GroupRouteDefaultsSet(baseline, false, t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := DBImportIncremental(t.Context(), &model.DBDump{Version: exported.Version, Settings: []model.Setting{setting}}); err != nil {
+	if _, err := DBImportIncremental(t.Context(), &model.DBDump{Product: exported.Product, Version: exported.Version, Settings: []model.Setting{setting}}); err != nil {
 		t.Fatal(err)
 	}
 	if config, err := GroupRouteDefaultsGet(); err != nil || config != custom {
 		t.Fatal("新备份导入没有恢复默认策略")
 	}
-	if _, err := DBImportIncremental(t.Context(), &model.DBDump{Version: legacyDBDumpVersion}); err != nil {
+	if _, err := DBImportIncremental(t.Context(), &model.DBDump{Version: 5}); err != nil {
 		t.Fatal("不含默认策略的旧备份不能导入", err)
 	}
 	if config, _ := GroupRouteDefaultsGet(); config != custom {

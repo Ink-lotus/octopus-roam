@@ -5,6 +5,7 @@ import "time"
 // DBDump is a full-database JSON export format for Octopus.
 // Import uses incremental semantics (insert new rows, and upsert on tables with natural keys).
 type DBDump struct {
+	Product    string    `json:"product"` // 产品标识，缺失仅接受已审计的上游格式。
 	Version    int       `json:"version"`
 	ExportedAt time.Time `json:"exported_at"`
 

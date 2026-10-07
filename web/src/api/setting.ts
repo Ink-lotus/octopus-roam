@@ -65,7 +65,7 @@ export function useSetSetting() {
 /**
  * 数据库导入/导出
  */
-interface DBImportResult {
+export interface DBImportResult {
     rows_affected: Record<string, number>;
 }
 
@@ -80,7 +80,7 @@ function exportFallbackFilename() {
     const d = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const ts = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-    return `octopus-export-${ts}.json`;
+    return `octopus-solo-backup-${ts}.encrypted.json`;
 }
 
 async function downloadBlob(blob: Blob, filename: string) {
@@ -100,25 +100,24 @@ async function downloadBlob(blob: Blob, filename: string) {
 /**
  * 导出数据库（下载 JSON 文件）
  */
-export function useExportDB() {
-    return useMutation({
-        mutationFn: async () => {
-            const res = await fetch('/api/v1/setting/export', {
-                method: 'GET',
-                credentials: 'include',
-            });
-
-            if (!res.ok) {
-                const data = await res.json().catch(() => null) as { message?: string } | null;
-                throw new ApiError(res.status, data?.message || `Request failed: ${res.status}`);
-            }
-
-            const blob = await res.blob();
-            const filename = parseFilename(res.headers.get('content-disposition')) || exportFallbackFilename();
-            await downloadBlob(blob, filename);
-            return { filename };
-        },
+export async function exportEncryptedBackup(password: string, signal: AbortSignal) {
+    // 直接请求，避免口令进入 React Query mutation variables/options。
+    const res = await fetch('/api/v1/setting/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+        credentials: 'include',
+        signal,
+        cache: 'no-store',
     });
+    if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        throw new ApiError(res.status, data?.message || `Request failed: ${res.status}`);
+    }
+    const blob = await res.blob();
+    const filename = parseFilename(res.headers.get('content-disposition')) || exportFallbackFilename();
+    await downloadBlob(blob, filename);
+    return { filename };
 }
 
 /**
@@ -126,38 +125,23 @@ export function useExportDB() {
  */
 export function useImportDB() {
     const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (file: File) => {
-            const form = new FormData();
-            form.append('file', file);
-
-            const res = await fetch('/api/v1/setting/import', {
-                method: 'POST',
-                body: form,
-                credentials: 'include',
-            });
-
-            const contentType = res.headers.get('content-type') || '';
-            const isJson = contentType.includes('application/json');
-            const data = isJson
-                ? await res.json() as { message?: string; data?: DBImportResult }
-                : await res.text();
-
-            if (!res.ok) {
-                const message = typeof data === 'string' ? data : data.message;
-                throw new ApiError(res.status, message || `Request failed: ${res.status}`);
-            }
-
-            // 支持后端标准 ApiResponse：{code,message,data:{...}}
-            return typeof data === 'string' ? data as unknown as DBImportResult : data.data as DBImportResult;
-        },
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: groupRouteDefaultsQueryOptions.queryKey }),
-                queryClient.invalidateQueries({ queryKey: ['groups', 'list'] }),
-                queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] }),
-                queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
-            ]);
-        },
-    });
+    return async (file: File, password: string, signal: AbortSignal): Promise<DBImportResult> => {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('password', password);
+        const res = await fetch('/api/v1/setting/import', {
+            method: 'POST', body: form, credentials: 'include', signal, cache: 'no-store',
+        });
+        const data = await res.json().catch(() => null) as { message?: string; data?: DBImportResult } | null;
+        if (!res.ok) throw new ApiError(res.status, data?.message || `Request failed: ${res.status}`);
+        if (!data?.data?.rows_affected) throw new ApiError(500, 'Invalid backup import response');
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: groupRouteDefaultsQueryOptions.queryKey }),
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] }),
+            queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] }),
+            queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
+            queryClient.invalidateQueries({ queryKey: ['channels'] }),
+        ]);
+        return data.data;
+    };
 }

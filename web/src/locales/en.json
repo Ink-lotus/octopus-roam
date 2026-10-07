@@ -259,8 +259,18 @@
         },
         "backup": {
             "title": "Backup / Restore",
+            "password": {
+                "export": "Backup password",
+                "confirm": "Confirm backup password",
+                "import": "Password for this backup",
+                "help": "Use at least 12 characters. This password is separate from your login and cannot be recovered. Keep it safe.",
+                "legacy": "Leave blank for older unencrypted JSON files. Pre-release version 6 files cannot be imported.",
+                "invalid": "Use at least 12 characters and at most 1024 UTF-8 bytes.",
+                "mismatch": "The backup passwords do not match. Please enter them again."
+            },
             "export": {
-                "button": "Export",
+                "button": "Export encrypted backup",
+                "failed": "Export failed",
                 "exporting": "Exporting...",
                 "success": "Export started"
             },
@@ -369,6 +379,7 @@
             }
         },
         "info": {
+            "manualUpgrade": "Automatic updates are disabled. Back up your database and install a release from Octopus Solo manually.",
             "title": "Version Info",
             "currentVersion": "Current Version",
             "latestVersion": "Latest Version",

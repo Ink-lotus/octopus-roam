@@ -2,13 +2,15 @@
 
 <img src="web/public/logo.svg" alt="Octopus Logo" width="120" height="120">
 
-### Octopus
+### Octopus Solo
 
 **A Simple, Beautiful, and Elegant LLM API Aggregation Service for Individuals**
 
  English | [简体中文](README_zh.md)
 
 </div>
+
+Octopus Solo is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. R1 is under validation; no independent release has been published yet. See the [changelog](CHANGELOG.md), [upgrade and backup guide](docs/upgrade-r1.md), and [R1 results](plan/r1-result.md).
 
 
 ## ✨ Features
@@ -30,23 +32,18 @@
 
 ### 🐳 Docker
 
-Run directly:
+After the independent release is published, use its image and explicit version tag (replace the placeholders):
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 bestrui/octopus
+docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/<owner>/octopus-solo:<version>
 ```
 
-Or use docker compose:
-
-```bash
-wget https://raw.githubusercontent.com/bestruirui/octopus/refs/heads/master/docker-compose.yml
-docker compose up -d
-```
+The inherited `docker-compose.yml` still names the upstream image. Update its image to the independent release before using it; upstream images do not contain the Solo features.
 
 
 ### 📦 Download from Release
 
-Download the binary for your platform from [Releases](https://github.com/bestruirui/octopus/releases), then run:
+When available, download the binary for your platform from this fork's Releases page, then run:
 
 ```bash
 ./octopus start
@@ -55,18 +52,16 @@ Download the binary for your platform from [Releases](https://github.com/bestrui
 ### 🛠️ Build from Source
 
 **Requirements:**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
+- Go 1.26.4 (see `go.mod`)
+- Node.js 22.12+
+- pnpm 11.10.0
 
 ```bash
-# Clone the repository
-git clone https://github.com/bestruirui/octopus.git
-cd octopus
-# Build frontend
-cd web && pnpm install && pnpm run build
+# From this repository's root, build the frontend
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web build
 # Start the backend service
-go run main.go start 
+go run . start
 ```
 
 > 💡 **Tip**: The frontend build artifacts are embedded into the Go binary, so you must build the frontend before starting the backend.
@@ -237,9 +232,18 @@ The program automatically appends the API version and endpoint path based on the
 | OpenAI Chat | `/v1/chat/completions` | `https://api.openai.com` | `https://api.openai.com/v1/chat/completions` |
 | OpenAI Responses | `/v1/responses` | `https://api.openai.com` | `https://api.openai.com/v1/responses` |
 | Anthropic | `/v1/messages` | `https://api.anthropic.com` | `https://api.anthropic.com/v1/messages` |
-| Gemini | `/v1beta/models/:model:generateContent` | `https://generativelanguage.googleapis.com` | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
 
-> 💡 **Tip**: The Base URL does not need to include `/v1`, `/v1beta`, or a specific API endpoint path - the program handles them automatically.
+Protocol paths are editable per channel. Gemini providers must expose an OpenAI-compatible endpoint; native Gemini requests are not supported by this fork.
+
+### Solo routing, automation, and backups
+
+Global channel updates default to off; the interval defaults to 1440 minutes and automatic group additions to off. Channels follow the global switch unless explicitly opted out. A concurrency limit of `0` is unlimited; positive limits share capacity across keys and groups, including the full lifetime of a stream.
+
+All keys must refresh successfully before model changes commit. A successful empty response removes obsolete models and group members while preserving the channel and group. Keyword matching is the default; exact matching excludes suffix variants. Applying global routing defaults preserves each group's manual/failover mode, members, order, and active selection.
+
+Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts must use authenticated `POST /api/v1/setting/export` with a password in the JSON body; the former GET returns 405. Import supports encrypted backups and audited upstream formats 0/5; unmarked pre-release format 6 is rejected. Save the old database and executable before upgrading—new backups cannot be restored by old builds.
+
+The [upgrade guide](docs/upgrade-r1.md) lists defaults, incremental import rules, status definitions, rollback steps, and troubleshooting for failed keys, empty models, queued requests, and Webhooks.
 
 ---
 

@@ -2,7 +2,9 @@ package op
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,18 +14,58 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// 渠道拆分为渠道, 凭据, 模型与渠道授权后导出结构变化, 版本随之递增;
-// 版本 5 起 api_keys.supported_models 由逗号分隔字符串改为 JSON 数组。
 const (
-	dbDumpVersion       = 6
-	legacyDBDumpVersion = 5
+	dumpProduct   = "octopus-solo"
+	dbDumpVersion = 1000
 )
+
+// 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
+var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
+var soloDumpVersions = map[int]struct{}{dbDumpVersion: {}}
+
+var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
+
+func validateDumpOrigin(dump *model.DBDump) error {
+	if dump == nil {
+		return fmt.Errorf("empty dump")
+	}
+	switch dump.Product {
+	case dumpProduct:
+		if _, ok := soloDumpVersions[dump.Version]; ok {
+			return nil
+		}
+		return fmt.Errorf("unsupported octopus-solo backup version %d", dump.Version)
+	case "":
+		if _, ok := upstreamDumpVersions[dump.Version]; ok {
+			return nil
+		}
+		if dump.Version == 6 {
+			return fmt.Errorf("unsupported backup: version 6 without product marker is a pre-release octopus-solo format and is no longer accepted; open the original database with a current build and re-export")
+		}
+		return fmt.Errorf("unsupported backup: version %d has no product marker (accepted upstream versions: 0, 5)", dump.Version)
+	default:
+		return fmt.Errorf("unsupported backup: product %q is not octopus-solo", dump.Product)
+	}
+}
 
 // DBExportAll 导出完整数据库内容，包括所有统计数据。
 func DBExportAll(ctx context.Context) (*model.DBDump, error) {
-	conn := db.GetDB().WithContext(ctx)
+	var dump *model.DBDump
+	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		dump, err = exportBackupSnapshot(tx)
+		return err
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	return dump, nil
+}
 
+// 所有表来自同一快照，避免刷新/删除在导出期间产生不完整的关联数据。
+func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 	d := &model.DBDump{
+		Product:    dumpProduct,
 		Version:    dbDumpVersion,
 		ExportedAt: time.Now().UTC(),
 	}
@@ -76,12 +118,8 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 }
 
 func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImportResult, error) {
-	if dump == nil {
-		return nil, fmt.Errorf("empty dump")
-	}
-
-	if dump.Version != 0 && dump.Version != legacyDBDumpVersion && dump.Version != dbDumpVersion {
-		return nil, fmt.Errorf("unsupported dump version: %d", dump.Version)
+	if err := validateDumpOrigin(dump); err != nil {
+		return nil, err
 	}
 	for i := range dump.Groups {
 		if dump.Groups[i].Mode == "" {
@@ -135,9 +173,21 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	defer groupWriteMu.Unlock()
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
+	channels := make([]backupChannelRow, len(dump.Channels))
+	for i, row := range dump.Channels {
+		channels[i] = backupChannelRow{Channel: row, Enabled: row.Enabled}
+	}
+	keys := make([]backupChannelKeyRow, len(dump.ChannelKeys))
+	for i, row := range dump.ChannelKeys {
+		keys[i] = backupChannelKeyRow{ChannelKey: row, Enabled: row.Enabled}
+	}
+	apiKeys := make([]backupAPIKeyRow, len(dump.APIKeys))
+	for i, row := range dump.APIKeys {
+		apiKeys[i] = backupAPIKeyRow{APIKey: row, Enabled: row.Enabled}
+	}
 	err := conn.Transaction(func(tx *gorm.DB) error {
 		// base tables
-		if n, err := createDoNothing(tx, dump.Channels); err != nil {
+		if n, err := createDoNothing(tx, channels); err != nil {
 			return fmt.Errorf("import channels: %w", err)
 		} else {
 			res.RowsAffected["channels"] = n
@@ -156,7 +206,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		} else {
 			res.RowsAffected["groups"] = n
 		}
-		if n, err := createUpsertAll(tx, dump.ChannelKeys, []clause.Column{{Name: "id"}}); err != nil {
+		if n, err := createUpsertAll(tx, keys, []clause.Column{{Name: "id"}}); err != nil {
 			return fmt.Errorf("import channel_keys: %w", err)
 		} else {
 			res.RowsAffected["channel_keys"] = n
@@ -181,7 +231,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		} else {
 			res.RowsAffected["llm_infos"] = n
 		}
-		if n, err := createDoNothing(tx, dump.APIKeys); err != nil {
+		if n, err := createDoNothing(tx, apiKeys); err != nil {
 			return fmt.Errorf("import api_keys: %w", err)
 		} else {
 			res.RowsAffected["api_keys"] = n
@@ -221,7 +271,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrBackupWrite, err)
 	}
 	if importedDefaults != nil {
 		settingCache.Set(model.SettingKeyGroupRouteDefaults, *importedDefaults)
@@ -232,6 +282,29 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 // batchSize 控制每次 INSERT 的最大行数。
 // 单行字段数较多（如 stats_hourly 含 9 个字段），若一次插入过多行会超过数据库绑定参数上限（SQLite/PostgreSQL 为 65535），按行数分批写入可规避该限制。
 const batchSize = 2000
+
+// 备份保存的是明确状态，不能让普通创建接口的 default:true 覆盖 false。
+// 仅为导入覆盖该列的 GORM 元数据，其余字段（含 JSON serializer）沿用模型。
+type backupChannelRow struct {
+	model.Channel
+	Enabled bool `gorm:"column:enabled"`
+}
+
+func (backupChannelRow) TableName() string { return "channels" }
+
+type backupChannelKeyRow struct {
+	model.ChannelKey
+	Enabled bool `gorm:"column:enabled"`
+}
+
+func (backupChannelKeyRow) TableName() string { return "channel_keys" }
+
+type backupAPIKeyRow struct {
+	model.APIKey
+	Enabled bool `gorm:"column:enabled"`
+}
+
+func (backupAPIKeyRow) TableName() string { return "api_keys" }
 
 func createDoNothing[T any](tx *gorm.DB, rows []T) (int64, error) {
 	if len(rows) == 0 {

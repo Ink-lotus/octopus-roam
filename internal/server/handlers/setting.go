@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -33,6 +35,11 @@ func init() {
 		).
 		AddRoute(
 			router.NewRoute("/export", http.MethodGet).
+				Handle(exportDB),
+		).
+		AddRoute(
+			router.NewRoute("/export", http.MethodPost).
+				Use(middleware.RequireJSON()).
 				Handle(exportDB),
 		).
 		AddRoute(
@@ -80,53 +87,129 @@ func setSetting(c *gin.Context) {
 	resp.Success(c, setting)
 }
 
+// 包含读取文件、全库查询与 KDF，避免忙碌时在内存中堆积备份请求。
+var backupWork = make(chan struct{}, 1)
+
+func beginBackup(c *gin.Context) bool {
+	c.Header("Cache-Control", "no-store")
+	if c.Request.Context().Err() != nil {
+		resp.Error(c, http.StatusBadRequest, "backup request canceled")
+		return false
+	}
+	select {
+	case backupWork <- struct{}{}:
+		return true
+	default:
+		c.Header("Retry-After", "1")
+		resp.Error(c, http.StatusTooManyRequests, "another backup operation is running; retry shortly")
+		return false
+	}
+}
+
+func backupReadError(c *gin.Context, err error) {
+	var maxBytes *http.MaxBytesError
+	if errors.As(err, &maxBytes) || errors.Is(err, op.ErrBackupTooLarge) {
+		resp.Error(c, http.StatusRequestEntityTooLarge, op.ErrBackupTooLarge.Error())
+		return
+	}
+	resp.Error(c, http.StatusBadRequest, err.Error())
+}
+
 func exportDB(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if c.Request.Method != http.MethodPost {
+		c.Header("Allow", http.MethodPost)
+		resp.Error(c, http.StatusMethodNotAllowed, "use POST with a backup password to export an encrypted backup")
+		return
+	}
+	if !beginBackup(c) {
+		return
+	}
+	defer func() { <-backupWork }()
+	var input struct {
+		Password string `json:"password"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8<<10)
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		backupReadError(c, fmt.Errorf("invalid export request: %w", err))
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		resp.Error(c, http.StatusBadRequest, "export request must contain one JSON object")
+		return
+	}
+	if err := op.ValidateBackupExportPassword(input.Password); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer func() { input.Password = "" }()
 	dump, err := op.DBExportAll(c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.Error(c, http.StatusInternalServerError, "could not export backup")
 		return
 	}
 
-	c.Header("Content-Type", "application/json")
-	c.Header("Content-Disposition", "attachment; filename=\"octopus-export-"+time.Now().Format("20060102150405")+".json\"")
-	c.JSON(http.StatusOK, dump)
+	if c.Request.Context().Err() != nil {
+		return
+	}
+	encrypted, err := op.EncryptBackup(dump, input.Password)
+	if errors.Is(err, op.ErrBackupTooLarge) {
+		backupReadError(c, err)
+		return
+	}
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, "could not encrypt backup")
+		return
+	}
+	if c.Request.Context().Err() != nil {
+		return
+	}
+	c.Header("Content-Disposition", "attachment; filename=\"octopus-solo-backup-"+time.Now().UTC().Format("20060102150405")+".encrypted.json\"")
+	c.Data(http.StatusOK, "application/json", encrypted)
 }
 
 func importDB(c *gin.Context) {
+	if !beginBackup(c) {
+		return
+	}
+	defer func() { <-backupWork }()
 	var dump model.DBDump
-
-	contentType := c.GetHeader("Content-Type")
-	if strings.Contains(contentType, "multipart/form-data") {
-		fh, err := c.FormFile("file")
+	body, password, err := readBackupUpload(c)
+	if err != nil {
+		backupReadError(c, err)
+		return
+	}
+	defer func() { clear(body); password = "" }()
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal(body, &shape); err != nil || shape == nil {
+		resp.Error(c, http.StatusBadRequest, "backup must be a JSON object")
+		return
+	}
+	_, format := shape["format"]
+	_, ciphertext := shape["ciphertext"]
+	_, kdf := shape["kdf"]
+	_, cipher := shape["cipher"]
+	if format || ciphertext || kdf || cipher {
+		decoded, err := op.DecryptBackup(body, password)
 		if err != nil {
-			resp.Error(c, http.StatusBadRequest, "missing upload file field 'file'")
+			backupReadError(c, err)
 			return
 		}
-		f, err := fh.Open()
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		defer f.Close()
-		body, err := io.ReadAll(f)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := decodeDBDump(body, &dump); err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
+		dump = *decoded
 	} else {
-		body, err := io.ReadAll(c.Request.Body)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
+		if len(body) > op.MaxBackupPlaintextBytes {
+			backupReadError(c, op.ErrBackupTooLarge)
 			return
 		}
 		if err := decodeDBDump(body, &dump); err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
+			backupReadError(c, err)
 			return
 		}
+	}
+	if c.Request.Context().Err() != nil {
+		return
 	}
 
 	seenLLMNames := make(map[string]struct{}, len(dump.LLMInfos))
@@ -153,12 +236,16 @@ func importDB(c *gin.Context) {
 	defer groupMutationMu.Unlock()
 	result, err := op.DBImportIncremental(c.Request.Context(), &dump)
 	if err != nil {
+		if errors.Is(err, op.ErrBackupWrite) {
+			resp.Error(c, http.StatusInternalServerError, op.ErrBackupWrite.Error())
+			return
+		}
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := op.InitCache(); err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.Error(c, http.StatusInternalServerError, "backup was imported but caches could not be reloaded; restart the service")
 		return
 	}
 	relay.ResetAllRouteStates()
@@ -167,37 +254,94 @@ func importDB(c *gin.Context) {
 	resp.Success(c, result)
 }
 
+func readBackupUpload(c *gin.Context) ([]byte, string, error) {
+	if c.Request.ContentLength > op.MaxBackupRequestBytes {
+		return nil, "", op.ErrBackupTooLarge
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, op.MaxBackupRequestBytes)
+	if !strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/") {
+		body, err := io.ReadAll(c.Request.Body)
+		return body, "", err
+	}
+	reader, err := c.Request.MultipartReader()
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid multipart backup")
+	}
+	var body []byte
+	var password string
+	seen := make(map[string]bool)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		name := part.FormName()
+		if seen[name] || (name != "file" && name != "password") {
+			return nil, "", fmt.Errorf("unexpected or duplicate backup field")
+		}
+		seen[name] = true
+		if name == "file" {
+			body, err = io.ReadAll(part)
+		} else {
+			var value []byte
+			value, err = io.ReadAll(io.LimitReader(part, 1025))
+			if len(value) > 1024 {
+				clear(value)
+				return nil, "", op.ErrBackupDecrypt
+			}
+			password = string(value)
+			clear(value)
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		if err := part.Close(); err != nil {
+			return nil, "", err
+		}
+	}
+	if !seen["file"] {
+		return nil, "", fmt.Errorf("missing upload file field 'file'")
+	}
+	return body, password, nil
+}
+
 func decodeDBDump(body []byte, dump *model.DBDump) error {
 	if dump == nil {
-		return json.Unmarshal(body, &struct{}{})
+		return fmt.Errorf("empty dump destination")
 	}
-
-	if err := json.Unmarshal(body, dump); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
 		return err
 	}
-
-	if dump.Version == 0 &&
-		len(dump.Channels) == 0 &&
-		len(dump.Groups) == 0 &&
-		len(dump.ChannelModels) == 0 &&
-		len(dump.GroupItems) == 0 &&
-		len(dump.Settings) == 0 &&
-		len(dump.APIKeys) == 0 &&
-		len(dump.LLMInfos) == 0 &&
-		len(dump.StatsDaily) == 0 &&
-		len(dump.StatsHourly) == 0 &&
-		len(dump.StatsTotal) == 0 &&
-		len(dump.StatsAPIKey) == 0 &&
-		len(dump.WebhookEndpoints) == 0 {
-		var wrapper struct {
-			Code    int             `json:"code"`
-			Message string          `json:"message"`
-			Data    json.RawMessage `json:"data"`
-		}
-		if err := json.Unmarshal(body, &wrapper); err == nil && len(wrapper.Data) > 0 {
-			return json.Unmarshal(wrapper.Data, dump)
-		}
+	if fields == nil {
+		return fmt.Errorf("backup must be a JSON object")
 	}
-
+	if data, wrapped := fields["data"]; wrapped {
+		for key := range fields {
+			if key != "data" && key != "code" && key != "message" {
+				return fmt.Errorf("ambiguous backup: mixed dump and response wrapper")
+			}
+		}
+		fields = nil
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return err
+		}
+		if fields == nil {
+			return fmt.Errorf("empty wrapped backup")
+		}
+		if _, nested := fields["data"]; nested {
+			return fmt.Errorf("nested backup wrapper is not supported")
+		}
+		body = data
+	}
+	// 只解析一个层级，不让响应包裹覆盖已有产品身份。
+	var decoded model.DBDump
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return err
+	}
+	*dump = decoded
 	return nil
 }

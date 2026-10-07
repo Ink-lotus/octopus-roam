@@ -2,13 +2,15 @@
 
 <img src="web/public/logo.svg" alt="Octopus Logo" width="120" height="120">
 
-### Octopus
+### Octopus Solo
 
 **为个人打造的简单、美观、优雅的 LLM API 聚合服务**
 
 简体中文 | [English](README.md)
 
 </div>
+
+Octopus Solo 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；当前 R1 正在验收，尚未发布独立候选版或正式版。参见[变更日志](CHANGELOG.md)、[升级与备份说明](docs/upgrade-r1.md)和 [R1 验收记录](plan/r1-result.md)。
 
 
 ## ✨ 特性
@@ -30,23 +32,18 @@
 
 ### 🐳 Docker 运行
 
-直接运行
+独立版本发布后使用其镜像和明确版本号，替换下方占位符：
 
 ```bash
-docker run -d --name octopus -v /path/to/data:/app/data -p 8080:8080 bestrui/octopus
+docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/<owner>/octopus-solo:<version>
 ```
 
-或者使用 docker compose 运行
-
-```bash
-wget https://raw.githubusercontent.com/bestruirui/octopus/refs/heads/master/docker-compose.yml
-docker compose up -d
-```
+继承的 `docker-compose.yml` 仍使用上游镜像。使用前将镜像替换为独立版本；上游镜像不包含本项目功能。
 
 
 ### 📦 从 Release 下载
 
-从 [Releases](https://github.com/bestruirui/octopus/releases) 下载对应平台的二进制文件，然后运行：
+独立版本发布后，从本 fork 的 Releases 页面下载对应平台的二进制文件，然后运行：
 
 ```bash
 ./octopus start
@@ -55,18 +52,16 @@ docker compose up -d
 ### 🛠️ 源码运行
 
 **环境要求：**
-- Go 1.24.4
-- Node.js 18+
-- pnpm
+- Go 1.26.4（以 `go.mod` 为准）
+- Node.js 22.12+
+- pnpm 11.10.0
 
 ```bash
-# 克隆项目
-git clone https://github.com/bestruirui/octopus.git
-cd octopus
-# 构建前端
-cd web && pnpm install && pnpm run build
+# 在本仓库根目录构建前端
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web build
 # 启动后端服务
-go run main.go start 
+go run . start
 ```
 
 > 💡 **提示**：前端构建产物会被嵌入到 Go 二进制文件中，所以必须先构建前端再启动后端。
@@ -238,9 +233,18 @@ http://localhost:5173
 | OpenAI Chat | `/v1/chat/completions` | `https://api.openai.com` | `https://api.openai.com/v1/chat/completions` |
 | OpenAI Responses | `/v1/responses` | `https://api.openai.com` | `https://api.openai.com/v1/responses` |
 | Anthropic | `/v1/messages` | `https://api.anthropic.com` | `https://api.anthropic.com/v1/messages` |
-| Gemini | `/v1beta/models/:model:generateContent` | `https://generativelanguage.googleapis.com` | `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent` |
 
-> 💡 **提示**：Base URL 无需包含 `/v1`、`/v1beta` 或具体的 API 端点路径，程序会自动处理。
+各协议路径可在渠道配置中修改。Gemini 服务商须使用其 OpenAI 兼容端点；本项目不提供 Gemini 原生协议。
+
+### 独立版本的路由、自动化与备份
+
+全局渠道自动更新默认关闭，周期为 1440 分钟，自动追加分组成员默认关闭。渠道默认跟随全局开关，可以单独退出。并发上限 `0` 表示不限，正数表示跨 Key、跨分组共享额度，流式请求持续占用至结束。
+
+模型刷新须全部 Key 成功后才提交。成功空结果会清理模型和失效成员，保留渠道和分组实体。分组默认关键词匹配，严格匹配排除后缀变体。应用全局路由默认策略时保留每个分组的手动/故障转移模式、成员顺序与当前成员。
+
+备份须设置至少 12 个字符的独立口令，下载为加密 JSON；口令无法找回，应单独保管。导出脚本改用已认证的 `POST /api/v1/setting/export`，在 JSON 请求体传入口令；旧 GET 返回 405。导入保留已审计的上游 0/5 格式，拒绝无标识预发布 6 号。升级前保存旧数据库和可执行文件，新备份不能交给旧程序恢复。
+
+完整默认值、增量导入规则、日志状态、回滚步骤和 Key 失败/模型为空/并发排队/Webhook 排障见[升级说明](docs/upgrade-r1.md)。
 
 ---
 

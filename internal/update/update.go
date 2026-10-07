@@ -4,7 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,10 +18,7 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-const (
-	updateUrl    = "https://github.com/bestruirui/octopus/releases/latest/download"
-	updateApiUrl = "https://api.github.com/repos/bestruirui/octopus/releases/latest"
-)
+var ErrSelfUpdateDisabled = errors.New("automatic updates are disabled for Octopus Solo; install an independent release manually")
 
 type LatestInfo struct {
 	TagName     string `json:"tag_name"`
@@ -83,20 +80,8 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 }
 
 func GetLatestInfo() (*LatestInfo, error) {
-	body, err := doRequestWithFallback(updateApiUrl)
-	if err != nil {
-		return nil, err
-	}
-
-	var latestInfo LatestInfo
-	if err := json.Unmarshal(body, &latestInfo); err != nil {
-		log.Debugf("unmarshal body failed: %v", err)
-		return nil, err
-	}
-	if latestInfo.Message != "" {
-		return nil, fmt.Errorf("failed to get latest info: %s", latestInfo.Message)
-	}
-	return &latestInfo, nil
+	// 独立发布源与升级校验尚未建立，禁止查询上游版本诱导跨产品升级。
+	return nil, ErrSelfUpdateDisabled
 }
 
 func unzip(data []byte, dest string) error {

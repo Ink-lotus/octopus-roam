@@ -79,7 +79,7 @@ func TestChannelAutomationSettingsAndBackupDefaults(t *testing.T) {
 		t.Fatal("channel missing in backup")
 	}
 	legacy := model.Channel{ID: created.ID + 100000, ChannelConfig: model.ChannelConfig{Name: "automation-legacy-import", BaseURL: "http://127.0.0.1", Enabled: true}}
-	if _, err := DBImportIncremental(t.Context(), &model.DBDump{Version: dbDumpVersion, Channels: []model.Channel{legacy}}); err != nil {
+	if _, err := DBImportIncremental(t.Context(), &model.DBDump{Version: 5, Channels: []model.Channel{legacy}}); err != nil {
 		t.Fatal(err)
 	}
 	var imported model.Channel

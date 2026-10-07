@@ -28,6 +28,18 @@ func TestRuntimeEndpointsRequireAuthAndShareSnapshotContract(t *testing.T) {
 	}
 	server := httptest.NewServer(engine)
 	defer server.Close()
+	for _, path := range []string{"/api/v1/setting/export", "/api/v1/setting/import"} {
+		request, _ := http.NewRequest(http.MethodPost, server.URL+path, strings.NewReader(`{}`))
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("backup auth: %s returned %d", path, response.StatusCode)
+		}
+	}
 
 	unauthorized, err := http.Get(server.URL + "/api/v1/runtime")
 	if err != nil {
@@ -51,6 +63,16 @@ func TestRuntimeEndpointsRequireAuthAndShareSnapshotContract(t *testing.T) {
 		t.Fatalf("生成测试认证令牌失败: %v", err)
 	}
 	client := &http.Client{}
+	legacyExport, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/setting/export", nil)
+	legacyExport.AddCookie(&http.Cookie{Name: "auth", Value: token})
+	exportResponse, err := client.Do(legacyExport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = exportResponse.Body.Close()
+	if exportResponse.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatal("registered GET export still provides plaintext")
+	}
 	snapshotRequest, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/runtime", nil)
 	if err != nil {
 		t.Fatalf("构造 runtime 快照请求失败: %v", err)

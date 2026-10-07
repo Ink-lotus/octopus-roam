@@ -14,69 +14,8 @@ import (
 )
 
 func UpdateCore() error {
-	log.Infof("start update core")
-
-	filename, err := getDownloadFilename()
-	if err != nil {
-		log.Warnf("update core failed: %v", err)
-		return err
-	}
-
-	downloadUrl := updateUrl + "/" + filename
-	log.Infof("download url: %s", downloadUrl)
-	data, err := doRequestWithFallback(downloadUrl)
-	if err != nil {
-		log.Warnf("download failed: %v", err)
-		return err
-	}
-
-	execPath, err := os.Executable()
-	if err != nil {
-		log.Warnf("get executable path failed: %v", err)
-		return err
-	}
-	execName := filepath.Base(execPath)
-
-	tmpDir, err := os.MkdirTemp("", execName+"-update-*")
-	if err != nil {
-		log.Warnf("create temp dir failed: %v", err)
-		return err
-	}
-	defer os.RemoveAll(tmpDir)
-	log.Infof("using temp dir: %s", tmpDir)
-
-	if err := unzip(data, tmpDir); err != nil {
-		log.Warnf("unzip failed: %v", err)
-		return err
-	}
-
-	newExec := filepath.Join(tmpDir, execName)
-	if info, err := os.Stat(newExec); err != nil || info.IsDir() {
-		log.Warnf("new executable not found at %s: %v", newExec, err)
-		return fmt.Errorf("new executable not found in archive root: %w", err)
-	}
-	log.Infof("new executable: %s", newExec)
-
-	oldPath := execPath + ".old"
-	if err := os.Rename(execPath, oldPath); err != nil {
-		log.Warnf("rename old executable failed: %v", err)
-		return err
-	}
-
-	if err := copyFile(newExec, execPath); err != nil {
-		log.Errorf("replace executable failed, try to restore: %v", err)
-		_ = os.Rename(oldPath, execPath)
-		return err
-	}
-
-	if info, statErr := os.Stat(oldPath); statErr == nil {
-		_ = os.Chmod(execPath, info.Mode().Perm())
-	}
-	_ = os.RemoveAll(oldPath)
-
-	log.Infof("update core success")
-	go restartExecutable(execPath)
-	return nil
+	// 必须在任何网络、文件替换与重启行为之前拒绝，包括旧客户端的调用。
+	return ErrSelfUpdateDisabled
 }
 
 func copyFile(src, dst string) error {
