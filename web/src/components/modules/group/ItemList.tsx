@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { Layers, GripVertical, X, Trash2 } from 'lucide-react';
+import { Layers, GripVertical, X, Trash2, Loader2 } from 'lucide-react';
 import {
     DragDropContext,
     Draggable,
@@ -14,6 +14,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useTranslations } from 'use-intl';
 import type { Group } from '@/api/group';
 import { MemberStatus } from './MemberStatus';
+import { CooldownConfirmation } from './CooldownConfirmation';
+import type { MemberActions } from './useMemberActions';
 
 export interface SelectedMember {
     id: string;
@@ -45,7 +47,7 @@ type MemberItemDnd = {
 function MemberItem({
     member,
     onRemove,
-    onActivate,
+    memberActions,
     isActive,
     group,
     now,
@@ -56,7 +58,7 @@ function MemberItem({
 }: {
     member: SelectedMember;
     onRemove: (id: string) => void;
-    onActivate?: (itemId: number) => void;
+    memberActions?: MemberActions;
     isActive?: boolean;
     group?: Group; // group 提供成员当前的冷却和亲和时间。
     now: number; // now 是成员列表共享的当前 Unix 毫秒时间。
@@ -67,7 +69,14 @@ function MemberItem({
 }) {
     const { Icon, className: iconClassName } = getModelIcon(member.name);
     const [confirmDelete, setConfirmDelete] = useState(false);
-    const isDisabled = member.enabled === false;
+    const isDisabled = group && member.item_id !== undefined
+        ? !group.items.find((item) => item.id === member.item_id)?.available
+        : member.enabled === false;
+    const t = useTranslations('group');
+    const selectable = memberActions !== undefined && member.item_id !== undefined;
+    const Trigger = selectable ? 'button' : 'div';
+    const confirming = member.item_id !== undefined && memberActions?.confirmation?.itemId === member.item_id;
+    const pending = memberActions?.pending?.itemId === member.item_id && member.item_id !== undefined;
 
     return (
         <div
@@ -87,75 +96,93 @@ function MemberItem({
             }}
         >
             <div className={cn(
-                'flex items-center gap-2 rounded-lg bg-background px-2.5 py-2 select-none transition-[background-color,opacity] duration-200 relative overflow-hidden',
+                '@container/member flex flex-col rounded-lg bg-background select-none transition-[background-color,opacity] duration-200 relative overflow-hidden',
                 isRemoving && 'opacity-0',
-                isDisabled && 'opacity-60 grayscale',
-                onActivate && member.item_id !== undefined && 'cursor-pointer'
+                isDisabled && 'opacity-60 grayscale'
             )}
-                onClick={() => member.item_id !== undefined && onActivate?.(member.item_id)}
-                onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget || member.item_id === undefined || !onActivate || (event.key !== 'Enter' && event.key !== ' ')) return;
-                    event.preventDefault();
-                    onActivate(member.item_id);
-                }}
-                role={onActivate && member.item_id !== undefined ? 'button' : undefined}
-                tabIndex={onActivate && member.item_id !== undefined ? 0 : undefined}
             >
-                <div
-                    className={cn(
-                        'p-0.5 rounded touch-none transition-colors',
-                        isDisabled
-                            ? 'cursor-grab active:cursor-grabbing hover:bg-muted/60'
-                            : 'cursor-grab active:cursor-grabbing hover:bg-muted'
-                    )}
-                    // eslint-disable-next-line react-hooks/refs
-                    {...dnd.dragHandleProps}
-                    onClick={(event) => event.stopPropagation()}
-                >
-                    <GripVertical className="size-3.5 text-muted-foreground" />
-                </div>
-
-                <span className={cn(isDisabled && 'opacity-70')}>
-                    <Icon aria-hidden="true" className={iconClassName} width={18} height={18} />
-                </span>
-
-                <div className="flex flex-col min-w-0 flex-1">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span className={cn(
-                                'w-fit max-w-full text-sm font-medium truncate leading-tight',
-                                isDisabled && 'text-muted-foreground'
-                            )}>
-                                {member.name}
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent key={member.name} side="top" sideOffset={10} align="center">
-                            {member.name}
-                        </TooltipContent>
-                    </Tooltip>
-                    <span className="text-[10px] text-muted-foreground truncate leading-tight">
-                        {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
-                    </span>
-                </div>
-
-                {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" />}
-
-                {(!showConfirmDelete || !confirmDelete) && (
-                    <motion.button
-                        layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
-                        type="button"
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            if (showConfirmDelete) setConfirmDelete(true);
-                            else onRemove(member.id);
-                        }}
-                        className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
-                        transition={{ duration: 0.15 }}
-                        style={{ pointerEvents: 'auto' }}
+                <div className="flex items-center gap-2 px-2.5 py-2">
+                    <div
+                        className={cn(
+                            'p-0.5 rounded touch-none transition-colors',
+                            isDisabled
+                                ? 'cursor-grab active:cursor-grabbing hover:bg-muted/60'
+                                : 'cursor-grab active:cursor-grabbing hover:bg-muted'
+                        )}
+                        // eslint-disable-next-line react-hooks/refs
+                        {...dnd.dragHandleProps}
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={t('route.reorder')}
                     >
-                        <X className="size-3" />
-                    </motion.button>
-                )}
+                        <GripVertical className="size-3.5 text-muted-foreground" />
+                    </div>
+
+                    <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,max-content)_minmax(auto,1fr)_auto] items-center gap-x-2">
+                        <Trigger
+                            type={selectable ? 'button' : undefined}
+                            disabled={selectable && ((isDisabled && !(group?.mode === 'manual' && isActive)) || memberActions.pending !== null)}
+                            aria-pressed={selectable ? !!isActive : undefined}
+                            aria-expanded={selectable && group?.mode === 'failover' ? confirming : undefined}
+                            aria-controls={confirming ? memberActions?.confirmationId : undefined}
+                            aria-busy={pending || undefined}
+                            title={isDisabled && selectable ? t('route.unavailable') : undefined}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                if (member.item_id !== undefined) void memberActions?.activate(member.item_id, event.currentTarget);
+                            }}
+                            className={cn('col-span-full col-start-1 row-start-1 grid min-w-0 grid-cols-subgrid items-center rounded-md text-left', selectable && 'cursor-pointer outline-offset-2 disabled:cursor-default')}
+                        >
+                            <span className="col-start-1 flex min-w-0 items-center gap-2">
+                                <span className={cn('shrink-0', isDisabled && 'opacity-70')}>
+                                    <Icon aria-hidden="true" className={iconClassName} width={18} height={18} />
+                                </span>
+                                <span className="flex min-w-0 flex-col">
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <span className={cn(
+                                                'w-fit max-w-full text-sm font-medium truncate leading-tight',
+                                                isDisabled && 'text-muted-foreground'
+                                            )}>
+                                                {member.name}
+                                            </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent key={member.name} side="top" sideOffset={10} align="center">
+                                            {member.name}
+                                        </TooltipContent>
+                                    </Tooltip>
+                                    <span className="text-[10px] text-muted-foreground truncate leading-tight">
+                                        {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
+                                    </span>
+                                </span>
+                            </span>
+                            <span className="col-start-3 flex items-center justify-self-end gap-1">
+                                {group && <MemberStatus group={group} itemId={member.item_id} now={now} active={isActive} activeClassName="p-1" compact={confirming} />}
+                                {pending && !confirming && <Loader2 className="size-3.5 shrink-0 animate-spin" aria-label={t('route.submitting')} />}
+                            </span>
+                        </Trigger>
+                        {confirming && memberActions && <CooldownConfirmation actions={memberActions} now={now} />}
+                    </div>
+
+                    {(!showConfirmDelete || !confirmDelete) && (
+                        <motion.button
+                            layoutId={`delete-btn-member-${layoutScope ?? 'default'}-${member.id}`}
+                            type="button"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                memberActions?.keepCooldown();
+                                if (showConfirmDelete) setConfirmDelete(true);
+                                else onRemove(member.id);
+                            }}
+                            className={cn('p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors', confirming && 'hidden')}
+                            disabled={confirming}
+                            transition={{ duration: 0.15 }}
+                            style={{ pointerEvents: 'auto' }}
+                            aria-label={t('route.remove')}
+                        >
+                            <X className="size-3" />
+                        </motion.button>
+                    )}
+                </div>
 
                 <AnimatePresence>
                     {showConfirmDelete && confirmDelete && (
@@ -197,7 +224,7 @@ interface MemberListProps {
     members: SelectedMember[];
     onReorder: (members: SelectedMember[]) => void;
     onRemove: (id: string) => void;
-    onActivate?: (itemId: number) => void;
+    memberActions?: MemberActions;
     activeItemId?: number;
     group?: Group; // group 提供当前模式和成员运行状态。
     now?: number; // now 是页面共享的当前 Unix 毫秒时间，仅展示运行态时需要。
@@ -231,7 +258,7 @@ export function MemberList({
     members,
     onReorder,
     onRemove,
-    onActivate,
+    memberActions,
     activeItemId,
     group,
     now = 0,
@@ -315,9 +342,11 @@ export function MemberList({
                     isEmpty ? 'opacity-0' : 'opacity-100'
                 )}
                 ref={scrollContainerRef}
+                data-member-list
+                tabIndex={-1}
             >
                 <DragDropContext
-                    onDragStart={() => onDragStart?.()}
+                    onDragStart={() => { memberActions?.keepCooldown(); onDragStart?.(); }}
                     onDragEnd={handleDragEnd}
                 >
                     <Droppable
@@ -326,7 +355,7 @@ export function MemberList({
                             <MemberItem
                                 member={members[rubric.source.index]}
                                 onRemove={onRemove}
-                                onActivate={onActivate}
+                                memberActions={memberActions}
                                 isActive={members[rubric.source.index].item_id === activeItemId}
                                 group={group}
                                 now={now}
@@ -353,13 +382,13 @@ export function MemberList({
                                         key={member.id}
                                         draggableId={member.id}
                                         index={index}
-                                        isDragDisabled={removingIds.has(member.id)}
+                                        isDragDisabled={removingIds.has(member.id) || !!memberActions?.pending}
                                     >
                                         {(draggableProvided, snapshot) => (
                                             <MemberItem
                                                 member={member}
                                                 onRemove={onRemove}
-                                                onActivate={onActivate}
+                                                memberActions={memberActions}
                                                 isActive={member.item_id === activeItemId}
                                                 group={group}
                                                 now={now}

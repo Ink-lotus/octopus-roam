@@ -258,10 +258,10 @@ func TestFailoverCanceledProbeBackoffReleasesLease(t *testing.T) {
 	}
 
 probeBackoff:
-	// 连续失败不因探测开始清零；阈值已达到，探测失败应重新冷却并归还资格。
-	if state := RouteStateOf(group); state.ProbeItemID != 0 || state.Cooldowns[group.Items[0].ID] <= time.Now().UnixMilli() {
+	// 冷却结束已重开预算，本轮首次探测失败只退避，仍由同一请求持有探测。
+	if state := RouteStateOf(group); state.ProbeItemID != group.Items[0].ID || state.Cooldowns[group.Items[0].ID] != 0 {
 		cancel()
-		t.Fatalf("探测失败后没有重新冷却并归还资格: %+v", state)
+		t.Fatalf("新周期首次失败未保留探测和剩余预算: %+v", state)
 	}
 	cancel()
 	select {

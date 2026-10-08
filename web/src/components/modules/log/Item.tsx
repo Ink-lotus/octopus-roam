@@ -6,7 +6,7 @@ import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
 import { githubLightTheme } from '@uiw/react-json-view/githubLight';
 import { useTheme } from '@/provider/theme';
 import { type RelayLogOverview, useLogRequestBody, useLogResponseBody, useStopRequest } from '@/api/log';
-import { useGroup, useUpdateGroup } from '@/api/group';
+import { useGroup } from '@/api/group';
 import { Protocol } from '@/api/channel';
 import { getModelIcon } from '@/lib/model-icons';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +14,9 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import { toast } from 'sonner';
-import { MemberStatus } from '@/components/modules/group/MemberStatus';
+import { MemberStatus, useRuntimeClock } from '@/components/modules/group/MemberStatus';
+import { useMemberActions } from '@/components/modules/group/useMemberActions';
+import { CooldownConfirmation } from '@/components/modules/group/CooldownConfirmation';
 import {
     MorphingDialog,
     MorphingDialogTrigger,
@@ -166,17 +168,23 @@ function JsonContent({ content, fallbackText }: { content: string | object | und
 // LogDetail 渲染日志详情弹窗内容, 仅在弹窗打开期间挂载, 由此避免列表中的卡片持有详情查询和状态。
 function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
     const t = useTranslations('log.card');
+    const groupT = useTranslations('group');
     const statusT = useTranslations('log.status');
     const [leftTab, setLeftTab] = useState<'request' | 'group'>('group');
     const [rounds, setRounds] = useState<ObservedRound[]>([]);
     const [observedRoundKey, setObservedRoundKey] = useState(''); // observedRoundKey 是已记入 rounds 的最近一次日志快照, 用于跳过重复渲染。
     const [detailReady, setDetailReady] = useState(false); // 展开动画结束后才允许加载详情数据。
-    const [switchingItemId, setSwitchingItemId] = useState<number | null>(null);
     const requestBody = useLogRequestBody(log.id, log.started_at, detailReady && leftTab === 'request');
     const responseBody = useLogResponseBody(log.id, log.started_at, detailReady && log.status === 'success');
     const { data: activeGroup } = useGroup(log.group_id, detailReady, detailReady);
-    const updateActiveItem = useUpdateGroup();
     const stopRequest = useStopRequest();
+    const memberNow = useRuntimeClock(activeGroup);
+    const memberActions = useMemberActions(activeGroup, memberNow, async (cleared) => {
+        // Capture the original request round at the click. Interrupt validates it
+        // again after selection; a completed round or committed stream is safe.
+        if (log.sending) await stopRequest.mutateAsync({ requestId: log.id, round: log.round });
+        toast.success(cleared ? t('channelCleared') : t('channelChanged'));
+    });
     const actualModel = log.target_model || log.model;
     const { Icon, className: iconClassName, color: brandColor } = getModelIcon(actualModel);
     const errorText = log.error ?? '';
@@ -294,47 +302,42 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                     {t('noGroupItems')}
                                 </div>
                             ) : (
-                                <div className="divide-y divide-border">
+                                <div className="divide-y divide-border" data-member-list tabIndex={-1}>
                                     {activeGroup.items.map((item) => {
                                         const { Icon: ItemIcon, className: itemIconClassName } = getModelIcon(item.model_name);
-                                        const itemCurrent = switchingItemId !== null
-                                            ? item.id === switchingItemId
-                                            : activeGroup.runtime.current_item_id === item.id;
+                                        const itemCurrent = activeGroup.runtime.current_item_id === item.id;
+                                        const confirming = memberActions.confirmation?.itemId === item.id;
                                         return (
-                                            <button
-                                                key={item.id}
-                                                type="button"
-                                                aria-pressed={itemCurrent}
-                                                disabled={activeGroup.mode === 'failover' || switchingItemId !== null || stopRequest.isPending}
-                                                onClick={async () => {
-                                                    if (activeGroup.mode === 'failover') return;
-                                                    setSwitchingItemId(item.id);
-                                                    const isCurrent = activeGroup.runtime.current_item_id === item.id;
-                                                    try {
-                                                        await updateActiveItem.mutateAsync({ id: activeGroup.id, active_item_id: isCurrent ? 0 : item.id });
-                                                        if (log.sending) {
-                                                            await stopRequest.mutateAsync({ requestId: log.id, round: log.round });
-                                                        }
-                                                        toast.success(isCurrent ? t('channelCleared') : t('channelChanged'));
-                                                    } catch (cause) {
-                                                        toast.error(t('channelChangeFailed'), { description: cause instanceof Error ? cause.message : undefined });
-                                                    } finally {
-                                                        setSwitchingItemId(null);
-                                                    }
-                                                }}
-                                                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-default disabled:hover:bg-transparent"
-                                            >
-                                                <ItemIcon aria-hidden="true" className={itemIconClassName} width={20} height={20} />
-                                                <span className="min-w-0 flex-1">
-                                                    <span className="block truncate font-semibold text-foreground">
-                                                        {item.model_name}
+                                            <div key={item.id} className="@container/member grid grid-cols-[minmax(0,max-content)_minmax(auto,1fr)_auto] items-center gap-x-2.5">
+                                                <button
+                                                    type="button"
+                                                    aria-pressed={itemCurrent}
+                                                    aria-expanded={activeGroup.mode === 'failover' ? confirming : undefined}
+                                                    aria-controls={confirming ? memberActions.confirmationId : undefined}
+                                                    aria-busy={memberActions.pending?.itemId === item.id || undefined}
+                                                    disabled={(!item.available && !(activeGroup.mode === 'manual' && itemCurrent)) || memberActions.pending !== null || stopRequest.isPending}
+                                                    title={!item.available ? groupT('route.unavailable') : undefined}
+                                                    onClick={(event) => { event.stopPropagation(); void memberActions.activate(item.id, event.currentTarget); }}
+                                                    className="col-span-full col-start-1 row-start-1 grid min-w-0 grid-cols-subgrid items-center rounded-lg px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/50 disabled:cursor-default disabled:hover:bg-transparent"
+                                                >
+                                                    <span className="col-start-1 flex min-w-0 items-center gap-2.5">
+                                                        <ItemIcon aria-hidden="true" className={cn('shrink-0', itemIconClassName)} width={20} height={20} />
+                                                        <span className="min-w-0">
+                                                            <span className="block truncate font-semibold text-foreground">
+                                                                {item.model_name}
+                                                            </span>
+                                                            <span className="block truncate text-[11px] text-muted-foreground">
+                                                                {item.key_name ? `${item.channel_name} · ${item.key_name}` : item.channel_name}
+                                                            </span>
+                                                        </span>
                                                     </span>
-                                                    <span className="block truncate text-[11px] text-muted-foreground">
-                                                        {item.key_name ? `${item.channel_name} · ${item.key_name}` : item.channel_name}
+                                                    <span className="col-start-3 flex items-center justify-self-end gap-1">
+                                                        <MemberStatus group={activeGroup} itemId={item.id} now={memberNow} active={itemCurrent} compact={confirming} />
+                                                        {memberActions.pending?.itemId === item.id && !confirming && <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />}
                                                     </span>
-                                                </span>
-                                                <MemberStatus group={activeGroup} itemId={item.id} now={now} active={itemCurrent} />
-                                            </button>
+                                                </button>
+                                                {confirming && <CooldownConfirmation actions={memberActions} now={memberNow} />}
+                                            </div>
                                         );
                                     })}
                                 </div>

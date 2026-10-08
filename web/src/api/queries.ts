@@ -1,7 +1,8 @@
 import { queryOptions } from '@tanstack/react-query';
 import type { APIKey, APIKeyStatsResponse } from './apikey';
 import type { ChannelStats } from './channel';
-import type { Group, GroupRelayConfig } from './group';
+import type { GroupRelayConfig } from './group';
+import { readGroupList, shareGroupList } from './group-cache';
 import type { LLMInfo } from './model';
 import type { StatsDailyResponse, StatsHourly, StatsTotal } from './stats';
 import { apiRequest } from './client';
@@ -28,7 +29,8 @@ export const channelStatsQueryOptions = queryOptions({
 // groupListQueryOptions 供页面查询和启动预取共享分组列表定义。
 export const groupListQueryOptions = queryOptions({
     queryKey: ['groups', 'list'],
-    queryFn: () => apiRequest<Group[]>('/api/v1/group/list'),
+    queryFn: ({ signal }) => readGroupList(signal),
+    structuralSharing: shareGroupList,
 });
 
 export const groupRouteDefaultsQueryOptions = queryOptions({

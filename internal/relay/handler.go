@@ -90,7 +90,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		failedItemID := 0             // 当前累计连续失败次数的成员 ID。
 		failures := 0                 // 该成员包含首次请求的连续失败次数。
 		failedGeneration := uint64(0) // 路由改变或恢复探测重新开始时重置成员尝试预算。
-		probeToken := uint64(0)       // 本请求持有的恢复探测令牌, 取消时必须归还。
+		failedMemberVersion, failedMemberEpoch := uint64(0), uint64(0)
+		probeToken := uint64(0) // 本请求持有的恢复探测令牌, 取消时必须归还。
 		var releaseCapacity func()
 		var activeHealth *healthAttempt
 		var healthGroup model.Group
@@ -154,7 +155,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			if group.Mode == model.GroupModeManual {
 				attemptLimit = group.RelayConfig.ManualMaxAttempts
 			}
-			resetAttempts := failedItemID != item.ID || failedGeneration != selection.Generation
+			resetAttempts := failedItemID != item.ID || failedGeneration != selection.Generation ||
+				failedMemberVersion != selection.MemberVersion || failedMemberEpoch != selection.MemberEpoch
 			request.selectMember(item.ID, item.ChannelName, item.ModelName, 0, attemptLimit, resetAttempts)
 
 			// 成员指向的授权缺失, 凭据被停用或两侧已被删除时等待, 该成员可能很快被改回可用配置。
@@ -379,11 +381,12 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					continue
 				}
 				// 路由版本或成员变化时重置预算, 同一成员重新进入恢复探测也从第 1 次尝试开始。
-				if failedGeneration == selection.Generation && failedItemID == item.ID {
+				if !resetAttempts {
 					failures++
 				} else {
 					failedItemID = item.ID
 					failedGeneration = selection.Generation
+					failedMemberVersion, failedMemberEpoch = selection.MemberVersion, selection.MemberEpoch
 					failures = 1
 				}
 				// 手动模式的预算由 manual_max_attempts 给出, 0 表示不限额; 故障转移模式仍由

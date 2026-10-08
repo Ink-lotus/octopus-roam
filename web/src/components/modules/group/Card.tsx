@@ -10,6 +10,7 @@ import { IconButton } from '@/components/common/IconButton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
+import { useMemberActions } from './useMemberActions';
 import { GroupEditor, type GroupEditorValues } from './Editor';
 import {
     MorphingDialog,
@@ -54,7 +55,7 @@ function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: Ed
 export const GroupCard = memo(function GroupCard({ group, now }: { group: Group; now: number }) {
     const t = useTranslations('group');
     const updateGroup = useUpdateGroup();
-    const activateItem = useUpdateGroup(); // 与配置提交分开持有: 共用一个实例会让点选成员点亮编辑弹窗的提交态。
+    const memberActions = useMemberActions(group, now);
     const deleteGroup = useDeleteGroup();
 
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -105,15 +106,6 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
     const handleRemoveMember = useCallback((id: string) => {
         submitMembers(members.filter((m) => m.id !== id));
     }, [members, submitMembers]);
-
-    // 点击当前成员即取消选择, 提交 0。
-    const handleActivate = useCallback((itemId: number) => {
-        if (group.mode !== 'manual' || activateItem.isPending) return;
-        activateItem.mutate(
-            { id: group.id, active_item_id: itemId === group.runtime.current_item_id ? 0 : itemId },
-            { onSuccess, onError },
-        );
-    }, [activateItem, group.id, group.mode, group.runtime.current_item_id, onError, onSuccess]);
 
     const handleSubmitEdit = useCallback((values: GroupEditorValues, onDone?: () => void) => {
         const payload: GroupUpdateRequest & { id: number } = { id: group.id };
@@ -236,7 +228,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                     members={members}
                     onReorder={setMembers}
                     onRemove={handleRemoveMember}
-                    onActivate={group.mode === 'manual' ? handleActivate : undefined}
+                    memberActions={memberActions}
                     activeItemId={group.runtime.current_item_id}
                     group={group}
                     now={now}

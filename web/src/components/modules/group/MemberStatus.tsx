@@ -12,6 +12,7 @@ interface MemberStatusProps {
     now: number; // now 是所属列表共享的当前 Unix 毫秒时间。
     active?: boolean; // active 表示该成员当前正在使用。
     activeClassName?: string; // activeClassName 调整原有选中图标在不同列表中的间距。
+    compact?: boolean; // compact 在窄成员行展开操作时缩短倒计时，完整含义仍由可访问名称提供。
 }
 
 // useRuntimeClock 为一个或多个分组提供共享倒计时当前时间。
@@ -51,18 +52,22 @@ export function useRuntimeClock(source?: Group | Group[]) {
 }
 
 // MemberStatus 展示成员的冷却倒计时或当前使用状态。
-export function MemberStatus({ group, itemId, now, active = false, activeClassName }: MemberStatusProps) {
+export function MemberStatus({ group, itemId, now, active = false, activeClassName, compact = false }: MemberStatusProps) {
     const t = useTranslations('group.card');
 
     if (group.mode === 'failover' && itemId !== undefined) {
         const cooldownUntil = group.runtime.cooldowns[itemId] ?? 0;
         if (now < cooldownUntil) {
+            const seconds = Math.ceil((cooldownUntil - now) / 1000);
             return (
                 <Badge
                     variant="outline"
+                    aria-label={t('cooling', { seconds })}
+                    title={t('cooling', { seconds })}
                     className="shrink-0 border-orange-500/30 bg-orange-500/10 px-1.5 py-0 text-[10px] font-medium text-orange-600 dark:text-orange-400"
                 >
-                    {t('cooling', { seconds: Math.ceil((cooldownUntil - now) / 1000) })}
+                    <span className={compact ? '@max-[22rem]/member:hidden' : undefined}>{t('cooling', { seconds })}</span>
+                    {compact && <span className="hidden @max-[22rem]/member:inline" aria-hidden="true">{seconds}s</span>}
                 </Badge>
             );
         }

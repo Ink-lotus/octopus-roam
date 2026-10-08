@@ -570,6 +570,21 @@
             "cooling": "Cooling {seconds}s",
             "waitingRecovery": "Waiting for recovery"
         },
+        "route": {
+            "confirmation": "Confirm member cooldown release",
+            "release": "Release cooldown",
+            "keep": "Keep cooldown",
+            "releasing": "Releasing…",
+            "releaseHint": "After releasing the cooldown, click this channel again to switch.",
+            "released": "Cooldown released. Click the channel to switch.",
+            "releaseFailed": "Failed to release cooldown",
+            "selectFailed": "Failed to switch channel",
+            "changed": "Member state changed. Check the latest state and retry.",
+            "unavailable": "The channel or credential is unavailable. Refresh and retry.",
+            "submitting": "Submitting",
+            "remove": "Remove member",
+            "reorder": "Drag to reorder members"
+        },
         "detail": {
             "actions": {
                 "cancel": "Cancel",

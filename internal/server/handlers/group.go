@@ -43,6 +43,8 @@ func init() {
 		).
 		AddRoute(router.NewRoute("/route-defaults", http.MethodGet).Handle(getGroupRouteDefaults)).
 		AddRoute(router.NewRoute("/route-defaults", http.MethodPost).Handle(setGroupRouteDefaults)).
+		AddRoute(router.NewRoute("/route/:id/select", http.MethodPost).Handle(selectGroupRouteItem)).
+		AddRoute(router.NewRoute("/route/:id/release-cooldown", http.MethodPost).Handle(releaseGroupRouteCooldown)).
 		AddRoute(
 			router.NewRoute("/update/:id", http.MethodPost).
 				Handle(updateGroup),
@@ -162,6 +164,8 @@ func streamGroupEvents(c *gin.Context) {
 // getGroupList 返回全部分组, 并为每个分组补齐当前的实时路由状态。
 // 路由状态由 Relay 持有而 Relay 依赖 op, 故补齐点放在此处而非 op.GroupList 内。
 func getGroupList(c *gin.Context) {
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	groups := op.GroupList()
 	responses := make([]groupResponse, len(groups))
 	for i, group := range groups {
@@ -184,6 +188,8 @@ func getGroup(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
 	group, err := op.GroupGet(id)
 	if err != nil {
 		resp.Error(c, http.StatusNotFound, err.Error())
@@ -205,8 +211,8 @@ func createGroup(c *gin.Context) {
 		groupWriteError(c, err)
 		return
 	}
-	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
 	relay.SetRouteConfig(*group)
+	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
 	publishGroupEvent(groupEvent{Name: "changed", Data: response})
 	resp.Success(c, response)
 }

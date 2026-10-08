@@ -1,8 +1,9 @@
 import { queryOptions, useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { apiRequest } from './client';
+import { ApiError, apiRequest } from './client';
 import { queryClient } from './client';
 import { groupListQueryOptions, groupRouteDefaultsQueryOptions } from './queries';
+import { clearPendingGroupRuntimes, readGroup, removeGroupCache, shareGroupSnapshot, writeGroupCache, writeGroupRuntime } from './group-cache';
 
 // GroupGrantCandidate 是分组编辑器可新增的一条渠道授权。
 // 后端只返回当前渠道和凭据都可用的授权; 已有不可用成员仍随 Group.items 返回。
@@ -57,6 +58,10 @@ export interface GroupItem {
 // GroupRuntime 是分组的实时路由状态。
 // current_item_id 两种模式共用：手动模式下即人工指定的成员，故障转移模式下由 Relay 的路由决定。
 export interface GroupRuntime {
+    version: string;
+    config_version: string;
+    selection_version: string;
+    cooldown_versions: Record<number, string>;
     group_id: number;
     current_item_id: number;
     probe_item_id: number;
@@ -99,28 +104,6 @@ export interface GroupUpdateRequest {
     active_item_id?: number; // 手动模式指定的当前成员，0 表示取消选择。
 }
 
-// writeGroupCache 把一份分组写回列表与详情两处缓存，已存在则替换，不存在则插入。
-// 写操作的响应与事件流都经由此处收敛，两处读的是同一份数据，无需再重新拉取列表。
-function writeGroupCache(group: Group) {
-    queryClient.setQueryData(groupListQueryOptions.queryKey, (current: Group[] | undefined) => {
-        if (!current) return current;
-        const next = current.filter((item) => item.id !== group.id);
-        next.push(group);
-        // 与后端 op.GroupList 的定序保持一致：API Key 表单的模型选择器没有排序开关，依赖列表自带的名称顺序。
-        next.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-        return next;
-    });
-    queryClient.setQueryData(['groups', 'detail', group.id], group);
-}
-
-// removeGroupCache 从列表与详情两处缓存移除一个分组。
-function removeGroupCache(id: number) {
-    queryClient.setQueryData(groupListQueryOptions.queryKey, (current: Group[] | undefined) =>
-        current?.filter((item) => item.id !== id)
-    );
-    queryClient.removeQueries({ queryKey: ['groups', 'detail', id] });
-}
-
 // useGroupList 获取全部分组，并由明确需要实时状态的页面控制是否订阅事件流。
 export function useGroupList(enabled = true, eventsEnabled = false) {
     const query = useQuery({ ...groupListQueryOptions, enabled });
@@ -134,7 +117,8 @@ export function useGroupList(enabled = true, eventsEnabled = false) {
 export function useGroup(id: number | undefined, enabled = true, eventsEnabled = false) {
     const query = useQuery({
         queryKey: ['groups', 'detail', id],
-        queryFn: () => apiRequest<Group>(`/api/v1/group/get/${id}`),
+        queryFn: ({ signal }) => readGroup(id!, signal),
+        structuralSharing: shareGroupSnapshot,
         enabled: enabled && id !== undefined,
     });
 
@@ -165,12 +149,7 @@ function useGroupEventStream(enabled: boolean) {
             });
             source.addEventListener('runtime', (event) => {
                 const update = JSON.parse((event as MessageEvent<string>).data) as GroupRuntime;
-                queryClient.setQueryData(groupListQueryOptions.queryKey, (current: Group[] | undefined) =>
-                    current?.map((group) => group.id === update.group_id ? { ...group, runtime: update } : group)
-                );
-                queryClient.setQueryData(['groups', 'detail', update.group_id], (current: Group | undefined) =>
-                    current && { ...current, runtime: update }
-                );
+                writeGroupRuntime(update);
             });
             // 后端不留事件历史，连接断开期间的变更无从补发，故每次连上都重新拉取一次对齐。
             // 拉取放在 onopen 而非 onerror: EventSource 自行重连，onerror 在每次失败时都会触发，
@@ -186,6 +165,7 @@ function useGroupEventStream(enabled: boolean) {
             if (groupEventRefCount > 0) return;
             groupEventSource?.close();
             groupEventSource = null;
+            clearPendingGroupRuntimes();
         };
     }, [enabled]);
 }
@@ -215,6 +195,37 @@ export function useDeleteGroup() {
             apiRequest<null>(`/api/v1/group/delete/${id}`, { method: 'DELETE' }),
         onSuccess: (_, id) => removeGroupCache(id),
     });
+}
+
+interface GroupRouteRequest {
+    id: number;
+    item_id: number;
+    version: string;
+}
+
+function useGroupRouteMutation(action: 'select' | 'release-cooldown') {
+    return useMutation({
+        mutationFn: ({ id, ...body }: GroupRouteRequest) =>
+            apiRequest<Group>(`/api/v1/group/route/${id}/${action}`, { method: 'POST', body }),
+        onSuccess: (group) => { writeGroupCache(group); },
+        onError: (error, request) => {
+            if (error instanceof ApiError && error.status === 404) {
+                removeGroupCache(request.id);
+            } else if (error instanceof ApiError && error.status === 409 && error.details) {
+                writeGroupCache(error.details as Group);
+            }
+            void queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
+            void queryClient.invalidateQueries({ queryKey: ['groups', 'detail', request.id] });
+        },
+    });
+}
+
+export function useSelectGroupItem() {
+    return useGroupRouteMutation('select');
+}
+
+export function useReleaseGroupCooldown() {
+    return useGroupRouteMutation('release-cooldown');
 }
 
 // groupGrantCandidatesQueryOptions 获取分组编辑器的新增候选。

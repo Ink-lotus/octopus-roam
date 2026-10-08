@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,28 +14,35 @@ import (
 // 两种模式共用 CurrentItemID: 手动模式下即人工指定的成员, 故障转移模式下由路由决定,
 // 前端由此只读这一个字段即可知道当前承载请求的成员, 无需再按模式分支。
 type RouteState struct {
-	GroupID       int           `json:"group_id"`        // 状态所属的分组 ID, 供状态流按分组定位。
-	CurrentItemID int           `json:"current_item_id"` // 当前承载请求的成员 ID, 0 表示尚未建立路由或未人工指定。
-	ProbeItemID   int           `json:"probe_item_id"`   // 当前占用恢复探测的成员 ID, 同一分组同时只允许一个成员被探测; 手动模式恒为 0。
-	AffinityUntil int64         `json:"affinity_until"`  // 兼容旧 API 的字段, 路由不再使用亲和, 恒为 0。
-	Cooldowns     map[int]int64 `json:"cooldowns"`       // 失败成员 ID 对应的冷却截止 Unix 毫秒时间, 已到期的条目由前端按当前时间忽略。
+	Version          string         `json:"version"`           // 快照排序版本，使用字符串避免 JavaScript 精度损失。
+	ConfigVersion    string         `json:"config_version"`    // 分组配置版本，防止旧配置快照覆盖新配置。
+	SelectionVersion string         `json:"selection_version"` // 选择操作版本，不因普通成功结算而失效。
+	CooldownVersions map[int]string `json:"cooldown_versions"` // 每个成员当前冷却轮次的确认令牌。
+	GroupID          int            `json:"group_id"`          // 状态所属的分组 ID, 供状态流按分组定位。
+	CurrentItemID    int            `json:"current_item_id"`   // 当前承载请求的成员 ID, 0 表示尚未建立路由或未人工指定。
+	ProbeItemID      int            `json:"probe_item_id"`     // 当前占用恢复探测的成员 ID, 同一分组同时只允许一个成员被探测; 手动模式恒为 0。
+	AffinityUntil    int64          `json:"affinity_until"`    // 兼容旧 API 的字段, 路由不再使用亲和, 恒为 0。
+	Cooldowns        map[int]int64  `json:"cooldowns"`         // 失败成员 ID 对应的冷却截止 Unix 毫秒时间, 已到期的条目由前端按当前时间忽略。
 }
 
 // routeSelection 是一次选路的内部结果。Generation 将结果回报绑定到选路版本,
 // ProbeToken 则将恢复探测绑定到唯一持有者, 防止旧请求释放后来取得的探测。
 type routeSelection struct {
-	Item       model.GroupItem
-	Wait       bool
-	WaitUntil  time.Time
-	Generation uint64
-	ProbeToken uint64
-	Recovering bool
-	Changed    <-chan struct{}
+	Item          model.GroupItem
+	Wait          bool
+	WaitUntil     time.Time
+	Generation    uint64
+	ProbeToken    uint64
+	Recovering    bool
+	MemberVersion uint64
+	MemberEpoch   uint64
+	Changed       <-chan struct{}
 }
 
 type routeRuntime struct {
 	identity                 uint64
 	recoveryVersion          uint64
+	recoveryBarrier          uint64
 	failedChannelsAtRecovery int
 	health                   map[int]*memberHealth
 	state                    RouteState
@@ -44,6 +50,8 @@ type routeRuntime struct {
 	probeToken               uint64
 	probeRetryAfter          map[int]time.Time // 额度不足只推迟探测，不记为上游失败或冷却。
 	changed                  chan struct{}     // 手动模式也保存版本与通知, 但不建立当前成员、冷却或探测状态。
+	cooldownTimer            *time.Timer
+	cooldownSchedule         uint64
 }
 
 type routeConfigSignature struct {
@@ -84,24 +92,19 @@ var (
 // RouteStateOf 返回分组当前的实时路由状态, 供读取接口随分组一并返回。
 // 手动模式仅在进程内保存等待通知: 当前成员即人工指定的成员, 故直接由分组配置得出。
 func RouteStateOf(group model.Group) RouteState {
-	if group.Mode == model.GroupModeManual {
-		return RouteState{
-			GroupID:       group.ID,
-			CurrentItemID: group.ActiveItemID,
-			Cooldowns:     map[int]int64{},
-		}
-	}
-
 	routeMu.Lock()
 	defer routeMu.Unlock()
 
 	// 展示尚未建立的分组状态只返回空快照, 不创建运行时路由或分配版本。
 	route := routes[group.ID]
 	if route == nil {
-		return RouteState{GroupID: group.ID, Cooldowns: map[int]int64{}}
+		return emptyRouteStateLocked(group)
 	}
-	state := route.state
-	state.Cooldowns = maps.Clone(route.state.Cooldowns)
+	expireRouteCooldownsLocked(route, time.Now())
+	state := routeSnapshotLocked(route)
+	if group.Mode == model.GroupModeManual {
+		state.CurrentItemID = group.ActiveItemID
+	}
 	return state
 }
 
@@ -118,6 +121,7 @@ func ResetRouteState(groupID int) {
 		delete(routes, groupID)
 	}
 	delete(routeConfigs, groupID)
+	touchRouteConfigLocked(groupID)
 	routeBlocked[groupID] = now.Add(routeBlockRetention)
 }
 
@@ -126,6 +130,7 @@ func SetRouteConfig(group model.Group) {
 	routeMu.Lock()
 	defer routeMu.Unlock()
 	routeConfigs[group.ID] = routeConfigSignatureOf(group)
+	touchRouteConfigLocked(group.ID)
 	delete(routeBlocked, group.ID)
 }
 
@@ -138,6 +143,7 @@ func ResetRouteStateForGroup(group model.Group) {
 		delete(routes, group.ID)
 	}
 	routeConfigs[group.ID] = routeConfigSignatureOf(group)
+	touchRouteConfigLocked(group.ID)
 	delete(routeBlocked, group.ID)
 }
 
@@ -165,6 +171,7 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 		routeConfigs[group.ID] = actual
 	}
 	route := ensureRouteLocked(group)
+	expireRouteCooldownsLocked(route, now)
 	if group.Mode == model.GroupModeManual {
 		for _, item := range group.Items {
 			if item.ID == group.ActiveItemID && item.Available {
@@ -215,16 +222,8 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 			}
 			continue
 		}
-		deadlineMS, cooling := route.state.Cooldowns[item.ID]
-		if cooling {
-			deadline := time.UnixMilli(deadlineMS)
-			if deadline.After(now) {
-				if earliest.IsZero() || deadline.Before(earliest) {
-					earliest = deadline
-				}
-				continue
-			}
-			// 冷却到期后只允许一个探测持有者; 同成员的重试由持有者令牌识别。
+		if route.health[item.ID].recoveryPending {
+			// 计数清零后仍需真实成功验证，并保留单一恢复探测持有者。
 			if retryAt := route.probeRetryAfter[item.ID]; retryAt.After(now) {
 				if earliest.IsZero() || retryAt.Before(earliest) {
 					earliest = retryAt
@@ -242,6 +241,7 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 
 		route.state.CurrentItemID = item.ID
 		route.state.AffinityUntil = 0
+		advanceRouteLocked(route)
 		signalRouteLocked(route)
 		publishRouteLocked(route)
 		return selectionOf(route, item, 0)
@@ -269,6 +269,7 @@ func recordRouteSuccess(group model.Group, itemID int, generation, probeToken ui
 	if route == nil {
 		return
 	}
+	expireRouteCooldownsLocked(route, time.Now())
 	if route.generation != generation {
 		if probeToken != 0 && route.probeToken == probeToken && route.state.ProbeItemID == itemID {
 			route.state.ProbeItemID = 0
@@ -287,6 +288,7 @@ func recordRouteSuccess(group model.Group, itemID int, generation, probeToken ui
 		route.probeToken = 0
 		route.state.CurrentItemID = itemID
 		delete(route.state.Cooldowns, itemID)
+		delete(route.state.CooldownVersions, itemID)
 		advanceRouteLocked(route)
 		signalRouteLocked(route)
 		publishRouteLocked(route)
@@ -315,6 +317,7 @@ func recordRouteFailureAt(group model.Group, itemID, failures int, generation, p
 	if route == nil {
 		return true // 已重置或被较新路由替换, 调用方应立即重新选路。
 	}
+	expireRouteCooldownsLocked(route, now)
 	if route.generation != generation {
 		if probeToken != 0 && route.probeToken == probeToken && route.state.ProbeItemID == itemID {
 			route.state.ProbeItemID = 0
@@ -337,7 +340,10 @@ func recordRouteFailureAt(group model.Group, itemID, failures int, generation, p
 	}
 
 	deadline := now.Add(secondsToDuration(group.RelayConfig.MemberCooldownSeconds))
-	route.state.Cooldowns[itemID] = deadline.UnixMilli()
+	if item, exists := availableItemOf(group, itemID); exists {
+		memberHealthLocked(route, item)
+	}
+	startMemberCooldownLocked(route, itemID, deadline, now)
 	if probeToken != 0 {
 		route.state.ProbeItemID = 0
 		route.probeToken = 0
@@ -433,6 +439,7 @@ func NotifyRouteStateChanged(group model.Group) {
 	routeMu.Lock()
 	defer routeMu.Unlock()
 	routeConfigs[group.ID] = routeConfigSignatureOf(group)
+	touchRouteConfigLocked(group.ID)
 	delete(routeBlocked, group.ID)
 	if route := routes[group.ID]; route != nil {
 		for _, item := range group.Items {
@@ -471,9 +478,11 @@ func ResetAllRouteStates() {
 		closeRouteWaitersLocked(route)
 		delete(routes, groupID)
 		routeBlocked[groupID] = now.Add(routeBlockRetention)
+		touchRouteConfigLocked(groupID)
 	}
 	for groupID := range routeConfigs {
 		routeBlocked[groupID] = now.Add(routeBlockRetention)
+		touchRouteConfigLocked(groupID)
 	}
 }
 
@@ -483,6 +492,7 @@ func SetAllRouteConfigs(groups []model.Group) {
 	defer routeMu.Unlock()
 	for _, group := range groups {
 		routeConfigs[group.ID] = routeConfigSignatureOf(group)
+		touchRouteConfigLocked(group.ID)
 		delete(routeBlocked, group.ID)
 	}
 }
@@ -493,10 +503,13 @@ func ensureRouteLocked(group model.Group) *routeRuntime {
 	if route == nil {
 		route = &routeRuntime{
 			identity:   routeVersion.Add(1),
-			state:      RouteState{GroupID: group.ID, Cooldowns: make(map[int]int64)},
+			state:      emptyRouteStateLocked(group),
 			generation: routeVersion.Add(1),
 			changed:    make(chan struct{}),
 		}
+		routeStateVersions[group.ID] = routeVersion.Add(1)
+		route.state.Version = publicRouteVersion(routeStateVersions[group.ID])
+		route.state.SelectionVersion = publicRouteVersion(route.generation)
 		routes[group.ID] = route
 	}
 	return route
@@ -509,6 +522,8 @@ func cleanupRouteBlockedLocked(now time.Time) {
 	for groupID, blockedUntil := range routeBlocked {
 		if !now.Before(blockedUntil) {
 			delete(routeBlocked, groupID)
+			delete(routeConfigVersions, groupID)
+			delete(routeStateVersions, groupID)
 		}
 	}
 	routeBlockCleanupAt = now.Add(routeBlockCleanupInterval)
@@ -555,14 +570,16 @@ func availableItemOf(group model.Group, itemID int) (model.GroupItem, bool) {
 }
 
 func selectionOf(route *routeRuntime, item model.GroupItem, probeToken uint64) routeSelection {
-	recovering := route.health[item.ID] != nil && route.health[item.ID].FailureStreak > 0
+	h := memberHealthLocked(route, item)
 	return routeSelection{
-		Item: item, Generation: route.generation, ProbeToken: probeToken, Recovering: recovering, Changed: route.changed,
+		Item: item, Generation: route.generation, ProbeToken: probeToken, Recovering: h.recoveryPending || h.FailureStreak > 0, Changed: route.changed,
+		MemberVersion: h.Version, MemberEpoch: h.Epoch,
 	}
 }
 
 func advanceRouteLocked(route *routeRuntime) {
 	route.generation = routeVersion.Add(1)
+	route.state.SelectionVersion = publicRouteVersion(route.generation)
 }
 
 func signalRouteLocked(route *routeRuntime) {
@@ -571,14 +588,16 @@ func signalRouteLocked(route *routeRuntime) {
 }
 
 func closeRouteWaitersLocked(route *routeRuntime) {
+	stopRouteCooldownLocked(route)
 	close(route.changed)
 }
 
 // publishRouteLocked 非阻塞发布路由状态, 连接拥塞时关闭它并交给客户端重连获取全量快照; 冷却表按值复制以免前端读到后续变更; 调用方必须持有锁。
 func publishRouteLocked(route *routeRuntime) {
+	routeStateVersions[route.state.GroupID] = routeVersion.Add(1)
+	route.state.Version = publicRouteVersion(routeStateVersions[route.state.GroupID])
 	publishHealthLocked(route)
-	message := route.state
-	message.Cooldowns = maps.Clone(route.state.Cooldowns)
+	message := routeSnapshotLocked(route)
 	for stream := range routeStreams {
 		select {
 		case stream <- message:

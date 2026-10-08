@@ -570,6 +570,21 @@
             "cooling": "冷卻 {seconds}s",
             "waitingRecovery": "等待恢復"
         },
+        "route": {
+            "confirmation": "確認解除成員冷卻",
+            "release": "解除冷卻",
+            "keep": "保持冷卻",
+            "releasing": "解除中…",
+            "releaseHint": "解除冷卻後，可再次點擊此渠道進行切換。",
+            "released": "已解除冷卻，可點擊切換。",
+            "releaseFailed": "解除冷卻失敗",
+            "selectFailed": "渠道切換失敗",
+            "changed": "成員狀態已變更，請依最新狀態重試。",
+            "unavailable": "渠道或憑證不可用，請重新整理後重試。",
+            "submitting": "提交中",
+            "remove": "移除成員",
+            "reorder": "拖曳以調整成員順序"
+        },
         "detail": {
             "actions": {
                 "cancel": "取消",

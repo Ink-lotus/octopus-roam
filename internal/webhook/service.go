@@ -193,7 +193,8 @@ func (service *Service) observeHealth(state relay.HealthSnapshot) {
 		}
 		return
 	}
-	if failedChannels < threshold && state.FailedChannelsAtRecovery < threshold && service.failoverActive[group.ID] && state.RecoveryVersion > service.recoveryVersion[group.ID] {
+	if failedChannels < threshold && state.FailedChannelsAtRecovery < threshold && service.failoverActive[group.ID] &&
+		state.RecoveryVersion > service.recoveryVersion[group.ID] && state.RecoveryVersion > state.RecoveryBarrier {
 		event := prepareEvent(group, Event{
 			Event: "recovery", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 			GroupID: group.ID, GroupName: group.Name, Mode: group.Mode,

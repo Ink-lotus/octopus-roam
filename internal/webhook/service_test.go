@@ -109,6 +109,36 @@ func TestFailoverNotificationUsesCooldownCountAndRecoversOnce(t *testing.T) {
 	}
 }
 
+func TestFailoverCooldownResetCannotReusePreviousRecovery(t *testing.T) {
+	groupID := createWebhookTestGroup(t, "cooldown-barrier", model.GroupModeFailover)
+	service := testService()
+	deadline := time.Now().Add(time.Minute).UnixMilli()
+	state := relay.HealthSnapshot{
+		GroupID: groupID, ConfigVersion: 1, RecoveryVersion: 10,
+		Cooldowns: map[int]int64{1: deadline, 2: deadline, 3: deadline},
+	}
+	service.observeHealth(state)
+	assertWebhookEvent(t, service.events, "failure", groupID)
+	// A skipped snapshot contained a success, followed by cooldown completion.
+	// Clearing the protection counters must not turn that old success into recovery.
+	state.Cooldowns = map[int]int64{}
+	state.Members = map[int]relay.MemberHealth{1: {Epoch: 1, FailureStreak: 0}}
+	state.RecoveryVersion, state.RecoveryBarrier = 11, 12
+	state.FailedChannelsAtRecovery = 0
+	service.observeHealth(state)
+	service.observeHealth(state)
+	if len(service.events) != 0 {
+		t.Fatal("cooldown completion borrowed a previous success")
+	}
+	state.RecoveryVersion = 13
+	service.observeHealth(state)
+	assertWebhookEvent(t, service.events, "recovery", groupID)
+	service.observeHealth(state)
+	if len(service.events) != 0 {
+		t.Fatal("real recovery was not deduplicated")
+	}
+}
+
 func TestSendTestRetriesTransientFailures(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
