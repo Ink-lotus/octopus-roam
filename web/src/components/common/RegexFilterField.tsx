@@ -9,6 +9,7 @@ const examplePatterns = [
     { key: 'prefix', pattern: '^gpt-' },
     { key: 'suffix', pattern: '-latest$' },
     { key: 'includeKeyword', pattern: 'claude' },
+    { key: 'includeAnyKeyword', pattern: 'gpt|claude' },
     { key: 'excludeKeyword', pattern: '^(?!.*preview).+$' },
     { key: 'excludeEmbeddingRerank', pattern: '^(?!.*(?:embedding|rerank)).+$' },
 ] as const;
@@ -54,6 +55,7 @@ export function RegexFilterField({
                     className="rounded-xl font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground">{t('syntax')}</p>
+                <p className="text-xs text-muted-foreground">{t('alternation')}</p>
                 <p className="text-xs text-muted-foreground">{t('combined')}</p>
                 <p className="text-xs text-muted-foreground">{t('empty')}</p>
                 {!isValid && (

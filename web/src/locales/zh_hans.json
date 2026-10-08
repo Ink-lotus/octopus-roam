@@ -18,6 +18,7 @@
         "running": "正在刷新模型…",
         "lastRefresh": "最近刷新：{time}",
         "refreshDetails": "刷新详情",
+        "close": "关闭",
         "loadingDetails": "正在读取刷新详情…",
         "noRefresh": "暂无刷新记录",
         "warningCount": "有 {count} 条维护提醒，请查看刷新详情",
@@ -109,6 +110,7 @@
     },
     "regexFilter": {
         "syntax": "使用 ECMAScript 正则表达式。",
+        "alternation": "用 | 分隔多个关键词，匹配其中任意一个即可；例如 gpt|claude。",
         "combined": "渠道过滤和全局过滤同时生效（AND）；模型必须同时匹配两者才会保留。",
         "empty": "留空表示不过滤。",
         "invalid": "正则表达式格式错误。",
@@ -118,6 +120,7 @@
             "prefix": "按前缀保留",
             "suffix": "按后缀保留",
             "includeKeyword": "包含关键词",
+            "includeAnyKeyword": "包含任意关键词（用 | 分隔）",
             "excludeKeyword": "排除关键词（preview）",
             "excludeEmbeddingRerank": "排除 embedding、rerank 模型"
         }
@@ -233,6 +236,10 @@
             "failoverThreshold": "故障转移失效渠道阈值",
             "endpoints": "通知目标",
             "add": "添加目标",
+            "viewAll": "查看全部通知目标",
+            "close": "关闭",
+            "loading": "正在加载通知目标…",
+            "loadFailed": "通知目标加载失败，请重试。",
             "empty": "暂无 Webhook 目标",
             "enabled": "启用",
             "test": "测试发送",
@@ -427,8 +434,8 @@
         "card": {
             "empty": "暂无规则",
             "activate": "设为活动项",
+            "current": "当前成员",
             "cooling": "冷却 {seconds}s",
-            "normal": "正常",
             "waitingRecovery": "等待恢复"
         },
         "detail": {

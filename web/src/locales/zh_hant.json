@@ -18,6 +18,7 @@
         "running": "正在重新整理模型…",
         "lastRefresh": "最近更新：{time}",
         "refreshDetails": "更新詳情",
+        "close": "關閉",
         "loadingDetails": "正在讀取更新詳情…",
         "noRefresh": "暫無更新記錄",
         "warningCount": "有 {count} 條維護提醒，請查看更新詳情",
@@ -109,6 +110,7 @@
     },
     "regexFilter": {
         "syntax": "使用 ECMAScript 正規表示式。",
+        "alternation": "用 | 分隔多個關鍵字，符合其中任意一個即可；例如 gpt|claude。",
         "combined": "供應源篩選和全域篩選會同時生效（AND）；模型必須同時符合兩者才會保留。",
         "empty": "留空表示不進行篩選。",
         "invalid": "正規表示式格式錯誤。",
@@ -118,6 +120,7 @@
             "prefix": "依前綴保留",
             "suffix": "依後綴保留",
             "includeKeyword": "包含關鍵字",
+            "includeAnyKeyword": "包含任意關鍵字（用 | 分隔）",
             "excludeKeyword": "排除關鍵字（preview）",
             "excludeEmbeddingRerank": "排除 embedding、rerank 模型"
         }
@@ -233,6 +236,10 @@
             "failoverThreshold": "故障轉移失效渠道閾值",
             "endpoints": "通知目標",
             "add": "新增目標",
+            "viewAll": "查看全部通知目標",
+            "close": "關閉",
+            "loading": "正在載入通知目標…",
+            "loadFailed": "通知目標載入失敗，請重試。",
             "empty": "暫無 Webhook 目標",
             "enabled": "啟用",
             "test": "測試發送",
@@ -427,8 +434,8 @@
         "card": {
             "empty": "暫無規則",
             "activate": "設為活動項",
+            "current": "目前成員",
             "cooling": "冷卻 {seconds}s",
-            "normal": "正常",
             "waitingRecovery": "等待恢復"
         },
         "detail": {

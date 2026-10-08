@@ -66,20 +66,12 @@ export function MemberStatus({ group, itemId, now, active = false, activeClassNa
                 </Badge>
             );
         }
-
-        if (group.runtime.current_item_id === itemId) {
-            return (
-                <Badge variant="outline" className="shrink-0 gap-1 border-primary/30 bg-primary/5 px-1.5 py-0 text-[10px] font-medium text-primary">
-                    <CircleCheck className="size-3" aria-hidden="true" />
-                    {t('normal')}
-                </Badge>
-            );
-        }
     }
 
+    // 勾选仅表示当前成员，不能从选路结果推断渠道健康。
     return active ? (
-        <span aria-hidden="true" className={cn('inline-flex shrink-0 text-primary', activeClassName)}>
-            <CircleCheck className="size-4" />
+        <span role="img" aria-label={t('current')} className={cn('inline-flex shrink-0 text-primary', activeClassName)}>
+            <CircleCheck className="size-4" aria-hidden="true" />
         </span>
     ) : null;
 }

@@ -18,6 +18,7 @@
         "running": "Refreshing models…",
         "lastRefresh": "Last refresh: {time}",
         "refreshDetails": "Refresh details",
+        "close": "Close",
         "loadingDetails": "Loading refresh details…",
         "noRefresh": "No refresh records yet",
         "warningCount": "{count} maintenance warnings; see refresh details",
@@ -109,6 +110,7 @@
     },
     "regexFilter": {
         "syntax": "Expressions use ECMAScript regular expression syntax.",
+        "alternation": "Separate keywords with | to match any of them; for example, gpt|claude.",
         "combined": "Channel and global filters both apply (AND); a model must match both to be retained.",
         "empty": "Leave empty to disable this filter.",
         "invalid": "The regular expression format is invalid.",
@@ -118,6 +120,7 @@
             "prefix": "Keep by prefix",
             "suffix": "Keep by suffix",
             "includeKeyword": "Include keyword",
+            "includeAnyKeyword": "Include any keyword (separate with |)",
             "excludeKeyword": "Exclude keyword (preview)",
             "excludeEmbeddingRerank": "Exclude embedding and rerank models"
         }
@@ -233,6 +236,10 @@
             "failoverThreshold": "Failover unavailable channel threshold",
             "endpoints": "Endpoints",
             "add": "Add endpoint",
+            "viewAll": "View all notification endpoints",
+            "close": "Close",
+            "loading": "Loading notification endpoints…",
+            "loadFailed": "Failed to load notification endpoints. Please retry.",
             "empty": "No Webhook endpoints",
             "enabled": "Enabled",
             "test": "Send test",
@@ -427,8 +434,8 @@
         "card": {
             "empty": "No rules",
             "activate": "Set as active",
+            "current": "Current member",
             "cooling": "Cooling {seconds}s",
-            "normal": "Normal",
             "waitingRecovery": "Waiting for recovery"
         },
         "detail": {

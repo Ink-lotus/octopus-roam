@@ -84,6 +84,7 @@ function MorphingDialog({ children, transition }: MorphingDialogProps) {
 
 export type MorphingDialogTriggerProps = {
   children: React.ReactNode;
+  'aria-label'?: string;
   className?: string;
   style?: React.CSSProperties;
   triggerRef?: React.RefObject<HTMLDivElement>;
@@ -91,6 +92,7 @@ export type MorphingDialogTriggerProps = {
 
 function MorphingDialogTrigger({
   children,
+  'aria-label': ariaLabel,
   className,
   style,
   triggerRef: triggerRefProp,
@@ -139,7 +141,7 @@ function MorphingDialogTrigger({
       aria-haspopup='dialog'
       aria-expanded={isOpen}
       aria-controls={`motion-ui-morphing-dialog-content-${uniqueId}`}
-      aria-label={`Open dialog ${uniqueId}`}
+      aria-label={ariaLabel ?? `Open dialog ${uniqueId}`}
       role='button'
       tabIndex={0}
     >
