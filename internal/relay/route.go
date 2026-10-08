@@ -30,15 +30,20 @@ type routeSelection struct {
 	WaitUntil  time.Time
 	Generation uint64
 	ProbeToken uint64
+	Recovering bool
 	Changed    <-chan struct{}
 }
 
 type routeRuntime struct {
-	state           RouteState
-	generation      uint64
-	probeToken      uint64
-	probeRetryAfter map[int]time.Time // 额度不足只推迟探测，不记为上游失败或冷却。
-	changed         chan struct{}     // 手动模式也保存版本与通知, 但不建立当前成员、冷却或探测状态。
+	identity                 uint64
+	recoveryVersion          uint64
+	failedChannelsAtRecovery int
+	health                   map[int]*memberHealth
+	state                    RouteState
+	generation               uint64
+	probeToken               uint64
+	probeRetryAfter          map[int]time.Time // 额度不足只推迟探测，不记为上游失败或冷却。
+	changed                  chan struct{}     // 手动模式也保存版本与通知, 但不建立当前成员、冷却或探测状态。
 }
 
 type routeConfigSignature struct {
@@ -163,6 +168,9 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 	if group.Mode == model.GroupModeManual {
 		for _, item := range group.Items {
 			if item.ID == group.ActiveItemID && item.Available {
+				if deadline, wait := healthWaitLocked(route, item, now); wait {
+					return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
+				}
 				return selectionOf(route, item, 0)
 			}
 		}
@@ -172,6 +180,9 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 	// 当前成员健康时一直固定使用。仅在它已经从本轮可用成员集合中消失时重新选路。
 	if route.state.CurrentItemID != 0 {
 		if current, exists := availableItemOf(group, route.state.CurrentItemID); exists {
+			if deadline, wait := healthWaitLocked(route, current, now); wait {
+				return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
+			}
 			return selectionOf(route, current, 0)
 		}
 		route.state.CurrentItemID = 0
@@ -183,6 +194,9 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 	// 恢复探测由原持有者继续, 其失败预算与退避从该请求的首次探测尝试开始累计。
 	if probeToken != 0 && route.probeToken == probeToken && route.state.ProbeItemID != 0 {
 		if item, exists := availableItemOf(group, route.state.ProbeItemID); exists {
+			if deadline, wait := healthWaitLocked(route, item, now); wait {
+				return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
+			}
 			return selectionOf(route, item, route.probeToken)
 		}
 	}
@@ -193,6 +207,12 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 	var earliest time.Time
 	for _, item := range group.Items {
 		if !item.Available {
+			continue
+		}
+		if deadline, wait := healthWaitLocked(route, item, now); wait {
+			if !deadline.IsZero() && (earliest.IsZero() || deadline.Before(earliest)) {
+				earliest = deadline
+			}
 			continue
 		}
 		deadlineMS, cooling := route.state.Cooldowns[item.ID]
@@ -415,6 +435,9 @@ func NotifyRouteStateChanged(group model.Group) {
 	routeConfigs[group.ID] = routeConfigSignatureOf(group)
 	delete(routeBlocked, group.ID)
 	if route := routes[group.ID]; route != nil {
+		for _, item := range group.Items {
+			memberHealthLocked(route, item)
+		}
 		if group.Mode == model.GroupModeManual {
 			advanceRouteLocked(route)
 			signalRouteLocked(route)
@@ -469,6 +492,7 @@ func ensureRouteLocked(group model.Group) *routeRuntime {
 	route := routes[group.ID]
 	if route == nil {
 		route = &routeRuntime{
+			identity:   routeVersion.Add(1),
 			state:      RouteState{GroupID: group.ID, Cooldowns: make(map[int]int64)},
 			generation: routeVersion.Add(1),
 			changed:    make(chan struct{}),
@@ -531,8 +555,9 @@ func availableItemOf(group model.Group, itemID int) (model.GroupItem, bool) {
 }
 
 func selectionOf(route *routeRuntime, item model.GroupItem, probeToken uint64) routeSelection {
+	recovering := route.health[item.ID] != nil && route.health[item.ID].FailureStreak > 0
 	return routeSelection{
-		Item: item, Generation: route.generation, ProbeToken: probeToken, Changed: route.changed,
+		Item: item, Generation: route.generation, ProbeToken: probeToken, Recovering: recovering, Changed: route.changed,
 	}
 }
 
@@ -551,6 +576,7 @@ func closeRouteWaitersLocked(route *routeRuntime) {
 
 // publishRouteLocked 非阻塞发布路由状态, 连接拥塞时关闭它并交给客户端重连获取全量快照; 冷却表按值复制以免前端读到后续变更; 调用方必须持有锁。
 func publishRouteLocked(route *routeRuntime) {
+	publishHealthLocked(route)
 	message := route.state
 	message.Cooldowns = maps.Clone(route.state.Cooldowns)
 	for stream := range routeStreams {

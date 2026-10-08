@@ -92,6 +92,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		failedGeneration := uint64(0) // 路由改变或恢复探测重新开始时重置成员尝试预算。
 		probeToken := uint64(0)       // 本请求持有的恢复探测令牌, 取消时必须归还。
 		var releaseCapacity func()
+		var activeHealth *healthAttempt
+		var healthGroup model.Group
+		var healthSelection routeSelection
+		releaseHealth := func() { settleHealth(healthGroup, healthSelection, activeHealth, false, "", 0); activeHealth = nil }
+		defer releaseHealth()
 		defer func() {
 			if releaseCapacity != nil {
 				releaseCapacity()
@@ -111,6 +116,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 		// 无可用成员时等待状态变更信号; 故障转移还可由最早冷却截止时间唤醒。
 
 		for {
+			releaseHealth()
 			if ctx.Err() != nil {
 				request.markCanceled(ctx.Err(), "", nil)
 				return
@@ -204,7 +210,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			outbound, targetProtocol, passthrough, err := buildOutbound(channel, grant, *channelKey, requestProtocol)
 			if err == nil {
 				var capacityErr error
-				if selection.ProbeToken != 0 {
+				if selection.ProbeToken != 0 || selection.Recovering {
 					releaseCapacity, capacityErr = tryAcquireChannelCapacity(ctx, channel.ID, selection.Changed)
 				} else {
 					releaseCapacity, capacityErr = acquireChannelCapacity(ctx, channel.ID, selection.Changed, func() { request.markRetryingAt(time.Time{}) })
@@ -212,6 +218,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				if capacityErr != nil {
 					if errors.Is(capacityErr, errChannelCapacityBusy) {
 						deferRouteProbeForCapacity(group, selection)
+						if selection.ProbeToken == 0 {
+							selection.WaitUntil = time.Now().Add(routeCapacityRetryDelay)
+							request.markRetryingAt(selection.WaitUntil)
+							waitRoute(ctx.Done(), selection)
+						}
 					} else {
 						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 					}
@@ -245,6 +256,17 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				channelKey = freshGrant.ChannelKey
 				rememberChannelSecrets(redactor, channel, channelKey.Key, raw.Headers)
 				outbound, targetProtocol, passthrough, err = buildOutbound(channel, grant, *channelKey, requestProtocol)
+				if err == nil {
+					activeHealth = admitHealth(group, selection, channel, grant)
+					if activeHealth == nil {
+						releaseCapacity()
+						releaseCapacity = nil
+						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+						probeToken, activeProbe.token = 0, 0
+						continue
+					}
+					healthGroup, healthSelection = group, selection
+				}
 			}
 
 			// 为本轮上游调用建立独立取消入口并登记当前目标; 取消原因用于区分人工中止与响应超时。
@@ -299,13 +321,17 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			if err != nil {
 				// 记录本轮上游调用已经结束及其失败原因。
+				cancelCause := context.Cause(roundCtx)
+				cancelRound()
+				countError := ctx.Err() == nil && cancelCause != context.Canceled
+				var retryDelay time.Duration
+				if sent && countError {
+					retryDelay = settleHealth(group, selection, activeHealth, false, redactor.Text(err.Error()), request.retryCount())
+				}
 				if releaseCapacity != nil {
 					releaseCapacity()
 					releaseCapacity = nil
 				}
-				cancelCause := context.Cause(roundCtx)
-				cancelRound()
-				countError := ctx.Err() == nil && cancelCause != context.Canceled
 				if !sent && startsAttempt {
 					request.discardUnsentAttempt()
 				}
@@ -336,13 +362,16 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				// 但故障转移模式仍须让它让出路由: 该失败由渠道配置决定, 重试同一成员不会改变结果,
 				// 不让出路由会让请求永久停在这个成员上而永不切换到后续成员。手动模式没有路由可让, 只会重试当前成员。
 				if !sent {
+					releaseHealth()
 					if group.Mode != model.GroupModeManual && recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken) {
 						probeToken = 0
 						activeProbe.token = 0
 						continue
 					}
 					// 手动模式未发送错误按配置间隔重试, 配置变化时立即重新读取。
-					if !request.waitRetry(ctx, secondsToDuration(group.RelayConfig.MemberRetryIntervalSeconds), selection.Changed) {
+					// 归还未发送的探测会唤醒旧通知；用新通知等待配置修复，避免立即空转。
+					waitSelection := pickGroupItem(group, probeToken)
+					if !request.waitRetry(ctx, secondsToDuration(group.RelayConfig.MemberRetryIntervalSeconds), waitSelection.Changed) {
 						releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 						activeProbe.token = 0
 						return
@@ -357,34 +386,20 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					failedGeneration = selection.Generation
 					failures = 1
 				}
-				retryDelay := RetryDelay(group.RelayConfig, failures)
 				// 手动模式的预算由 manual_max_attempts 给出, 0 表示不限额; 故障转移模式仍由
 				// member_max_attempts 决定成员何时让出路由。
 				if group.Mode == model.GroupModeManual {
 					// 本轮发送期间配置已变化时, 旧预算不能终结等待新配置的请求。
-					select {
-					case <-selection.Changed:
+					if !healthAttemptCurrent(group, selection, activeHealth) {
 						continue
-					default:
 					}
 					if group.RelayConfig.ManualMaxAttempts > 0 && failures >= group.RelayConfig.ManualMaxAttempts {
 						request.markFailed(err, "", nil)
 						rejectUpstream(c, inbound, err, retryDelay)
 						return
 					}
-				} else if recordRouteFailure(group, item.ID, failures, selection.Generation, selection.ProbeToken) {
-					// 成员耗尽自身尝试次数并进入冷却, 立即重新选路而不消耗额外等待。
-					probeToken = 0
-					activeProbe.token = 0
-					continue
 				}
-				// 同一成员的重试按配置的退避策略等待: 第 failures 次失败后等待的是第 failures 次重试。
-				// failures 随成员更换归 1, 故指数退避在成员之间不累积, 每个成员都从初始间隔重新开始。
-				if !request.waitRetry(ctx, retryDelay, selection.Changed) {
-					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
-					activeProbe.token = 0
-					return
-				}
+				// 统一在下一轮选路等待共享绝对截止时间，避免本地和共享退避叠加。
 				continue
 			}
 			// 记录本轮已经取得可提交的上游响应。
@@ -404,10 +419,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				return
 			}
 			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 流式响应只统计等待首帧的时间。
-			// 上游成功后解除该成员冷却; 当前成员继续固定使用。
-			recordRouteSuccess(group, item.ID, selection.Generation, selection.ProbeToken)
-			probeToken = 0
-			activeProbe.token = 0
 			// 同协议透传时原样返回上游响应头; 跨协议响应没有需要透传的响应头。
 			for key, values := range result.header {
 				c.Writer.Header()[key] = values
@@ -415,6 +426,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			// 非流式响应已经完整取得, 提交后一次写给客户端。
 			if !metadata.Streaming {
+				settleHealth(group, selection, activeHealth, true, "", request.retryCount())
 				cancelRound()
 				if releaseCapacity != nil {
 					releaseCapacity()
@@ -457,6 +469,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			event := result.first
 			last := result.last // 已转发的最后一个事件是否已按客户端协议结束整个响应流。
 			committed := false
+			var upstreamErr error
+			upstreamComplete := last
 			for {
 				if event != nil {
 					chunks = append(chunks, event)
@@ -486,16 +500,45 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 				if !result.events.Next() {
 					err = result.events.Err()
+					if err == nil && result.terminal != nil && result.terminal.complete {
+						upstreamComplete = true
+					} else if err == nil {
+						err = io.ErrUnexpectedEOF
+					}
+					upstreamErr = err
 					break
 				}
 				event = result.events.Current()
 				// 已提交的响应不能再换目标重试; 错误事件先脱敏, 转发后作为本请求终态。
 				last, err = inspectStreamEvent(format, event)
+				upstreamErr = err
+				upstreamComplete = last && err == nil
 				if err != nil && event != nil {
 					safeEvent := *event
 					safeEvent.Data = []byte(redactor.Body(string(event.Data)))
 					event = &safeEvent
 				}
+			}
+			if upstreamComplete && result.terminal != nil {
+				// A converter may synthesize a client terminator before the provider's
+				// final marker. Finish observing the provider before confirming health.
+				for !result.terminal.complete && result.terminal.Err() == nil && result.events.Next() {
+				}
+				upstreamComplete = result.terminal.complete
+				if !upstreamComplete {
+					upstreamErr = result.terminal.Err()
+					if upstreamErr == nil {
+						upstreamErr = io.ErrUnexpectedEOF
+					}
+					err = upstreamErr
+				}
+			}
+			if ctx.Err() == nil && context.Cause(roundCtx) != context.Canceled {
+				failure := ""
+				if upstreamErr != nil {
+					failure = redactor.Text(upstreamErr.Error())
+				}
+				settleHealth(group, selection, activeHealth, upstreamComplete, failure, request.retryCount())
 			}
 			request.finishStream()
 			result.events.Close()

@@ -80,11 +80,18 @@ type RequestState struct {
 	lastPublish   time.Time          // 上次向状态流发布快照的时间, 输出字符数按此节流发布。
 	streamStarted time.Time          // 流式响应首字节提交时间, 用于计算实际流式传输耗时。
 	attemptItemID int                // Attempt 和 RetryCount 当前归属的分组成员。
+	errorRound    int                // 最近已计入失败的轮次，按身份去重而非错误文案。
 }
 
 const streamBuffer = 16                              // 单个状态流连接的非阻塞消息缓冲容量。
 const maxFinished = 50                               // 进程内最多保留的已结束请求数量。
 const outputPublishInterval = 500 * time.Millisecond // 输出字符数实时推送的最短发布间隔。
+
+func (r *RequestState) retryCount() int {
+	mu.Lock()
+	defer mu.Unlock()
+	return r.RetryCount
+}
 
 var (
 	idSeq           atomic.Uint64                          // 进程内严格递增的请求 ID。
@@ -200,7 +207,10 @@ func (r *RequestState) finishRound(errText string, countError bool) {
 		r.Retrying = false
 		r.NextRetryAt = 0
 	} else if countError {
-		r.ErrorCount++
+		if r.errorRound != r.Round || r.Round == 0 {
+			r.ErrorCount++
+			r.errorRound = r.Round
+		}
 		r.LastError = r.Error
 		r.ChannelStatus = ChannelStatusError
 	}
@@ -379,8 +389,9 @@ func (r *RequestState) markFailed(err error, responseBody string, usage *llm.Usa
 	} else {
 		r.Status = StatusFailed
 		r.Error = r.redactor.Text(err.Error())
-		if r.Error != r.LastError {
+		if r.errorRound != r.Round || r.Round == 0 {
 			r.ErrorCount++
+			r.errorRound = r.Round
 		}
 		r.LastError = r.Error
 		r.ChannelStatus = ChannelStatusError

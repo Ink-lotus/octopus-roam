@@ -31,26 +31,30 @@ type deliveryJob struct {
 }
 
 type Service struct {
-	ctx            context.Context
-	cancel         context.CancelFunc
-	requestUpdates chan relay.RequestState
-	routeUpdates   chan relay.RouteState
-	events         chan Event
-	deliveries     chan deliveryJob
-	observeDone    chan struct{}
-	manualActive   map[int]bool
-	failoverActive map[int]bool
-	wg             sync.WaitGroup
+	ctx             context.Context
+	cancel          context.CancelFunc
+	healthUpdates   chan relay.HealthSnapshot
+	initialHealth   []relay.HealthSnapshot
+	events          chan Event
+	deliveries      chan deliveryJob
+	observeDone     chan struct{}
+	manualActive    map[int]bool
+	failoverActive  map[int]bool
+	identities      map[int]uint64
+	manualEpoch     map[int]uint64
+	manualVersion   map[int]uint64
+	recoveryVersion map[int]uint64
+	wg              sync.WaitGroup
 }
 
 func Start() *Service {
 	ctx, cancel := context.WithCancel(context.Background())
-	_, requestUpdates := relay.OpenRequestStream()
+	snapshot, updates := relay.OpenHealthStream()
 	service := &Service{
 		ctx:            ctx,
 		cancel:         cancel,
-		requestUpdates: requestUpdates,
-		routeUpdates:   relay.OpenRouteStream(),
+		healthUpdates:  updates,
+		initialHealth:  snapshot,
 		events:         make(chan Event, eventBuffer),
 		deliveries:     make(chan deliveryJob, deliveryBuffer),
 		observeDone:    make(chan struct{}),
@@ -69,91 +73,91 @@ func Start() *Service {
 func (service *Service) Close() {
 	service.cancel()
 	<-service.observeDone
-	relay.CloseRequestStream(service.requestUpdates)
-	relay.CloseRouteStream(service.routeUpdates)
+	relay.CloseHealthStream(service.healthUpdates)
 	service.wg.Wait()
 }
 
 func (service *Service) observe() {
 	defer service.wg.Done()
 	defer close(service.observeDone)
+	for _, state := range service.initialHealth {
+		service.observeHealth(state)
+	}
+	service.initialHealth = nil
 	for {
 		select {
 		case <-service.ctx.Done():
 			return
-		case request, ok := <-service.requestUpdates:
+		case state, ok := <-service.healthUpdates:
 			if !ok {
 				if service.ctx.Err() != nil {
 					return
 				}
-				service.reopenRequestStream()
+				service.reopenHealthStream()
 				continue
 			}
-			service.observeRequest(request)
-		case state, ok := <-service.routeUpdates:
-			if !ok {
-				if service.ctx.Err() != nil {
-					return
-				}
-				service.reopenRouteStream()
-				continue
-			}
-			service.observeRoute(state)
+			service.observeHealth(state)
 		}
 	}
 }
 
-func (service *Service) reopenRequestStream() {
-	snapshot, updates := relay.OpenRequestStream()
-	service.requestUpdates = updates
-	terminalSeen := make(map[int]bool)
-	for _, request := range snapshot {
-		if request.Status == relay.StatusRunning || request.Status == relay.StatusCommitted {
-			service.observeRequest(request)
-			continue
-		}
-		if terminalSeen[request.GroupID] {
-			continue
-		}
-		terminalSeen[request.GroupID] = true
-		if request.Status == relay.StatusSuccess || request.ErrorCount >= settingThreshold(model.SettingKeyWebhookManualFailureThreshold, 10) {
-			service.observeRequest(request)
-		}
+func (service *Service) reopenHealthStream() {
+	snapshot, updates := relay.OpenHealthStream()
+	service.healthUpdates = updates
+	for _, state := range snapshot {
+		service.observeHealth(state)
 	}
 }
 
-func (service *Service) reopenRouteStream() {
-	service.routeUpdates = relay.OpenRouteStream()
-	for _, group := range op.GroupList() {
-		if group.Mode == model.GroupModeFailover {
-			service.observeRoute(relay.RouteStateOf(group))
-		}
-	}
-}
-
-func (service *Service) observeRequest(request relay.RequestState) {
-	group, err := op.GroupGet(request.GroupID)
-	if err != nil || group.Mode != model.GroupModeManual {
+func (service *Service) observeHealth(state relay.HealthSnapshot) {
+	group, err := op.GroupGet(state.GroupID)
+	if err != nil {
 		return
 	}
-	threshold := settingThreshold(model.SettingKeyWebhookManualFailureThreshold, 10)
-	if request.ChannelStatus == relay.ChannelStatusError && request.ErrorCount >= threshold && !service.manualActive[group.ID] {
-		event := eventFromRequest("failure", group, request, threshold)
-		if service.enqueue(event) {
-			service.manualActive[group.ID] = true
-		}
+	if service.identities == nil {
+		service.identities = make(map[int]uint64)
+		service.manualEpoch = make(map[int]uint64)
+		service.manualVersion = make(map[int]uint64)
+		service.recoveryVersion = make(map[int]uint64)
+	}
+	if state.ConfigVersion < service.identities[group.ID] {
 		return
 	}
-	if request.Status == relay.StatusSuccess && service.manualActive[group.ID] {
-		if service.enqueue(eventFromRequest("recovery", group, request, threshold)) {
+	if state.ConfigVersion != service.identities[group.ID] {
+		service.identities[group.ID] = state.ConfigVersion
+		service.manualActive[group.ID], service.failoverActive[group.ID] = false, false
+		service.recoveryVersion[group.ID] = state.RecoveryVersion
+	}
+	if group.Mode == model.GroupModeManual {
+		h, ok := state.Members[group.ActiveItemID]
+		if !ok {
+			return
+		}
+		if service.manualVersion[group.ID] != h.Version {
+			service.manualVersion[group.ID] = h.Version
 			service.manualActive[group.ID] = false
 		}
-	}
-}
-
-func (service *Service) observeRoute(state relay.RouteState) {
-	group, err := op.GroupGet(state.GroupID)
-	if err != nil || group.Mode != model.GroupModeFailover {
+		threshold := settingThreshold(model.SettingKeyWebhookManualFailureThreshold, 10)
+		event := Event{Timestamp: time.Now().UTC().Format(time.RFC3339Nano), GroupID: group.ID, GroupName: group.Name, Mode: group.Mode, FailureStreak: h.FailureStreak, Threshold: threshold, RetryCount: h.RetryCount, LastError: redactConfiguredError(group, h.LastError)}
+		for _, item := range group.Items {
+			if item.ID == h.ItemID {
+				event.CurrentChannel = item.ChannelName
+			}
+		}
+		// A reconnect can skip recovery and land in the next failure epoch.
+		if service.manualActive[group.ID] && h.Epoch > service.manualEpoch[group.ID] {
+			event.Event = "recovery"
+			if service.enqueue(event) {
+				service.manualActive[group.ID] = false
+			}
+		}
+		if h.FailureStreak >= threshold && !service.manualActive[group.ID] {
+			event.Event = "failure"
+			if service.enqueue(event) {
+				service.manualActive[group.ID] = true
+				service.manualEpoch[group.ID] = h.Epoch
+			}
+		}
 		return
 	}
 	threshold := settingThreshold(model.SettingKeyWebhookFailoverChannelThreshold, 3)
@@ -165,6 +169,17 @@ func (service *Service) observeRoute(state relay.RouteState) {
 		}
 	}
 	runtime := runtimeOfGroup(state.GroupID)
+	// Health is published before request finalization, so the latest upstream
+	// failure must come from this snapshot rather than a possibly stale request.
+	var latest relay.MemberHealth
+	for _, h := range state.Members {
+		if h.LastFailureAt.After(latest.LastFailureAt) {
+			latest = h
+		}
+	}
+	if latest.LastError != "" {
+		runtime.LastError, runtime.RetryCount = latest.LastError, latest.RetryCount
+	}
 	if failedChannels >= threshold && !service.failoverActive[group.ID] {
 		event := Event{
 			Event: "failure", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
@@ -174,10 +189,11 @@ func (service *Service) observeRoute(state relay.RouteState) {
 		}
 		if service.enqueue(event) {
 			service.failoverActive[group.ID] = true
+			service.recoveryVersion[group.ID] = state.RecoveryVersion
 		}
 		return
 	}
-	if failedChannels < threshold && service.failoverActive[group.ID] {
+	if failedChannels < threshold && state.FailedChannelsAtRecovery < threshold && service.failoverActive[group.ID] && state.RecoveryVersion > service.recoveryVersion[group.ID] {
 		event := Event{
 			Event: "recovery", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 			GroupID: group.ID, GroupName: group.Name, Mode: group.Mode,
@@ -317,15 +333,6 @@ func settingThreshold(key model.SettingKey, fallback int) int {
 		return fallback
 	}
 	return threshold
-}
-
-func eventFromRequest(eventName string, group model.Group, request relay.RequestState, threshold int) Event {
-	return Event{
-		Event: eventName, Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
-		GroupID: group.ID, GroupName: group.Name, Mode: group.Mode,
-		CurrentChannel: request.TargetChannel, FailureStreak: request.ErrorCount,
-		Threshold: threshold, RetryCount: request.RetryCount, LastError: redactConfiguredError(group, request.LastError),
-	}
 }
 
 func runtimeOfGroup(groupID int) relay.GroupRuntime {

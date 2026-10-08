@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,8 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/relay"
+	"github.com/gin-gonic/gin"
+	"github.com/looplj/axonhub/llm"
 )
 
 func TestMain(m *testing.M) {
@@ -43,28 +46,27 @@ func TestMain(m *testing.M) {
 func TestManualFailureNotificationDeduplicatesUntilRecovery(t *testing.T) {
 	groupID := createWebhookTestGroup(t, "manual", model.GroupModeManual)
 	service := testService()
-	request := relay.RequestState{
-		ID: 10, GroupID: groupID, Status: relay.StatusRunning, ChannelStatus: relay.ChannelStatusError,
-		TargetChannel: "provider-a", ErrorCount: 9, RetryCount: 8, LastError: "upstream unavailable",
-	}
-	service.observeRequest(request)
+	health := relay.MemberHealth{Version: 1, FailureStreak: 9, RetryCount: 0, LastError: "upstream unavailable"}
+	state := relay.HealthSnapshot{GroupID: groupID, ConfigVersion: 1, Members: map[int]relay.MemberHealth{0: health}}
+	service.observeHealth(state)
 	if len(service.events) != 0 {
 		t.Fatal("manual failure emitted before the tenth failure")
 	}
-	request.ErrorCount = 10
-	request.RetryCount = 9
-	service.observeRequest(request)
+	health.FailureStreak = 10
+	state.Members[0] = health
+	service.observeHealth(state)
 	failure := assertWebhookEvent(t, service.events, "failure", groupID)
-	if failure.FailureStreak != 10 || failure.RetryCount != 9 || failure.Threshold != 10 {
+	if failure.FailureStreak != 10 || failure.RetryCount != 0 || failure.Threshold != 10 {
 		t.Fatalf("manual failure event fields = %+v", failure)
 	}
-	service.observeRequest(request)
+	service.observeHealth(state)
 	if len(service.events) != 0 {
 		t.Fatal("same manual failure emitted more than once")
 	}
-	request.Status = relay.StatusSuccess
-	request.ChannelStatus = relay.ChannelStatusNormal
-	service.observeRequest(request)
+	health.FailureStreak = 0
+	health.Epoch++
+	state.Members[0] = health
+	service.observeHealth(state)
 	assertWebhookEvent(t, service.events, "recovery", groupID)
 }
 
@@ -78,25 +80,30 @@ func TestFailoverNotificationUsesCooldownCountAndRecoversOnce(t *testing.T) {
 	now := time.Now()
 	futureDeadline := now.Add(time.Minute).UnixMilli()
 	expiredDeadline := now.Add(-time.Minute).UnixMilli()
-	state := relay.RouteState{GroupID: groupID, Cooldowns: map[int]int64{
+	state := relay.HealthSnapshot{GroupID: groupID, ConfigVersion: 1, Cooldowns: map[int]int64{
 		1: futureDeadline, 2: futureDeadline, 3: futureDeadline, 4: expiredDeadline,
 	}}
-	service.observeRoute(state)
+	service.observeHealth(state)
 	failure := assertWebhookEvent(t, service.events, "failure", groupID)
 	if failure.FailedChannels != 3 || failure.Threshold != 3 {
 		t.Fatalf("failover failure event fields = %+v", failure)
 	}
-	service.observeRoute(state)
+	service.observeHealth(state)
 	if len(service.events) != 0 {
 		t.Fatal("same failover condition emitted more than once")
 	}
 	state.Cooldowns = map[int]int64{1: futureDeadline, 2: futureDeadline, 3: expiredDeadline}
-	service.observeRoute(state)
+	service.observeHealth(state)
+	if len(service.events) != 0 {
+		t.Fatal("cooldown expiry alone emitted recovery")
+	}
+	state.RecoveryVersion++
+	service.observeHealth(state)
 	recovery := assertWebhookEvent(t, service.events, "recovery", groupID)
 	if recovery.FailedChannels != 2 {
 		t.Fatalf("failover recovery event fields = %+v", recovery)
 	}
-	service.observeRoute(state)
+	service.observeHealth(state)
 	if len(service.events) != 0 {
 		t.Fatal("same recovery emitted more than once")
 	}
@@ -187,12 +194,10 @@ func TestNotificationDeliveryRunsOutsideRelayProducer(t *testing.T) {
 		target.Close()
 	})
 	groupID := createWebhookTestGroup(t, "slow", model.GroupModeManual)
-	request := relay.RequestState{
-		ID: 77, GroupID: groupID, Status: relay.StatusRunning, ChannelStatus: relay.ChannelStatusError,
-		ErrorCount: 10, LastError: "upstream unavailable",
-	}
+	state := relay.HealthSnapshot{GroupID: groupID, ConfigVersion: 1, Members: map[int]relay.MemberHealth{0: {Version: 1, FailureStreak: 10, LastError: "upstream unavailable"}}}
 	startedAt := time.Now()
-	service.observeRequest(request)
+	// Feed the observer channel rather than mutate its state from this goroutine.
+	service.healthUpdates <- state
 	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
 		t.Fatalf("notification producer waited %s for the endpoint", elapsed)
 	}
@@ -319,4 +324,192 @@ func assertWebhookEvent(t *testing.T, events <-chan Event, name string, groupID 
 		t.Fatalf("timed out waiting for %s event", name)
 		return Event{}
 	}
+}
+
+func TestIndependentHTTPFailuresNotifyAndRecoverFromSharedHealth(t *testing.T) {
+	if err := op.SettingSetInt(model.SettingKeyWebhookManualFailureThreshold, 2); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = op.SettingSetInt(model.SettingKeyWebhookManualFailureThreshold, 10) })
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp-test\",\"status\":\"in_progress\"}}\n\n")
+		if calls.Add(1) <= 2 {
+			fmt.Fprint(w, "data: {\"type\":\"error\",\"message\":\"upstream unavailable\"}\n\n")
+		} else {
+			fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n")
+		}
+	}))
+	defer upstream.Close()
+	channel, err := op.ChannelCreate(&model.ChannelDetail{ChannelConfig: model.ChannelConfig{Name: "webhook-http", Enabled: true, BaseURL: upstream.URL, Dialect: model.DialectGeneric}, Keys: []model.ChannelKeyConfig{{Name: "test", Key: "fixture-key", Enabled: true}}, Models: []string{"upstream"}, Grants: []model.ChannelGrantConfig{{ModelName: "upstream", KeyName: "test", Protocols: model.ProtocolOpenAIResponse}}}, t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantID := 0
+	for _, grant := range op.ChannelGrantCandidates() {
+		if grant.ChannelID == channel.ID {
+			grantID = grant.ID
+		}
+	}
+	config := model.DefaultGroupRelayConfig()
+	config.MemberRetryIntervalSeconds = 1
+	config.ManualMaxAttempts = 1
+	group, err := op.GroupCreate(&model.GroupCreateRequest{Name: "webhook-http-group", Mode: model.GroupModeManual, RelayConfig: config, Items: []model.GroupItemInput{{ChannelGrantID: grantID}}}, t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := group.Items[0].ID
+	if _, err := op.GroupUpdate(group.ID, &model.GroupUpdateRequest{ActiveItemID: &active}, t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	service := testService()
+	service.ctx, service.cancel = context.WithCancel(t.Context())
+	service.observeDone = make(chan struct{})
+	service.initialHealth, service.healthUpdates = relay.OpenHealthStream()
+	service.wg.Add(1)
+	go service.observe()
+	t.Cleanup(func() {
+		service.cancel()
+		<-service.observeDone
+		relay.CloseHealthStream(service.healthUpdates)
+		service.wg.Wait()
+	})
+	engine := gin.New()
+	engine.POST("/v1/responses", relay.Forward(llm.APIFormatOpenAIResponse))
+	for i := 1; i <= 3; i++ {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"model":%q,"stream":true,"input":"ping"}`, group.Name))).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		engine.ServeHTTP(httptest.NewRecorder(), req)
+		cancel()
+		if i == 2 {
+			event := assertWebhookEvent(t, service.events, "failure", group.ID)
+			if event.FailureStreak != 2 || event.RetryCount != 0 {
+				t.Fatalf("wrong shared fields: %+v", event)
+			}
+			relay.Clear()
+		}
+		if i == 3 {
+			assertWebhookEvent(t, service.events, "recovery", group.ID)
+		}
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("calls=%d", calls.Load())
+	}
+	if len(service.events) != 0 {
+		t.Fatal("duplicate notification")
+	}
+}
+
+func TestHealthNotificationReconnectAndIdentityChange(t *testing.T) {
+	groupID := createWebhookTestGroup(t, "epochs", model.GroupModeManual)
+	service := testService()
+	h := relay.MemberHealth{Version: 1, FailureStreak: 10}
+	s := relay.HealthSnapshot{GroupID: groupID, ConfigVersion: 1, Members: map[int]relay.MemberHealth{0: h}}
+	service.observeHealth(s)
+	assertWebhookEvent(t, service.events, "failure", groupID)
+	service.observeHealth(s)
+	if len(service.events) != 0 {
+		t.Fatal("snapshot replay duplicated failure")
+	}
+	h.Epoch++
+	s.Members[0] = h
+	service.observeHealth(s)
+	assertWebhookEvent(t, service.events, "recovery", groupID)
+	assertWebhookEvent(t, service.events, "failure", groupID)
+	h.Version++
+	h.Epoch = 0
+	s.Members[0] = h
+	service.observeHealth(s)
+	assertWebhookEvent(t, service.events, "failure", groupID)
+	if len(service.events) != 0 {
+		t.Fatal("configuration replacement fabricated recovery")
+	}
+}
+
+func TestCommittedHTTPFailuresDriveFailoverNotifications(t *testing.T) {
+	if err := op.SettingSetInt(model.SettingKeyWebhookFailoverChannelThreshold, 2); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = op.SettingSetInt(model.SettingKeyWebhookFailoverChannelThreshold, 3) })
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n")
+		if calls.Add(1) <= 2 {
+			fmt.Fprint(w, "data: {\"error\":{\"type\":\"server_error\",\"message\":\"committed failure\"}}\n\n")
+		} else {
+			fmt.Fprint(w, "data: [DONE]\n\n")
+		}
+	}))
+	defer upstream.Close()
+	var items []model.GroupItemInput
+	for i := 0; i < 3; i++ {
+		channel, err := op.ChannelCreate(&model.ChannelDetail{ChannelConfig: model.ChannelConfig{Name: fmt.Sprintf("failover-http-%d", i), Enabled: true, BaseURL: upstream.URL, Dialect: model.DialectGeneric}, Keys: []model.ChannelKeyConfig{{Name: "test", Key: "fixture-key", Enabled: true}}, Models: []string{"upstream"}, Grants: []model.ChannelGrantConfig{{ModelName: "upstream", KeyName: "test", Protocols: model.ProtocolOpenAIChatCompletion}}}, t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, grant := range op.ChannelGrantCandidates() {
+			if grant.ChannelID == channel.ID {
+				items = append(items, model.GroupItemInput{ChannelGrantID: grant.ID})
+			}
+		}
+	}
+	config := model.DefaultGroupRelayConfig()
+	config.MemberMaxAttempts = 1
+	config.MemberCooldownSeconds = 60
+	group, err := op.GroupCreate(&model.GroupCreateRequest{Name: "failover-http-group", Mode: model.GroupModeFailover, RelayConfig: config, Items: items}, t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := testService()
+	engine := gin.New()
+	engine.POST("/v1/chat/completions", relay.Forward(llm.APIFormatOpenAIChatCompletion))
+	for i := 1; i <= 3; i++ {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(fmt.Sprintf(`{"model":%q,"stream":true,"messages":[{"role":"user","content":"ping"}]}`, group.Name))).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		engine.ServeHTTP(httptest.NewRecorder(), req)
+		cancel()
+		snapshot, updates := relay.OpenHealthStream()
+		relay.CloseHealthStream(updates)
+		for _, state := range snapshot {
+			if state.GroupID == group.ID {
+				service.observeHealth(state)
+			}
+		}
+		if calls.Load() != int32(i) {
+			t.Fatal("committed request was replayed")
+		}
+		if i == 2 {
+			event := assertWebhookEvent(t, service.events, "failure", group.ID)
+			if event.FailedChannels != 2 || !strings.Contains(event.LastError, "committed failure") {
+				t.Fatalf("failure fields: %+v", event)
+			}
+		}
+	}
+	// A successful spare member cannot reduce the still-active cooldown count.
+	if len(service.events) != 0 {
+		t.Fatal("recovery emitted while threshold still exceeded")
+	}
+	snapshot, updates := relay.OpenHealthStream()
+	relay.CloseHealthStream(updates)
+	for _, state := range snapshot {
+		if state.GroupID == group.ID {
+			// A success while the threshold was exceeded cannot license a later
+			// timer/probe-start event to fabricate recovery.
+			for id := range state.Cooldowns {
+				state.Cooldowns[id] = time.Now().Add(-time.Second).UnixMilli()
+			}
+			service.observeHealth(state)
+			if len(service.events) != 0 {
+				t.Fatal("expiry reused an earlier success to fabricate recovery")
+			}
+			state.RecoveryVersion++
+			state.FailedChannelsAtRecovery = 0
+			service.observeHealth(state)
+		}
+	}
+	assertWebhookEvent(t, service.events, "recovery", group.ID)
 }

@@ -34,6 +34,7 @@ type upstreamResponse struct {
 	// closeIdle 非 nil 时为渠道专用代理独占客户端的空闲连接归还入口, 消费方读完事件流后必须调用。
 	// 仅流式响应会带上它: 非流式响应返回时连接已经用完, 由发起方就地归还。
 	closeIdle func()
+	terminal  *validatedStream // 原始上游终态，转换器生成的客户端结束事件不能替代它。
 }
 
 // resolveUpstreamClient 按渠道代理配置取得本轮上游请求使用的客户端。
@@ -191,6 +192,40 @@ type conversionMiddleware struct {
 	clientUserAgent          string        // 客户端原始 User-Agent; pipeline 合并入站请求时会过滤掉, 需在出站阶段补回。
 	rawBody                  []byte        // 上游非流式响应或错误的原始正文。
 	usage                    *llm.Usage    // 非流式统一响应中确认的用量。
+	terminal                 *validatedStream
+}
+
+// Observe the provider protocol before conversion can consume or synthesize its
+// terminal events. EOF without a protocol terminator is an upstream failure.
+type validatedStream struct {
+	streams.Stream[*httpclient.StreamEvent]
+	format   llm.APIFormat
+	complete bool
+	err      error
+}
+
+func (s *validatedStream) Next() bool {
+	if s.complete || s.err != nil {
+		return false
+	}
+	if !s.Stream.Next() {
+		s.err = s.Stream.Err()
+		if s.err == nil {
+			s.err = io.ErrUnexpectedEOF
+		}
+		return false
+	}
+	last, err := inspectStreamEvent(s.format, s.Stream.Current())
+	s.err = err
+	s.complete = last && err == nil
+	return err == nil
+}
+
+func (s *validatedStream) Err() error { return s.err }
+
+func (m *conversionMiddleware) OnOutboundRawStream(_ context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	m.terminal = &validatedStream{Stream: stream, format: m.format}
+	return m.terminal, nil
 }
 
 // OnOutboundRawRequest 在转换后的上游请求上应用渠道参数和自定义 Header。
@@ -282,7 +317,7 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 			return nil, sent.Load(), fmt.Errorf("%w: %s", err, event.Data)
 		}
 		committed = true
-		return &upstreamResponse{events: events, first: event, last: last, closeIdle: closeIdle}, sent.Load(), nil
+		return &upstreamResponse{events: events, first: event, last: last, closeIdle: closeIdle, terminal: middleware.terminal}, sent.Load(), nil
 	}
 
 	err = events.Err()

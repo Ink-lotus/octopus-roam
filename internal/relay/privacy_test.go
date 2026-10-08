@@ -182,4 +182,13 @@ func TestCommittedStreamErrorIsRedacted(t *testing.T) {
 		t.Fatalf("stream content/error missing: %s", response.Body)
 	}
 	assertDiagnosticPrivate(t, response.Body.String(), "test-upstream-credential")
+	group, err := op.GroupGetByName(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := healthOf(t, group.ID).Members[group.ActiveItemID]
+	if h.FailureStreak != 1 {
+		t.Fatalf("committed error not reflected in health: %+v", h)
+	}
+	assertDiagnosticPrivate(t, h.LastError, "test-upstream-credential")
 }

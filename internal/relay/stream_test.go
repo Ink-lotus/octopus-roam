@@ -79,4 +79,10 @@ func TestStreamingDoesNotFailoverAfterFirstEventCommit(t *testing.T) {
 	if got := second.requestCount(); got != 0 {
 		t.Fatalf("首字节提交后的流内错误触发了渠道切换, 第二成员请求次数 = %d", got)
 	}
+	// 本响应不重放，但下一次独立请求必须遵守提交后失败建立的共享冷却。
+	next := httptest.NewRecorder()
+	serveWithTimeout(t, engine, next, chatRequest(t, groupName, true))
+	if firstCalls.Load() != 1 || second.requestCount() != 1 || !strings.Contains(next.Body.String(), "pong") {
+		t.Fatalf("next request ignored shared failover: first=%d second=%d body=%s", firstCalls.Load(), second.requestCount(), next.Body)
+	}
 }

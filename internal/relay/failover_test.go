@@ -258,9 +258,10 @@ func TestFailoverCanceledProbeBackoffReleasesLease(t *testing.T) {
 	}
 
 probeBackoff:
-	if state := RouteStateOf(group); state.ProbeItemID != group.Items[0].ID {
+	// 连续失败不因探测开始清零；阈值已达到，探测失败应重新冷却并归还资格。
+	if state := RouteStateOf(group); state.ProbeItemID != 0 || state.Cooldowns[group.Items[0].ID] <= time.Now().UnixMilli() {
 		cancel()
-		t.Fatalf("退避期间探测令牌已提前释放: %+v", state)
+		t.Fatalf("探测失败后没有重新冷却并归还资格: %+v", state)
 	}
 	cancel()
 	select {
