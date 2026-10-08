@@ -22,16 +22,69 @@ func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
 	if len(endpoint.Headers) != 0 {
 		t.Fatalf("empty headers = %#v, want an empty map", endpoint.Headers)
 	}
-	body, err := Render(endpoint.BodyTemplate, Event{Event: "failure", Timestamp: "2026-01-01T00:00:00Z", GroupName: `model "one"`})
-	if err != nil {
-		t.Fatalf("render default template: %v", err)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		t.Fatalf("default template produced invalid JSON: %s (%v)", body, err)
-	}
-	if decoded["group_name"] != `model "one"` {
-		t.Fatalf("rendered group_name = %#v", decoded["group_name"])
+	for _, test := range []struct {
+		name    string
+		event   Event
+		title   string
+		content []string
+	}{
+		{
+			name: "manual failure", title: "🚨 Octopus 故障告警",
+			event:   Event{Event: "failure", Mode: model.GroupModeManual, FailureStreak: 12, Threshold: 10, RetryCount: 11},
+			content: []string{"事件：故障告警", "模式：手动模式", "连续失败：12 次", "失效成员：不适用", "通知阈值：10 次", "重试次数：11 次"},
+		},
+		{
+			name: "manual recovery", title: "✅ Octopus 恢复通知",
+			event:   Event{Event: "recovery", Mode: model.GroupModeManual, Threshold: 10, RetryCount: 2},
+			content: []string{"事件：恢复通知", "模式：手动模式", "连续失败：0 次", "失效成员：不适用", "通知阈值：10 次", "重试次数：2 次", "最近错误"},
+		},
+		{
+			name: "failover failure", title: "🚨 Octopus 故障告警",
+			event:   Event{Event: "failure", Mode: model.GroupModeFailover, FailedChannels: 4, Threshold: 3, RetryCount: 7},
+			content: []string{"模式：故障转移", "连续失败：不适用", "失效成员：4 个", "通知阈值：3 个", "重试次数：7 次"},
+		},
+		{
+			name: "failover recovery", title: "✅ Octopus 恢复通知",
+			event:   Event{Event: "recovery", Mode: model.GroupModeFailover, FailedChannels: 2, Threshold: 3, RetryCount: 1},
+			content: []string{"模式：故障转移", "连续失败：不适用", "失效成员：2 个", "通知阈值：3 个", "重试次数：1 次"},
+		},
+		{
+			name: "test preview", title: "🧪 Octopus 测试通知", event: Event{Event: "test"},
+			content: []string{"测试预览", "示例数据", "事件：测试通知", "示例分组", "示例渠道", "示例错误"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			event := test.event
+			event.Timestamp = "2026-01-01T00:00:00Z"
+			if event.Event != "test" {
+				event.GroupID, event.GroupName = 42, `model "one"`
+				event.CurrentChannel, event.LastError = "channel one", "upstream \"unavailable\"\nretry later"
+				test.content = append(test.content, event.GroupName, "ID：42", event.CurrentChannel, event.LastError)
+			}
+			body, err := Render(endpoint.BodyTemplate, event)
+			if err != nil {
+				t.Fatalf("render default template: %v", err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(body, &decoded); err != nil {
+				t.Fatalf("default template produced invalid JSON: %s (%v)", body, err)
+			}
+			if decoded["title"] != test.title || decoded["from"] != "octopus-solo" {
+				t.Fatalf("rendered notification metadata = %#v", decoded)
+			}
+			content, ok := decoded["content"].(string)
+			if !ok {
+				t.Fatalf("rendered content = %#v, want a string", decoded["content"])
+			}
+			for _, value := range append(test.content, event.Timestamp) {
+				if !strings.Contains(content, value) {
+					t.Fatalf("rendered content is missing %q: %q", value, content)
+				}
+			}
+			if _, exists := decoded["channel"]; exists {
+				t.Fatal("default template must not select a provider channel")
+			}
+		})
 	}
 }
 

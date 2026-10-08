@@ -221,8 +221,12 @@ func testWebhookCRUDAndDelivery(t *testing.T, client *http.Client, serverURL, to
 			t.Fatalf("test delivery headers = %+v", call)
 		}
 		var body map[string]any
-		if err := json.Unmarshal(call.body, &body); err != nil || body["event"] != "test" {
+		if err := json.Unmarshal(call.body, &body); err != nil {
 			t.Fatalf("test delivery body = %s, err = %v", call.body, err)
+		}
+		content, ok := body["content"].(string)
+		if !ok || !strings.Contains(content, "事件：测试通知") || !strings.Contains(content, "示例数据") || body["title"] != "🧪 Octopus 测试通知" || body["from"] != "octopus-solo" {
+			t.Fatalf("test delivery notification = %#v", body)
 		}
 	default:
 		t.Fatal("test webhook was not delivered")

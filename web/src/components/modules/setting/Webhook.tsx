@@ -25,18 +25,18 @@ import {
 
 type EndpointDraft = Omit<WebhookEndpoint, 'id'>;
 
-const defaultBodyTemplate = `{
-  "event": {{ .Event | json }},
-  "timestamp": {{ .Timestamp | json }},
-  "group_id": {{ .GroupID }},
-  "group_name": {{ .GroupName | json }},
-  "mode": {{ .Mode | json }},
-  "current_channel": {{ .CurrentChannel | json }},
-  "failure_streak": {{ .FailureStreak }},
-  "failed_channels": {{ .FailedChannels }},
-  "threshold": {{ .Threshold }},
-  "retry_count": {{ .RetryCount }},
-  "last_error": {{ .LastError | json }}
+const defaultBodyTemplate = String.raw`{
+  "title": {{ if eq .Event "failure" }}"🚨 Octopus 故障告警"{{ else if eq .Event "recovery" }}"✅ Octopus 恢复通知"{{ else if eq .Event "test" }}"🧪 Octopus 测试通知"{{ else }}"📣 Octopus 通知"{{ end }},
+  "content": {{ if eq .Event "test" }}
+    {{ printf "🧪 测试预览\n以下分组、渠道、计数和错误为示例数据。\n\n事件：测试通知\n🕒 时间：%s\n\n📦 分组：示例分组（ID：1）\n⚙️ 模式：手动模式\n🔌 当前渠道：示例渠道\n\n📊 故障统计\n连续失败：10 次\n失效成员：不适用\n通知阈值：10 次\n重试次数：9 次\n\n📝 最近错误\n示例错误：上游请求超时" .Timestamp | json }}
+  {{ else }}
+    {{ $event := .Event }}{{ if eq .Event "failure" }}{{ $event = "故障告警" }}{{ else if eq .Event "recovery" }}{{ $event = "恢复通知" }}{{ end }}
+    {{ $mode := printf "%s" .Mode }}{{ $failures := "不适用" }}{{ $failed := "不适用" }}{{ $threshold := printf "%d" .Threshold }}
+    {{ if eq .Mode "manual" }}{{ $mode = "手动模式" }}{{ $failures = printf "%d 次" .FailureStreak }}{{ $threshold = printf "%d 次" .Threshold }}
+    {{ else if eq .Mode "failover" }}{{ $mode = "故障转移" }}{{ $failed = printf "%d 个" .FailedChannels }}{{ $threshold = printf "%d 个" .Threshold }}{{ end }}
+    {{ printf "事件：%s\n🕒 时间：%s\n\n📦 分组：%s（ID：%d）\n⚙️ 模式：%s\n🔌 当前渠道：%s\n\n📊 故障统计\n连续失败：%s\n失效成员：%s\n通知阈值：%s\n重试次数：%d 次\n\n📝 最近错误\n%s" $event .Timestamp (or .GroupName "未提供") .GroupID (or $mode "未提供") (or .CurrentChannel "未提供") $failures $failed $threshold .RetryCount (or .LastError "无错误详情") | json }}
+  {{ end }},
+  "from": "octopus-solo"
 }`;
 
 const emptyDraft: EndpointDraft = {
