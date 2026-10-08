@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { useTranslations } from 'use-intl';
 import { BellRing, Check, FlaskConical, LoaderCircle, Maximize2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog } from 'radix-ui';
 import {
     MorphingDialog,
     MorphingDialogContainer,
@@ -55,13 +55,13 @@ const thresholdKeys = {
     failover: 'webhook_failover_channel_threshold',
 } as const;
 
-function WebhookPanel({ expanded = false, onClose, titleId }: {
+function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: {
     expanded?: boolean;
     onClose?: () => void;
     titleId?: string;
+    onFormOpenChange?: (open: boolean) => void;
 }) {
     const t = useTranslations('setting.webhook');
-    const formTitleId = useId();
     const { data: endpoints = [], isPending: endpointsLoading, isError: endpointsFailed } = useWebhookEndpointList();
     const { data: settings } = useSettingList();
     const setSetting = useSetSetting();
@@ -75,7 +75,11 @@ function WebhookPanel({ expanded = false, onClose, titleId }: {
     const [failoverDraft, setFailoverDraft] = useState<string | null>(null);
     const manualThreshold = manualDraft ?? manualSetting;
     const failoverThreshold = failoverDraft ?? failoverSetting;
-    const [formOpen, setFormOpen] = useState(false);
+    const [formOpen, setFormOpenState] = useState(false);
+    const setFormOpen = (open: boolean) => {
+        setFormOpenState(open);
+        onFormOpenChange?.(open);
+    };
     const [editingId, setEditingId] = useState<number | null>(null);
     const [draft, setDraft] = useState<EndpointDraft>(emptyDraft);
     const [headersText, setHeadersText] = useState('{}');
@@ -172,21 +176,21 @@ function WebhookPanel({ expanded = false, onClose, titleId }: {
     };
 
     return (
-        <Popover open={formOpen} onOpenChange={setFormOpen} modal>
-            <section className={`min-w-0 rounded-3xl border border-border bg-card p-6 ${expanded ? 'flex h-[calc(100dvh-2rem)] max-h-[56rem] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-5' : 'space-y-5'}`}>
+        <Dialog.Root open={formOpen} onOpenChange={setFormOpen}>
+            <section className={`relative flex min-w-0 flex-col gap-5 rounded-3xl border border-border bg-card p-6 ${formOpen ? 'z-50' : ''} ${expanded ? 'h-[calc(100dvh-2rem)] max-h-[56rem] w-[calc(100vw-2rem)] max-w-2xl' : ''}`}>
                 <div className="flex shrink-0 items-center justify-between gap-3">
                     <h2 id={titleId} className="flex min-w-0 items-center gap-2 text-lg font-bold text-card-foreground">
                         <BellRing className="size-5 shrink-0" />
                         {expanded ? t('endpoints') : t('title')}
                     </h2>
                     <div className="flex shrink-0 items-center gap-2">
-                        <PopoverTrigger asChild>
+                        <Dialog.Trigger asChild>
                             <button type="button" title={t('add')} aria-label={t('add')} onClick={openCreate}
                                 className="flex size-9 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
                                 disabled={formOpen || createEndpoint.isPending || updateEndpoint.isPending}>
                                 <Plus className="size-4" />
                             </button>
-                        </PopoverTrigger>
+                        </Dialog.Trigger>
                         {expanded ? (
                             <button type="button" title={t('close')} aria-label={t('close')} onClick={onClose}
                                 className="flex size-9 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:bg-muted">
@@ -254,9 +258,9 @@ function WebhookPanel({ expanded = false, onClose, titleId }: {
                     ) : endpoints.length === 0 ? (
                         <p className="text-sm text-muted-foreground">{t('empty')}</p>
                     ) : (
-                        <ul className="divide-y divide-border">
+                        <ul className="space-y-2">
                             {endpoints.map((endpoint) => (
-                                <li key={endpoint.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
+                                <li key={endpoint.id} className="space-y-2 rounded-xl bg-muted/50 p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div className="flex min-w-0 flex-1 items-center gap-3">
                                             <Switch checked={endpoint.enabled} onCheckedChange={(checked) => void toggleEndpoint(endpoint, checked)} aria-label={t('enabled')} />
@@ -266,13 +270,16 @@ function WebhookPanel({ expanded = false, onClose, titleId }: {
                                             </div>
                                         </div>
                                         <div className="flex shrink-0 items-center gap-1">
-                                            <Button type="button" variant="ghost" size="icon" title={t('test')} aria-label={t('test')} disabled={testEndpoint.isPending} onClick={() => void sendTest(endpoint.id)}>
+                                            <Button type="button" variant="ghost" size="icon" title={t('test')} aria-label={t('test')} disabled={testEndpoint.isPending} onClick={() => void sendTest(endpoint.id)}
+                                                className="size-8 rounded-lg bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground dark:hover:bg-muted">
                                                 <FlaskConical className="size-4" />
                                             </Button>
-                                            <Button type="button" variant="ghost" size="icon" title={t('edit')} aria-label={t('edit')} onClick={() => openEdit(endpoint)}>
+                                            <Button type="button" variant="ghost" size="icon" title={t('edit')} aria-label={t('edit')} onClick={() => openEdit(endpoint)}
+                                                className="size-8 rounded-lg bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground dark:hover:bg-muted">
                                                 <Pencil className="size-4" />
                                             </Button>
-                                            <Button type="button" variant="ghost" size="icon" title={t('delete')} aria-label={t('delete')} onClick={() => void removeEndpoint(endpoint.id)}>
+                                            <Button type="button" variant="ghost" size="icon" title={t('delete')} aria-label={t('delete')} onClick={() => void removeEndpoint(endpoint.id)}
+                                                className="size-8 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive">
                                                 <Trash2 className="size-4" />
                                             </Button>
                                         </div>
@@ -284,13 +291,16 @@ function WebhookPanel({ expanded = false, onClose, titleId }: {
                     )}
                 </div>
 
-                <PopoverContent align="end" side="top" sideOffset={12} collisionPadding={16}
-                    aria-labelledby={formTitleId}
+                {/* 表单以面板为定位容器，与 API 密钥的原地表单保持一致。 */}
+                <Dialog.Content
+                    aria-describedby={undefined}
                     onEscapeKeyDown={(event) => event.stopPropagation()}
-                    className="w-[min(36rem,calc(100vw-2rem))] max-h-[min(80vh,var(--radix-popover-content-available-height))] overflow-y-auto overscroll-contain rounded-3xl bg-card p-5 shadow-xl">
+                    className="absolute left-1/2 top-1/2 z-50 m-0 w-[min(36rem,calc(100vw-2rem))] max-h-[min(80dvh,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-3xl border border-border bg-card p-5 shadow-xl outline-none">
                     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void saveEndpoint(); }}>
                         <div className="flex items-center justify-between gap-3">
-                            <h3 id={formTitleId} className="text-sm font-semibold">{editingId === null ? t('createTitle') : t('editTitle')}</h3>
+                            <Dialog.Title asChild>
+                                <h3 className="text-sm font-semibold">{editingId === null ? t('createTitle') : t('editTitle')}</h3>
+                            </Dialog.Title>
                             <Button type="button" variant="ghost" size="icon" title={t('cancel')} aria-label={t('cancel')} onClick={() => setFormOpen(false)}>
                                 <X className="size-4" />
                             </Button>
@@ -339,19 +349,20 @@ function WebhookPanel({ expanded = false, onClose, titleId }: {
                             </Button>
                         </div>
                     </form>
-                </PopoverContent>
+                </Dialog.Content>
             </section>
-        </Popover>
+        </Dialog.Root>
     );
 }
 
 function WebhookDialogPanel() {
     const { setIsOpen, uniqueId } = useMorphingDialog();
     const t = useTranslations('setting.webhook');
+    const [formOpen, setFormOpen] = useState(false);
     return (
-        <MorphingDialogContent className="relative">
+        <MorphingDialogContent className="relative" dismissOnClickOutside={!formOpen}>
             <p id={`motion-ui-morphing-dialog-description-${uniqueId}`} className="sr-only">{t('viewAll')}</p>
-            <WebhookPanel expanded titleId={`motion-ui-morphing-dialog-title-${uniqueId}`} onClose={() => setIsOpen(false)} />
+            <WebhookPanel expanded titleId={`motion-ui-morphing-dialog-title-${uniqueId}`} onClose={() => setIsOpen(false)} onFormOpenChange={setFormOpen} />
         </MorphingDialogContent>
     );
 }
