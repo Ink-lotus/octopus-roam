@@ -183,7 +183,139 @@
         "system": "System",
         "privacyProtection": {
             "label": "Deterministic privacy protection",
-            "hint": "Experimental, off by default, and not yet widely validated by users. Redacts sensitive content in request diagnostics, errors, and notifications. Changes apply to subsequent requests."
+            "hint": "Redact sensitive content in request diagnostics, errors, logs, and notifications.",
+            "experimental": "Experimental",
+            "enabled": "Enable privacy protection",
+            "appliesNext": "Changes apply to subsequent requests and new notifications.",
+            "masterOff": "The main switch is off. Rules are inactive, but you can still manage and preview them.",
+            "rules": "Rules",
+            "enabledCount": "Enabled {enabled} / {total}",
+            "builtin": "Built-in",
+            "custom": "Custom",
+            "add": "Add rule",
+            "viewAll": "View all rules",
+            "close": "Close rule manager",
+            "details": "Rule details",
+            "edit": "Edit rule",
+            "delete": "Delete",
+            "detailsRule": "View details for {name}",
+            "editRule": "Edit {name}",
+            "deleteRule": "Delete {name}",
+            "toggleRule": "Enable {name}",
+            "deleteConfirm": "Delete the custom rule “{name}”?",
+            "deleted": "Rule deleted",
+            "loading": "Loading rules…",
+            "loadFailed": "Could not load rules. Please retry.",
+            "retry": "Retry",
+            "save": "Save",
+            "saved": "Rule saved",
+            "cancel": "Close form",
+            "saveFailed": "Could not save. Your draft has been kept.",
+            "conflict": "Rules have changed. Refresh and retry.",
+            "conflictDraft": "Another page updated the rules. The list has refreshed and your draft has been kept. Review the latest rules before saving again.",
+            "ruleLimit": "The limit of {count} custom rules has been reached.",
+            "name": "Rule name",
+            "kind": "Match type",
+            "pattern": "Pattern",
+            "ruleEnabled": "Enable this rule",
+            "nameLimit": "Enter a name with 1 to {count} characters.",
+            "patternLimit": "Enter a nonempty pattern of at most {count} UTF-8 bytes.",
+            "builtinDescription": "View or enable and disable a built-in rule.",
+            "customDescription": "Save the rule name, pattern, and enabled state. Configuration is kept when the main switch is off.",
+            "ruleId": "Rule ID",
+            "target": "Matches",
+            "method": "Detection",
+            "scopeLabel": "Scope",
+            "scope": "Applies to request diagnostics, errors, logs, and Webhook diagnostics. Saved changes affect new requests and notifications; existing redacted records are retained.",
+            "kinds": {
+                "field_name": "Field name",
+                "literal": "Literal text",
+                "regex": "Regular expression"
+            },
+            "hints": {
+                "field_name": "Match a complete field name without regard to case in JSON, headers, URL queries, and text assignments; redact its value.",
+                "literal": "Match a case-sensitive literal substring. Spaces and punctuation are preserved and participate in matching.",
+                "regex": "Use Go regular expressions, such as client-[0-9]+. Entire matches are redacted. Lookaround, backreferences, and patterns that can match empty text are unsupported."
+            },
+            "preview": "Redaction preview",
+            "previewHint": "Preview only; configuration is unchanged. Both modes ignore the main switch. Testing the current rule temporarily enables it.",
+            "previewMode": "Preview mode",
+            "currentRule": "Test current rule",
+            "enabledRules": "Test enabled rules",
+            "inputType": "Input type",
+            "inputTypes": {
+                "text": "Plain text",
+                "json": "JSON",
+                "url": "URL",
+                "headers": "Headers"
+            },
+            "sample": "Sample input",
+            "sampleLimit": "The sample and known values may total up to {count} KiB.",
+            "headersHint": "Use a JSON object with string or string-array values for headers.",
+            "knownValues": "Known credential samples",
+            "knownValuesHint": "One sample per line, up to {count}, used only for this preview. Supply your own samples or use the fictional example.",
+            "runPreview": "Run preview",
+            "previewFailed": "Preview failed. Please retry.",
+            "previewStale": "The input or rules changed. This result is out of date; run the preview again.",
+            "output": "Redacted output",
+            "emptyOutput": "(Empty content)",
+            "matchedRules": "Matched rules",
+            "noMatches": "No rules matched",
+            "hitCount": "{name} · {count, plural, one {# match} other {# matches}}",
+            "draftRule": "Current draft",
+            "conflictReloadFailed": "Rules have changed, but the latest rules could not be loaded. Your draft is kept; try saving again later.",
+            "validation": {
+                "regex": "Enter a valid Go regular expression.",
+                "empty_match": "The regular expression must not match empty text.",
+                "field_name": "Enter a complete field name without whitespace or assignment syntax.",
+                "json": "Enter a valid JSON sample.",
+                "headers": "Headers must be a JSON object with string or string-array values.",
+                "request_limit": "The sample or known values exceed the preview limits."
+            },
+            "builtins": {
+                "known_credentials": {
+                    "name": "Known credentials",
+                    "summary": "Redact known keys and custom header values",
+                    "target": "Channel keys, model discovery credentials, and resolved custom header configuration values.",
+                    "method": "Collect explicitly configured values and their URL/JSON encodings and authentication fragments. Disabling stops this source; another matching rule can still redact the same value."
+                },
+                "sensitive_headers": {
+                    "name": "Sensitive headers",
+                    "summary": "Detect credentials by sensitive header names",
+                    "target": "Sensitive headers such as Authorization, X-API-Key, and Cookie.",
+                    "method": "Collect values by header name, including individual cookie values and usernames/passwords decoded from Basic authentication."
+                },
+                "url_userinfo": {
+                    "name": "URL user information",
+                    "summary": "Detect usernames and passwords in URLs",
+                    "target": "Usernames, passwords, and their encodings in URL authentication components.",
+                    "method": "Parse URL user information and collect credentials. If the URL cannot be parsed, conservatively redact the entire URL. Disabling this rule also disables that fallback."
+                },
+                "url_query": {
+                    "name": "Sensitive URL parameters",
+                    "summary": "Detect values by sensitive query parameter names",
+                    "target": "URL parameters such as token, api_key, and password.",
+                    "method": "Identify and redact values by parameter name. If the query cannot be parsed, conservatively redact the entire query. Disabling this rule also disables that fallback."
+                },
+                "auth_text": {
+                    "name": "Authentication text",
+                    "summary": "Detect Bearer / Basic credentials in text",
+                    "target": "Bearer and Basic authentication fragments in unstructured diagnostic text.",
+                    "method": "Keep the authentication scheme, redact the credential, and collect it for matching echoes elsewhere."
+                },
+                "text_fields": {
+                    "name": "Sensitive text fields",
+                    "summary": "Detect sensitive field assignments in text",
+                    "target": "Text assignments such as password=value and api_key: \"value\".",
+                    "method": "Detect values by sensitive field names, handling quotes and escapes while preserving names. This text rule also handles invalid JSON input."
+                },
+                "json_fields": {
+                    "name": "Sensitive JSON fields",
+                    "summary": "Recursively detect sensitive JSON keys",
+                    "target": "Sensitive fields at every level of JSON objects, including duplicate keys.",
+                    "method": "Collect before redacting values to cover earlier echoes. Preserve metadata exceptions such as api_key_name, api_key_id, and token counts. Custom field rules can explicitly match those fields."
+                }
+            }
         },
         "theme": {
             "label": "Theme",

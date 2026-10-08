@@ -11,7 +11,7 @@ import (
 // Capture per-round credentials before constructing the outbound request.
 // Diagnostic redaction must still work after the channel/key is edited or removed.
 func rememberChannelSecrets(redactor *privacy.Redactor, channel model.Channel, key string, headers http.Header) {
-	redactor.Add(key)
+	redactor.Register(privacy.KnownCredentials, key)
 	redactor.AddURL(channel.BaseURL)
 	redactor.AddURL(channel.ChannelProxy)
 	redactor.AddURL(channel.OpenAIChatCompletionPath)
@@ -26,7 +26,7 @@ func rememberChannelSecrets(redactor *privacy.Redactor, channel model.Channel, k
 		value := clientHeaderPlaceholder.ReplaceAllStringFunc(header.HeaderValue, func(placeholder string) string {
 			return headers.Get(placeholder[len("{client_header:") : len(placeholder)-1])
 		})
-		redactor.Add(value)
+		redactor.Register(privacy.KnownCredentials, value)
 	}
 	// Parameter overrides can contain credential fields that are later echoed.
 	redactor.Body(channel.ParamOverride)

@@ -138,7 +138,7 @@ func (service *Service) observeHealth(state relay.HealthSnapshot) {
 			service.manualActive[group.ID] = false
 		}
 		threshold := settingThreshold(model.SettingKeyWebhookManualFailureThreshold, 10)
-		event := Event{Timestamp: time.Now().UTC().Format(time.RFC3339Nano), GroupID: group.ID, GroupName: group.Name, Mode: group.Mode, FailureStreak: h.FailureStreak, Threshold: threshold, RetryCount: h.RetryCount, LastError: redactConfiguredError(group, h.LastError)}
+		event := prepareEvent(group, Event{Timestamp: time.Now().UTC().Format(time.RFC3339Nano), GroupID: group.ID, GroupName: group.Name, Mode: group.Mode, FailureStreak: h.FailureStreak, Threshold: threshold, RetryCount: h.RetryCount, LastError: h.LastError})
 		for _, item := range group.Items {
 			if item.ID == h.ItemID {
 				event.CurrentChannel = item.ChannelName
@@ -181,12 +181,12 @@ func (service *Service) observeHealth(state relay.HealthSnapshot) {
 		runtime.LastError, runtime.RetryCount = latest.LastError, latest.RetryCount
 	}
 	if failedChannels >= threshold && !service.failoverActive[group.ID] {
-		event := Event{
+		event := prepareEvent(group, Event{
 			Event: "failure", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 			GroupID: group.ID, GroupName: group.Name, Mode: group.Mode,
 			CurrentChannel: runtime.CurrentChannel, FailedChannels: failedChannels,
-			Threshold: threshold, RetryCount: runtime.RetryCount, LastError: redactConfiguredError(group, runtime.LastError),
-		}
+			Threshold: threshold, RetryCount: runtime.RetryCount, LastError: runtime.LastError,
+		})
 		if service.enqueue(event) {
 			service.failoverActive[group.ID] = true
 			service.recoveryVersion[group.ID] = state.RecoveryVersion
@@ -194,12 +194,12 @@ func (service *Service) observeHealth(state relay.HealthSnapshot) {
 		return
 	}
 	if failedChannels < threshold && state.FailedChannelsAtRecovery < threshold && service.failoverActive[group.ID] && state.RecoveryVersion > service.recoveryVersion[group.ID] {
-		event := Event{
+		event := prepareEvent(group, Event{
 			Event: "recovery", Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 			GroupID: group.ID, GroupName: group.Name, Mode: group.Mode,
 			CurrentChannel: runtime.CurrentChannel, FailedChannels: failedChannels,
-			Threshold: threshold, RetryCount: runtime.RetryCount, LastError: redactConfiguredError(group, runtime.LastError),
-		}
+			Threshold: threshold, RetryCount: runtime.RetryCount, LastError: runtime.LastError,
+		})
 		if service.enqueue(event) {
 			service.failoverActive[group.ID] = false
 		}
@@ -207,6 +207,7 @@ func (service *Service) observeHealth(state relay.HealthSnapshot) {
 }
 
 func (service *Service) enqueue(event Event) bool {
+	event = snapshotEvent(event)
 	select {
 	case service.events <- event:
 		return true
@@ -261,6 +262,7 @@ func SendTest(ctx context.Context, endpoint model.WebhookEndpoint) SendResult {
 }
 
 func sendWithRetry(ctx context.Context, endpoint model.WebhookEndpoint, event Event) SendResult {
+	event = snapshotEvent(event)
 	var result SendResult
 	for attempt := 0; attempt < maxDeliveryAttempt; attempt++ {
 		result = sendOnce(ctx, endpoint, event)
@@ -348,10 +350,27 @@ func redactConfiguredError(group model.Group, message string) string {
 	if message == "" {
 		return ""
 	}
+	return configuredRedactor(group).Text(message)
+}
+
+func snapshotEvent(event Event) Event {
+	if event.redactor == nil {
+		event.redactor = privacy.NewDiagnostic()
+	}
+	event.LastError = event.redactor.Text(event.LastError)
+	return event
+}
+
+func prepareEvent(group model.Group, event Event) Event {
+	event.redactor = configuredRedactor(group)
+	return snapshotEvent(event)
+}
+
+func configuredRedactor(group model.Group) *privacy.Redactor {
 	redactor := privacy.NewDiagnostic()
 	for _, item := range group.Items {
 		if key, err := op.ChannelGrantKeyGet(item.ChannelGrantID); err == nil {
-			redactor.Add(key.Key)
+			redactor.Register(privacy.KnownCredentials, key.Key)
 		}
 		channel, err := op.ChannelGet(item.ChannelID)
 		if err != nil {
@@ -359,9 +378,18 @@ func redactConfiguredError(group model.Group, message string) string {
 		}
 		redactor.AddURL(channel.BaseURL)
 		redactor.AddURL(channel.ChannelProxy)
-		for _, header := range channel.CustomHeader {
-			redactor.Add(header.HeaderValue)
+		redactor.AddURL(channel.OpenAIChatCompletionPath)
+		redactor.AddURL(channel.OpenAIResponsePath)
+		redactor.AddURL(channel.AnthropicMessagePath)
+		if channel.Proxy && channel.ChannelProxy == "" {
+			if proxy, err := op.SettingGetString(model.SettingKeyProxyURL); err == nil {
+				redactor.AddURL(proxy)
+			}
 		}
+		for _, header := range channel.CustomHeader {
+			redactor.Register(privacy.KnownCredentials, header.HeaderValue)
+		}
+		redactor.Body(channel.ParamOverride)
 	}
-	return redactor.Text(message)
+	return redactor
 }

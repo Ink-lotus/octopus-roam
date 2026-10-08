@@ -90,7 +90,11 @@ func TestConcurrentDiagnosticReadsUseCredentialsRegisteredBeforeReading(t *testi
 		secrets = append(secrets, fmt.Sprintf("fixture-concurrent-upstream-%02d", i))
 	}
 	body := `{"content":"` + strings.Join(secrets, " ") + `"}`
-	r := privacy.New()
+	policy, err := privacy.Compile(privacy.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := privacy.NewWithPolicy(policy)
 	request := registerDiagnosticRequest(t, r, body)
 	mu.Lock()
 	request.responseBody = body

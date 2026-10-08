@@ -33,11 +33,17 @@ func SettingGetString(key model.SettingKey) (string, error) {
 }
 
 func SettingSetString(key model.SettingKey, value string) error {
+	if key == model.SettingKeyPrivacyProtectionRules {
+		return fmt.Errorf("use /api/v1/setting/privacy-rules to update privacy rules")
+	}
 	if err := (&model.Setting{Key: key, Value: value}).Validate(); err != nil {
 		return err
 	}
 	if key == model.SettingKeyGroupRouteDefaults {
 		return fmt.Errorf("use /api/v1/group/route-defaults to update route defaults")
+	}
+	if key == model.SettingKeyPrivacyProtectionEnabled {
+		return setPrivacyEnabled(value)
 	}
 	valueCache, ok := settingCache.Get(key)
 	if !ok {
@@ -54,9 +60,6 @@ func SettingSetString(key model.SettingKey, value string) error {
 		return fmt.Errorf("failed to set setting, key not found")
 	}
 	settingCache.Set(key, value)
-	if key == model.SettingKeyPrivacyProtectionEnabled {
-		privacy.SetDiagnosticsEnabled(value == "true")
-	}
 	if isChannelAutomationSetting(key) {
 		automationSettingsSignal.notify()
 	}
@@ -80,7 +83,7 @@ func SettingGetBool(key model.SettingKey) (bool, error) {
 }
 
 func SettingSetInt(key model.SettingKey, value int) error {
-	if isChannelAutomationSetting(key) || key == model.SettingKeyPrivacyProtectionEnabled {
+	if isChannelAutomationSetting(key) || key == model.SettingKeyPrivacyProtectionEnabled || key == model.SettingKeyPrivacyProtectionRules {
 		return SettingSetString(key, strconv.Itoa(value))
 	}
 	if key == model.SettingKeyGroupRouteDefaults {
@@ -111,6 +114,8 @@ func SettingSetInt(key model.SettingKey, value int) error {
 func settingRefreshCache(ctx context.Context) error {
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	privacyWriteMu.Lock()
+	defer privacyWriteMu.Unlock()
 	db := db.GetDB().WithContext(ctx)
 
 	var settings []model.Setting
@@ -132,11 +137,15 @@ func settingRefreshCache(ctx context.Context) error {
 		}
 	}
 
+	settings = append(settings, missingSettings...)
+	privacyEnabled, policy, err := compilePrivacySettings(settings)
+	if err != nil {
+		return fmt.Errorf("failed to load privacy settings: %w", err)
+	}
 	if len(missingSettings) > 0 {
 		if err := db.CreateInBatches(missingSettings, len(missingSettings)).Error; err != nil {
 			return fmt.Errorf("failed to create missing settings: %w", err)
 		}
-		settings = append(settings, missingSettings...)
 	}
 	automationChanged := false
 	for _, setting := range settings {
@@ -149,8 +158,8 @@ func settingRefreshCache(ctx context.Context) error {
 	if automationChanged {
 		automationSettingsSignal.notify()
 	}
-	privacyEnabled, _ := SettingGetBool(model.SettingKeyPrivacyProtectionEnabled)
-	privacy.SetDiagnosticsEnabled(privacyEnabled)
+	privacyRulesState = policy
+	privacy.Publish(privacyEnabled, policy)
 	return nil
 }
 

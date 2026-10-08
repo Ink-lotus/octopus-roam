@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useId,
   useMemo,
   useRef,
@@ -155,6 +156,7 @@ export type MorphingDialogContentProps = {
   className?: string;
   style?: React.CSSProperties;
   dismissOnClickOutside?: boolean;
+  suspendInteraction?: boolean;
 };
 
 function MorphingDialogContent({
@@ -162,29 +164,37 @@ function MorphingDialogContent({
   className,
   style,
   dismissOnClickOutside = true,
+  suspendInteraction = false,
 }: MorphingDialogContentProps) {
   const { setIsOpen, isOpen, uniqueId, triggerRef } = useMorphingDialog();
   const containerRef = useRef<HTMLDivElement>(null!);
-  const firstFocusableElementRef = useRef<HTMLElement | null>(null);
-  const lastFocusableElementRef = useRef<HTMLElement | null>(null);
+  const restoreTriggerFocus = useEffectEvent(() => triggerRef.current?.focus());
 
   useEffect(() => {
+    // A nested modal owns Escape and focus until it closes.
+    if (suspendInteraction) return;
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.key === 'Escape') {
         setIsOpen(false);
       }
       if (event.key === 'Tab') {
-        if (!firstFocusableElementRef.current || !lastFocusableElementRef.current) return;
+        const focusable = Array.from(containerRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+        ) ?? []).filter((element) => element.getClientRects().length > 0);
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) return;
 
         if (event.shiftKey) {
-          if (document.activeElement === firstFocusableElementRef.current) {
+          if (document.activeElement === first) {
             event.preventDefault();
-            lastFocusableElementRef.current.focus();
+            last.focus();
           }
         } else {
-          if (document.activeElement === lastFocusableElementRef.current) {
+          if (document.activeElement === last) {
             event.preventDefault();
-            firstFocusableElementRef.current.focus();
+            first.focus();
           }
         }
       }
@@ -195,7 +205,7 @@ function MorphingDialogContent({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [setIsOpen]);
+  }, [setIsOpen, suspendInteraction]);
 
   useEffect(() => {
     if (isOpen) {
@@ -204,14 +214,16 @@ function MorphingDialogContent({
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       );
       if (focusableElements && focusableElements.length > 0) {
-        firstFocusableElementRef.current = focusableElements[0] as HTMLElement;
-        lastFocusableElementRef.current = focusableElements[focusableElements.length - 1] as HTMLElement;
         (focusableElements[0] as HTMLElement).focus();
       }
     } else {
       document.body.classList.remove('overflow-hidden');
       triggerRef.current?.focus();
     }
+    return () => {
+      document.body.classList.remove('overflow-hidden');
+      requestAnimationFrame(restoreTriggerFocus);
+    };
   }, [isOpen, triggerRef]);
 
   useClickOutside(

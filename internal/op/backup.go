@@ -121,6 +121,9 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	if err := validateDumpOrigin(dump); err != nil {
 		return nil, err
 	}
+	if err := validatePrivacyImport(dump.Settings); err != nil {
+		return nil, err
+	}
 	for i := range dump.Groups {
 		if dump.Groups[i].Mode == "" {
 			dump.Groups[i].Mode = model.GroupModeManual
@@ -171,6 +174,8 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	privacyWriteMu.Lock()
+	defer privacyWriteMu.Unlock()
 	conn := db.GetDB().WithContext(ctx)
 	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
 	channels := make([]backupChannelRow, len(dump.Channels))
@@ -185,7 +190,13 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	for i, row := range dump.APIKeys {
 		apiKeys[i] = backupAPIKeyRow{APIKey: row, Enabled: row.Enabled}
 	}
+	var privacyUpdate *privacyImport
 	err := conn.Transaction(func(tx *gorm.DB) error {
+		var err error
+		privacyUpdate, err = preparePrivacyImport(tx, dump.Settings)
+		if err != nil {
+			return err
+		}
 		// base tables
 		if n, err := createDoNothing(tx, channels); err != nil {
 			return fmt.Errorf("import channels: %w", err)
@@ -236,10 +247,21 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		} else {
 			res.RowsAffected["api_keys"] = n
 		}
-		if n, err := createUpsertSettings(tx, dump.Settings); err != nil {
+		settings := make([]model.Setting, 0, len(dump.Settings))
+		for _, setting := range dump.Settings {
+			if !isPrivacySetting(setting.Key) {
+				settings = append(settings, setting)
+			}
+		}
+		if n, err := createUpsertSettings(tx, settings); err != nil {
 			return fmt.Errorf("import settings: %w", err)
 		} else {
 			res.RowsAffected["settings"] = n
+		}
+		if n, err := privacyUpdate.write(tx); err != nil {
+			return fmt.Errorf("import privacy settings: %w", err)
+		} else {
+			res.RowsAffected["settings"] += n
 		}
 		if n, err := createUpsertAll(tx, dump.WebhookEndpoints, []clause.Column{{Name: "id"}}); err != nil {
 			return fmt.Errorf("import webhook_endpoints: %w", err)
@@ -276,6 +298,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	if importedDefaults != nil {
 		settingCache.Set(model.SettingKeyGroupRouteDefaults, *importedDefaults)
 	}
+	privacyUpdate.publish()
 	return res, nil
 }
 

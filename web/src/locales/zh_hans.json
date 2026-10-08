@@ -183,7 +183,139 @@
         "system": "系统",
         "privacyProtection": {
             "label": "确定性隐私保护",
-            "hint": "实验性功能，默认关闭，尚未经过充分的用户验证。开启后，对请求诊断、错误信息和通知中的敏感内容进行确定性脱敏。修改对后续请求生效。"
+            "hint": "对请求诊断、错误信息、日志和通知中的敏感内容进行确定性脱敏。",
+            "experimental": "实验性功能",
+            "enabled": "启用隐私保护",
+            "appliesNext": "修改对后续请求和新通知生效。",
+            "masterOff": "总开关已关闭，规则暂未生效。仍可管理和预览规则。",
+            "rules": "规则",
+            "enabledCount": "已启用 {enabled} / {total}",
+            "builtin": "内置",
+            "custom": "自定义",
+            "add": "添加规则",
+            "viewAll": "查看全部规则",
+            "close": "关闭规则面板",
+            "details": "规则详情",
+            "edit": "编辑规则",
+            "delete": "删除",
+            "detailsRule": "查看“{name}”详情",
+            "editRule": "编辑“{name}”",
+            "deleteRule": "删除“{name}”",
+            "toggleRule": "启用“{name}”",
+            "deleteConfirm": "确定删除自定义规则“{name}”？",
+            "deleted": "规则已删除",
+            "loading": "正在读取规则…",
+            "loadFailed": "规则读取失败，请重试。",
+            "retry": "重试",
+            "save": "保存",
+            "saved": "规则已保存",
+            "cancel": "关闭表单",
+            "saveFailed": "保存失败，草稿已保留。",
+            "conflict": "规则已更新，请刷新后重试。",
+            "conflictDraft": "其他页面已更新规则，列表已刷新，草稿已保留。请检查最新规则后再次保存。",
+            "ruleLimit": "已达到 {count} 条自定义规则的上限。",
+            "name": "规则名称",
+            "kind": "匹配类型",
+            "pattern": "匹配内容",
+            "ruleEnabled": "启用此规则",
+            "nameLimit": "请输入 1 至 {count} 个字符的名称。",
+            "patternLimit": "匹配内容不能为空，且不能超过 {count} 个 UTF-8 字节。",
+            "builtinDescription": "内置规则可查看和启停。",
+            "customDescription": "保存规则名称、匹配内容和启用状态；总开关关闭时配置仍会保留。",
+            "ruleId": "规则 ID",
+            "target": "匹配对象",
+            "method": "识别方式",
+            "scopeLabel": "适用范围",
+            "scope": "作用于请求诊断、错误信息、日志和 Webhook 诊断内容。保存后用于新请求和通知；已生成的脱敏记录保留原状。",
+            "kinds": {
+                "field_name": "字段名",
+                "literal": "固定文本",
+                "regex": "正则表达式"
+            },
+            "hints": {
+                "field_name": "忽略大小写匹配完整字段名，覆盖 JSON 键、请求头、URL 查询参数和文本赋值；遮蔽对应值。",
+                "literal": "按原样匹配大小写敏感的文本子串，空格和标点也参与匹配。",
+                "regex": "使用 Go 正则语法，例如 client-[0-9]+。遮蔽完整匹配片段；不支持前后查找或反向引用，也不能匹配空文本。"
+            },
+            "preview": "脱敏预览",
+            "previewHint": "预览，不修改当前配置。两种模式均不受总开关影响；测试当前规则时临时启用该规则。",
+            "previewMode": "预览模式",
+            "currentRule": "测试当前规则",
+            "enabledRules": "测试已启用规则",
+            "inputType": "输入类型",
+            "inputTypes": {
+                "text": "纯文本",
+                "json": "JSON",
+                "url": "URL",
+                "headers": "Header"
+            },
+            "sample": "样例输入",
+            "sampleLimit": "样例与已知值合计最多 {count} KiB。",
+            "headersHint": "使用 JSON 对象表示请求头，值为字符串或字符串数组。",
+            "knownValues": "已知凭据样例",
+            "knownValuesHint": "每行一个样例值，最多 {count} 个，仅供本次预览。此处使用手动输入或虚构示例。",
+            "runPreview": "运行预览",
+            "previewFailed": "预览失败，请重试。",
+            "previewStale": "输入或规则已变化，此结果已失效，请重新预览。",
+            "output": "脱敏结果",
+            "emptyOutput": "（空内容）",
+            "matchedRules": "命中规则",
+            "noMatches": "未命中规则",
+            "hitCount": "{name} · {count} 次",
+            "draftRule": "当前草稿",
+            "conflictReloadFailed": "规则已更新，但读取最新规则失败。草稿已保留，请稍后再次保存。",
+            "validation": {
+                "regex": "正则表达式不符合 Go 语法。",
+                "empty_match": "正则表达式不能匹配空文本。",
+                "field_name": "请输入完整字段名，不含空格或赋值符号。",
+                "json": "请输入有效的 JSON 样例。",
+                "headers": "请求头必须是 JSON 对象，值为字符串或字符串数组。",
+                "request_limit": "样例或已知值超过预览容量限制。"
+            },
+            "builtins": {
+                "known_credentials": {
+                    "name": "已知凭据",
+                    "summary": "遮蔽已知密钥和自定义 Header 值",
+                    "target": "渠道密钥、模型探测凭据、已解析的自定义请求头配置值。",
+                    "method": "显式收集配置中的值，并识别其 URL、JSON 编码及认证片段。关闭后停止该来源的收集；其他命中的规则仍可脱敏同一值。"
+                },
+                "sensitive_headers": {
+                    "name": "敏感请求头",
+                    "summary": "按敏感 Header 名识别凭据",
+                    "target": "Authorization、X-API-Key、Cookie 等敏感请求头。",
+                    "method": "根据请求头名称收集值，包括 Cookie 值和 Basic 编码中的用户名、密码。"
+                },
+                "url_userinfo": {
+                    "name": "URL 用户信息",
+                    "summary": "识别 URL 中的用户名和密码",
+                    "target": "URL 认证部分的用户名、密码及对应编码形式。",
+                    "method": "解析 URL 用户信息并收集凭据。URL 整体解析失败时保守遮蔽整个 URL；关闭此规则也会关闭该回退。"
+                },
+                "url_query": {
+                    "name": "URL 敏感参数",
+                    "summary": "按敏感查询参数名识别值",
+                    "target": "URL 中 token、api_key、password 等敏感参数。",
+                    "method": "按参数名识别并遮蔽值。查询串解析失败时保守遮蔽整个查询串；关闭此规则也会关闭该回退。"
+                },
+                "auth_text": {
+                    "name": "认证文本",
+                    "summary": "识别文本中的 Bearer / Basic 凭据",
+                    "target": "非结构化诊断文本中的 Bearer、Basic 认证片段。",
+                    "method": "保留认证类型，遮蔽其后的凭据，并收集值用于其他位置的回显。"
+                },
+                "text_fields": {
+                    "name": "文本敏感字段",
+                    "summary": "识别文本中的敏感字段赋值",
+                    "target": "password=value、api_key: \"value\" 等文本赋值。",
+                    "method": "按敏感字段名识别对应值，支持引号与转义，保留字段名称。JSON 解析失败时也使用此文本规则。"
+                },
+                "json_fields": {
+                    "name": "JSON 敏感字段",
+                    "summary": "递归识别 JSON 中的敏感键",
+                    "target": "JSON 对象各层级的敏感字段，包括重复键。",
+                    "method": "先收集再遮蔽对应值，处理前置回显。保留 api_key_name、api_key_id、token 计数等元数据例外；自定义字段规则可显式匹配这些字段。"
+                }
+            }
         },
         "theme": {
             "label": "主题",

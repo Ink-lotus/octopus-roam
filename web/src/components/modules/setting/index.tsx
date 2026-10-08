@@ -5,6 +5,7 @@ import { SettingLLMPrice } from './LLMPrice';
 import { SettingAccount } from './Account';
 import { SettingInfo } from './Info';
 import { SettingLog } from './Log';
+import { SettingPrivacy } from './Privacy';
 import { SettingBackup } from './Backup';
 import { SettingWebhook } from './Webhook';
 import { SettingRouteDefaults } from './RouteDefaults';
@@ -27,6 +28,7 @@ export function Setting() {
                 <div className="min-w-0 space-y-4">
                     <SettingRouteDefaults />
                     <SettingLog />
+                    <SettingPrivacy />
                     <SettingLLMPrice />
                     <SettingAPIKey />
                     <SettingWebhook />

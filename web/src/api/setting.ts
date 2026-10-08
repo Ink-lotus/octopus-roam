@@ -57,9 +57,17 @@ export function useSetSetting() {
     const queryClient = useQueryClient();
 
     return useMutation({
+        mutationKey: ['settings', 'set'],
         mutationFn: (data: Setting) =>
             apiRequest<Setting>('/api/v1/setting/set', { method: 'POST', body: data }),
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
+        onSuccess: async (setting) => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
+                ...(setting.key === SettingKey.PrivacyProtectionEnabled
+                    ? [queryClient.invalidateQueries({ queryKey: ['settings', 'privacy-rules'] })]
+                    : []),
+            ]);
+        },
     });
 }
 
@@ -141,6 +149,7 @@ export function useImportDB() {
             queryClient.invalidateQueries({ queryKey: ['groups', 'list'] }),
             queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] }),
             queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
+            queryClient.invalidateQueries({ queryKey: ['settings', 'privacy-rules'] }),
             queryClient.invalidateQueries({ queryKey: ['channels'] }),
         ]);
         return data.data;

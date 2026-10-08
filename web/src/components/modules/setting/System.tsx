@@ -1,9 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
 import { Monitor, Globe, Clock, Shield, Filter, HelpCircle, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
 import { toast } from 'sonner';
@@ -13,10 +11,8 @@ import { isValidRegex } from '@/lib/regex';
 
 export function SettingSystem() {
     const t = useTranslations('setting');
-    const { data: settings, isError: settingsError } = useSettingList();
+    const { data: settings } = useSettingList();
     const setSetting = useSetSetting();
-    const privacyId = useId();
-    const privacyEnabled = settings?.find(s => s.key === SettingKey.PrivacyProtectionEnabled)?.value === 'true';
 
     const [proxyUrl, setProxyUrl] = useState('');
     const [statsSaveInterval, setStatsSaveInterval] = useState('');
@@ -134,24 +130,6 @@ export function SettingSystem() {
                 <Monitor className="h-5 w-5" />
                 {t('system')}
             </h2>
-
-            <div className="space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor={privacyId} className="flex items-center gap-3 text-sm font-medium">
-                        <Shield className="h-5 w-5 shrink-0 text-muted-foreground" />
-                        {t('privacyProtection.label')}
-                    </Label>
-                    <Switch
-                        id={privacyId}
-                        checked={privacyEnabled}
-                        onCheckedChange={(checked) => handleSave(SettingKey.PrivacyProtectionEnabled, String(checked), String(privacyEnabled))}
-                        disabled={!settings || settingsError || setSetting.isPending}
-                        aria-describedby={`${privacyId}-hint`}
-                        className="shrink-0"
-                    />
-                </div>
-                <p id={`${privacyId}-hint`} className="text-xs leading-relaxed text-muted-foreground">{t('privacyProtection.hint')}</p>
-            </div>
 
             {/* 代理地址 */}
             <div className="flex items-center justify-between gap-4">

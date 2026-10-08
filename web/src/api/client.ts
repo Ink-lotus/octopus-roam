@@ -19,11 +19,13 @@ type RequestOptions = {
 
 export class ApiError extends Error {
     status: number;
+    details?: unknown;
 
-    constructor(status: number, message: string) {
+    constructor(status: number, message: string, details?: unknown) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
+        this.details = details;
     }
 }
 
@@ -51,7 +53,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         if (response.status === 401 && options.dispatchUnauthorized !== false && typeof window !== 'undefined') {
             window.dispatchEvent(new Event(apiUnauthorizedEvent));
         }
-        throw new ApiError(response.status, data?.message || `Request failed: ${response.status}`);
+        throw new ApiError(response.status, data?.message || `Request failed: ${response.status}`, data?.data);
     }
     return data?.data as T;
 }

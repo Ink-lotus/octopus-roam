@@ -183,7 +183,139 @@
         "system": "系統",
         "privacyProtection": {
             "label": "確定性隱私保護",
-            "hint": "實驗性功能，預設關閉，尚未經過充分的使用者驗證。開啟後，對請求診斷、錯誤資訊和通知中的敏感內容進行確定性去識別化。修改對後續請求生效。"
+            "hint": "對請求診斷、錯誤資訊、日誌和通知中的敏感內容進行確定性去識別化。",
+            "experimental": "實驗性功能",
+            "enabled": "啟用隱私保護",
+            "appliesNext": "修改對後續請求和新通知生效。",
+            "masterOff": "總開關已關閉，規則暫未生效。仍可管理和預覽規則。",
+            "rules": "規則",
+            "enabledCount": "已啟用 {enabled} / {total}",
+            "builtin": "內建",
+            "custom": "自訂",
+            "add": "新增規則",
+            "viewAll": "查看全部規則",
+            "close": "關閉規則面板",
+            "details": "規則詳情",
+            "edit": "編輯規則",
+            "delete": "刪除",
+            "detailsRule": "查看「{name}」詳情",
+            "editRule": "編輯「{name}」",
+            "deleteRule": "刪除「{name}」",
+            "toggleRule": "啟用「{name}」",
+            "deleteConfirm": "確定刪除自訂規則「{name}」？",
+            "deleted": "規則已刪除",
+            "loading": "正在讀取規則…",
+            "loadFailed": "規則讀取失敗，請重試。",
+            "retry": "重試",
+            "save": "儲存",
+            "saved": "規則已儲存",
+            "cancel": "關閉表單",
+            "saveFailed": "儲存失敗，草稿已保留。",
+            "conflict": "規則已更新，請重新整理後重試。",
+            "conflictDraft": "其他頁面已更新規則，清單已重新整理，草稿已保留。請檢查最新規則後再次儲存。",
+            "ruleLimit": "已達到 {count} 條自訂規則的上限。",
+            "name": "規則名稱",
+            "kind": "比對類型",
+            "pattern": "比對內容",
+            "ruleEnabled": "啟用此規則",
+            "nameLimit": "請輸入 1 至 {count} 個字元的名稱。",
+            "patternLimit": "比對內容不能為空，且不能超過 {count} 個 UTF-8 位元組。",
+            "builtinDescription": "內建規則可查看和啟停。",
+            "customDescription": "儲存規則名稱、比對內容和啟用狀態；總開關關閉時設定仍會保留。",
+            "ruleId": "規則 ID",
+            "target": "比對對象",
+            "method": "識別方式",
+            "scopeLabel": "適用範圍",
+            "scope": "作用於請求診斷、錯誤資訊、日誌和 Webhook 診斷內容。儲存後用於新請求和通知；已產生的去識別化記錄保留原狀。",
+            "kinds": {
+                "field_name": "欄位名稱",
+                "literal": "固定文字",
+                "regex": "正規表示式"
+            },
+            "hints": {
+                "field_name": "忽略大小寫比對完整欄位名稱，涵蓋 JSON 鍵、請求標頭、URL 查詢參數和文字賦值；遮蔽對應值。",
+                "literal": "按原樣比對區分大小寫的文字子字串，空格和標點也參與比對。",
+                "regex": "使用 Go 正規表示式語法，例如 client-[0-9]+。遮蔽完整比對片段；不支援前後查找或反向引用，也不能比對空文字。"
+            },
+            "preview": "去識別化預覽",
+            "previewHint": "預覽，不修改目前設定。兩種模式均不受總開關影響；測試目前規則時暫時啟用該規則。",
+            "previewMode": "預覽模式",
+            "currentRule": "測試目前規則",
+            "enabledRules": "測試已啟用規則",
+            "inputType": "輸入類型",
+            "inputTypes": {
+                "text": "純文字",
+                "json": "JSON",
+                "url": "URL",
+                "headers": "Header"
+            },
+            "sample": "範例輸入",
+            "sampleLimit": "範例與已知值合計最多 {count} KiB。",
+            "headersHint": "使用 JSON 物件表示請求標頭，值為字串或字串陣列。",
+            "knownValues": "已知憑證範例",
+            "knownValuesHint": "每行一個範例值，最多 {count} 個，僅供本次預覽。此處使用手動輸入或虛構範例。",
+            "runPreview": "執行預覽",
+            "previewFailed": "預覽失敗，請重試。",
+            "previewStale": "輸入或規則已變更，此結果已失效，請重新預覽。",
+            "output": "去識別化結果",
+            "emptyOutput": "（空內容）",
+            "matchedRules": "命中規則",
+            "noMatches": "未命中規則",
+            "hitCount": "{name} · {count} 次",
+            "draftRule": "目前草稿",
+            "conflictReloadFailed": "規則已更新，但讀取最新規則失敗。草稿已保留，請稍後再次儲存。",
+            "validation": {
+                "regex": "正規表示式不符合 Go 語法。",
+                "empty_match": "正規表示式不能比對空文字。",
+                "field_name": "請輸入完整欄位名稱，不含空格或賦值符號。",
+                "json": "請輸入有效的 JSON 範例。",
+                "headers": "請求標頭必須是 JSON 物件，值為字串或字串陣列。",
+                "request_limit": "範例或已知值超過預覽容量限制。"
+            },
+            "builtins": {
+                "known_credentials": {
+                    "name": "已知憑證",
+                    "summary": "遮蔽已知金鑰和自訂 Header 值",
+                    "target": "渠道金鑰、模型探測憑證、已解析的自訂請求標頭設定值。",
+                    "method": "明確收集設定中的值，並識別其 URL、JSON 編碼及認證片段。關閉後停止該來源的收集；其他命中的規則仍可遮蔽同一值。"
+                },
+                "sensitive_headers": {
+                    "name": "敏感請求標頭",
+                    "summary": "按敏感 Header 名稱識別憑證",
+                    "target": "Authorization、X-API-Key、Cookie 等敏感請求標頭。",
+                    "method": "根據請求標頭名稱收集值，包括 Cookie 值和 Basic 編碼中的使用者名稱、密碼。"
+                },
+                "url_userinfo": {
+                    "name": "URL 使用者資訊",
+                    "summary": "識別 URL 中的使用者名稱和密碼",
+                    "target": "URL 認證部分的使用者名稱、密碼及對應編碼形式。",
+                    "method": "解析 URL 使用者資訊並收集憑證。URL 整體解析失敗時保守遮蔽整個 URL；關閉此規則也會關閉該回退。"
+                },
+                "url_query": {
+                    "name": "URL 敏感參數",
+                    "summary": "按敏感查詢參數名稱識別值",
+                    "target": "URL 中 token、api_key、password 等敏感參數。",
+                    "method": "按參數名稱識別並遮蔽值。查詢字串解析失敗時保守遮蔽整個查詢字串；關閉此規則也會關閉該回退。"
+                },
+                "auth_text": {
+                    "name": "認證文字",
+                    "summary": "識別文字中的 Bearer / Basic 憑證",
+                    "target": "非結構化診斷文字中的 Bearer、Basic 認證片段。",
+                    "method": "保留認證類型，遮蔽其後的憑證，並收集值用於其他位置的回顯。"
+                },
+                "text_fields": {
+                    "name": "文字敏感欄位",
+                    "summary": "識別文字中的敏感欄位賦值",
+                    "target": "password=value、api_key: \"value\" 等文字賦值。",
+                    "method": "按敏感欄位名稱識別對應值，支援引號與跳脫，保留欄位名稱。JSON 解析失敗時也使用此文字規則。"
+                },
+                "json_fields": {
+                    "name": "JSON 敏感欄位",
+                    "summary": "遞迴識別 JSON 中的敏感鍵",
+                    "target": "JSON 物件各層級的敏感欄位，包括重複鍵。",
+                    "method": "先收集再遮蔽對應值，處理前置回顯。保留 api_key_name、api_key_id、token 計數等中繼資料例外；自訂欄位規則可明確比對這些欄位。"
+                }
+            }
         },
         "theme": {
             "label": "主題",

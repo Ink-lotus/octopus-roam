@@ -25,6 +25,15 @@ func init() {
 	router.NewGroupRouter("/api/v1/setting").
 		Use(middleware.Auth()).
 		AddRoute(
+			router.NewRoute("/privacy-rules", http.MethodGet).Handle(getPrivacyRules),
+		).
+		AddRoute(
+			router.NewRoute("/privacy-rules", http.MethodPost).Use(middleware.RequireJSON()).Handle(mutatePrivacyRules),
+		).
+		AddRoute(
+			router.NewRoute("/privacy-preview", http.MethodPost).Use(middleware.RequireJSON()).Handle(previewPrivacy),
+		).
+		AddRoute(
 			router.NewRoute("/list", http.MethodGet).
 				Handle(getSettingList),
 		).
@@ -67,11 +76,19 @@ func setSetting(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "use /api/v1/group/route-defaults to update route defaults")
 		return
 	}
+	if setting.Key == model.SettingKeyPrivacyProtectionRules {
+		resp.Error(c, http.StatusBadRequest, "use /api/v1/setting/privacy-rules to update privacy rules")
+		return
+	}
 	if err := setting.Validate(); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := op.SettingSetString(setting.Key, setting.Value); err != nil {
+		if setting.Key == model.SettingKeyPrivacyProtectionEnabled {
+			privacyError(c, err)
+			return
+		}
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}

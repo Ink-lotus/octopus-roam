@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"unicode"
 )
 
@@ -26,19 +25,11 @@ import (
 // across their outputs without publishing a dictionary-testable credential hash.
 var fingerprintKey = []byte(rand.Text())
 
-// Experimental diagnostic redaction is opt-in. Each new request snapshots the
-// setting so changing it does not mix redacted and original data in one request.
-var diagnosticsEnabled atomic.Bool
-
-func SetDiagnosticsEnabled(enabled bool) { diagnosticsEnabled.Store(enabled) }
-
-func DiagnosticsEnabled() bool { return diagnosticsEnabled.Load() }
-
 func NewDiagnostic(values ...string) *Redactor {
-	if !DiagnosticsEnabled() {
-		return &Redactor{disabled: true}
-	}
-	return New(values...)
+	current := currentPolicy()
+	r := &Redactor{disabled: !current.enabled || !current.rules.active, policy: current.rules}
+	r.Add(values...)
+	return r
 }
 
 var (
@@ -119,11 +110,14 @@ func isSensitiveBodyName(name string) bool {
 // is later changed or deleted. Its synchronization also permits body reads
 // while the relay moves to the next member.
 type Redactor struct {
-	disabled bool // Immutable after construction; New remains available for mandatory credential masking.
-	mu       sync.RWMutex
-	secrets  map[string]string
-	revision uint64
-	matcher  *secretMatcher // immutable snapshot, invalidated only by changed mappings
+	disabled      bool // Immutable after construction; New remains available for mandatory credential masking.
+	policy        *Policy
+	mu            sync.RWMutex
+	secrets       map[string]string
+	revision      uint64
+	matcher       *secretMatcher // immutable snapshot, invalidated only by changed mappings
+	sources       map[string]map[string]secretSource
+	policyMatcher *policyMatcher
 }
 
 type secretMatcher struct {
@@ -158,6 +152,10 @@ func New(values ...string) *Redactor {
 
 func (r *Redactor) Add(values ...string) {
 	if r == nil || r.disabled {
+		return
+	}
+	if r.policy != nil {
+		r.Register(KnownCredentials, values...)
 		return
 	}
 	r.mu.Lock()
@@ -209,6 +207,10 @@ func (r *Redactor) AddHeaders(headers http.Header) {
 	if r != nil && r.disabled {
 		return
 	}
+	if r != nil && r.policy != nil {
+		r.policyAddHeaders(headers)
+		return
+	}
 	for name, values := range headers {
 		if IsSensitiveName(name) {
 			r.Add(values...)
@@ -236,6 +238,12 @@ func (r *Redactor) AddURL(raw string) {
 	if r != nil && r.disabled {
 		return
 	}
+	if r != nil && r.policy != nil {
+		plan := newRedactionPlan(r, raw)
+		plan.custom(plan.root())
+		plan.url(plan.root())
+		return
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		r.Add(raw)
@@ -256,6 +264,10 @@ func (r *Redactor) AddURL(raw string) {
 func (r *Redactor) URL(raw string) string {
 	if r != nil && r.disabled {
 		return raw
+	}
+	if r != nil && r.policy != nil {
+		result, _ := r.execute(raw, "url", false)
+		return result
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
@@ -291,6 +303,10 @@ func (r *Redactor) URL(raw string) string {
 func (r *Redactor) Text(value string) string {
 	if r != nil && r.disabled {
 		return value
+	}
+	if r != nil && r.policy != nil {
+		result, _ := r.execute(value, "text", false)
+		return result
 	}
 	var output strings.Builder
 	start := 0
@@ -351,6 +367,10 @@ func (r *Redactor) plainText(value string) string {
 func (r *Redactor) Body(body string) string {
 	if r != nil && r.disabled {
 		return body
+	}
+	if r != nil && r.policy != nil {
+		result, _ := r.execute(body, "json", false)
+		return result
 	}
 	// Keep encoding/json's nesting limit before the duplicate-aware token walk.
 	if !json.Valid([]byte(body)) {
@@ -506,6 +526,15 @@ func (r *Redactor) matcherSnapshot() *secretMatcher {
 }
 
 func (r *Redactor) replaceKnown(text string) string {
+	if r != nil && r.policy != nil {
+		if r.disabled {
+			return text
+		}
+		plan := newRedactionPlan(r, text)
+		plan.units = append(plan.units, plan.root())
+		output, _ := plan.finish(false)
+		return output
+	}
 	matcher := r.matcherSnapshot()
 	if matcher == nil || (matcher.long == nil && len(matcher.short) == 0) {
 		return text
