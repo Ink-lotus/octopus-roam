@@ -291,11 +291,11 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
                     )}
                 </div>
 
-                {/* 表单以面板为定位容器，与 API 密钥的原地表单保持一致。 */}
+                {/* 表单以面板为定位和宽度约束容器。 */}
                 <Dialog.Content
                     aria-describedby={undefined}
                     onEscapeKeyDown={(event) => event.stopPropagation()}
-                    className="absolute left-1/2 top-1/2 z-50 m-0 w-[min(36rem,calc(100vw-2rem))] max-h-[min(80dvh,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-3xl border border-border bg-card p-5 shadow-xl outline-none">
+                    className="absolute left-1/2 top-1/2 z-50 m-0 w-[min(36rem,calc(100%-2rem))] max-h-[min(80dvh,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-3xl border border-border bg-card p-5 shadow-xl outline-none">
                     <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void saveEndpoint(); }}>
                         <div className="flex items-center justify-between gap-3">
                             <Dialog.Title asChild>
