@@ -16,10 +16,10 @@ import { useTranslations } from 'use-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { IconButton } from '@/components/common/IconButton';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog } from 'radix-ui';
 import { useChannelPreferences } from '@/stores/channel';
 import { toast } from 'sonner';
-import { useId, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 // Card 展示单个渠道的概览; 名称, 启停与统计都在同一条统计查询里, 整份配置只在点开编辑时另取。
 export function Card({ channel }: { channel: ChannelStatsFormatted }) {
@@ -42,7 +42,6 @@ function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
     const [openInEditing, setOpenInEditing] = useState(false);
     const autoAddGroups = useChannelPreferences((preferences) => preferences.autoAddGroups[channel.channel_id] ?? true);
     const [showRefreshDetails, setShowRefreshDetails] = useState(false);
-    const refreshTitleId = useId();
     const refreshStatus = useChannelRefreshStatus(channel.channel_id, showRefreshDetails);
     const [localRefresh, setLocalRefresh] = useState<{ result: ChannelModelRefreshResult | null; previousFinishedAt?: string } | null>(null);
     const lastRefresh = channel.refresh?.last;
@@ -50,6 +49,16 @@ function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
         ? localRefresh.result : refreshStatus.data?.last?.result;
     const setRefreshResult = (result: ChannelModelRefreshResult | null) => setLocalRefresh({ result, previousFinishedAt: lastRefresh?.finished_at });
     const refreshInFlight = useRef(false);
+    const refreshPending = refreshChannelModels.isPending || channel.refresh?.running;
+    const refreshDetailsTitle = refreshPending
+        ? tAuto('running')
+        : refreshResult
+            ? t(refreshResult.success ? 'refresh.successTitle' : 'refresh.failed')
+            : refreshStatus.isPending
+                ? tAuto('loadingDetails')
+                : refreshStatus.isError
+                    ? tAuto('loadFailed')
+                    : tAuto(lastRefresh?.status === 'canceled' ? 'canceled' : 'noRefresh');
     const metrics = channel.formatted;
     const concurrencyMetric = {
         icon: <Activity className="size-4 shrink-0 text-primary" />,
@@ -151,7 +160,7 @@ function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
             <MorphingDialogTrigger className="w-full min-w-0">
                 <article
                     onClickCapture={() => setOpenInEditing(false)}
-                    className="flex min-w-0 flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4"
+                    className="relative flex min-w-0 flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4"
                 >
                     <header className="min-w-0 space-y-2">
                         <div className="flex min-w-0 items-center justify-between gap-3">
@@ -227,75 +236,64 @@ function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
                         onKeyDown={stopCardTrigger}
                         className="min-w-0 text-xs"
                     >
-                        <Popover open={showRefreshDetails} onOpenChange={setShowRefreshDetails} modal>
-                            <PopoverTrigger asChild>
+                        <Dialog.Root open={showRefreshDetails} onOpenChange={setShowRefreshDetails}>
+                            <Dialog.Trigger asChild>
                                 <button type="button" className="rounded-lg text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
                                     {tAuto('refreshDetails')}
                                 </button>
-                            </PopoverTrigger>
-                            <PopoverContent align="start" side="top" sideOffset={12} collisionPadding={16}
-                                aria-labelledby={refreshTitleId}
-                                className="w-[min(36rem,calc(100vw-2rem))] max-h-[min(80vh,var(--radix-popover-content-available-height))] space-y-3 overflow-y-auto overscroll-contain rounded-3xl bg-card p-5 text-xs [overflow-wrap:anywhere] shadow-xl">
-                                <div className="flex items-center justify-between gap-3">
-                                    <h3 id={refreshTitleId} className="min-w-0 text-sm font-semibold">{channel.channel_name} · {tAuto('refreshDetails')}</h3>
-                                    <IconButton className="size-8 shrink-0" tip={tAuto('close')} aria-label={tAuto('close')} onClick={() => setShowRefreshDetails(false)}>
+                            </Dialog.Trigger>
+                            {/* 结果框在卡片内向上展开，顶部为渠道名称预留空间。 */}
+                            <Dialog.Content
+                                aria-describedby={undefined}
+                                className={`absolute inset-x-2 bottom-2 z-50 flex max-h-[calc(100%-3.5rem)] flex-col gap-2 rounded-2xl border p-3 text-xs [overflow-wrap:anywhere] shadow-xl outline-none ${refreshResult
+                                    ? refreshResult.success
+                                        ? 'border-emerald-500/30 bg-[color-mix(in_oklab,var(--card),var(--color-emerald-500)_5%)]'
+                                        : 'border-destructive/30 bg-[color-mix(in_oklab,var(--card),var(--destructive)_5%)]'
+                                    : 'border-border bg-card'}`}>
+                                <div className="flex shrink-0 items-start justify-between gap-2">
+                                    {lastRefresh && <p className="min-w-0 pt-1 text-muted-foreground">{tAuto('lastRefresh', { time: new Date(lastRefresh.finished_at).toLocaleString() })}</p>}
+                                    <IconButton className="ml-auto size-6 shrink-0" tip={tAuto('close')} aria-label={tAuto('close')} onClick={() => setShowRefreshDetails(false)}>
                                         <X className="size-4" />
                                     </IconButton>
                                 </div>
-                                {(refreshChannelModels.isPending || channel.refresh?.running) && <p className="flex items-center gap-1" role="status"><LoaderCircle className="size-3 animate-spin" />{tAuto('running')}</p>}
-                                {lastRefresh?.status === 'canceled' && <p>{tAuto('canceled')}</p>}
-                                {!refreshResult && lastRefresh && <p className="text-muted-foreground">{tAuto('lastRefresh', { time: new Date(lastRefresh.finished_at).toLocaleString() })}</p>}
-                                {showRefreshDetails && refreshStatus.isPending && <p role="status">{tAuto('loadingDetails')}</p>}
-                                {showRefreshDetails && refreshStatus.isError && <p role="alert" className="text-destructive">{refreshStatus.error.message}</p>}
-                                {showRefreshDetails && !refreshStatus.isPending && !refreshStatus.isError && !refreshResult && !refreshChannelModels.isPending && !channel.refresh?.running && <p>{tAuto('noRefresh')}</p>}
-                                {refreshResult && (
-                                    <div
-                                        className={`rounded-2xl border p-3 text-xs ${refreshResult.success ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-destructive/30 bg-destructive/5'}`}
-                                        onClick={stopCardTrigger}
-                                        onPointerDown={stopCardTrigger}
-                                    >
-                                        <div className="flex flex-wrap items-center justify-between gap-2 font-medium">
-                                            <span>{refreshResult.success ? (refreshResult.zero_models ? t('refresh.empty') : t('refresh.successTitle')) : t('refresh.failed')}</span>
-                                            {refreshResult.success && (
-                                                <span className="text-muted-foreground">
-                                                    {t('refresh.changeSummary', { added: refreshResult.added_models.length, removed: refreshResult.removed_models.length })}
-                                                </span>
-                                            )}
-                                        </div>
-                                        {lastRefresh && <p className="mt-1 text-muted-foreground">{tAuto('lastRefresh', { time: new Date(lastRefresh.finished_at).toLocaleString() })}</p>}
-                                        {refreshResult.error && (
-                                            <p className={`mt-1 ${refreshResult.success ? 'text-amber-700 dark:text-amber-300' : 'text-destructive'}`}>
-                                                {refreshResult.success ? t('refresh.warning', { detail: refreshResult.error }) : refreshResult.error}
-                                            </p>
-                                        )}
-                                        {refreshResult.success && refreshResult.warnings?.map((warning, index) => (
-                                            <p key={`${index}-${warning}`} className="mt-1 text-amber-700 dark:text-amber-300">
-                                                {t('refresh.maintenanceWarning', { detail: warning })}
-                                            </p>
-                                        ))}
-                                        <ul className="mt-2 space-y-1 text-muted-foreground">
+                                <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain">
+                                    <Dialog.Title className="sr-only">{refreshDetailsTitle}</Dialog.Title>
+                                    {(refreshPending || !refreshResult || refreshResult.key_results.length === 0) && (
+                                        <p className="flex items-center gap-1 font-medium" role="status">
+                                            {refreshPending && <LoaderCircle className="size-3 animate-spin" />}
+                                            {refreshDetailsTitle}
+                                        </p>
+                                    )}
+                                    {!refreshPending && !refreshResult?.success && lastRefresh?.status === 'canceled' && <p>{tAuto('canceled')}</p>}
+                                    {refreshResult && (
+                                        <ul className="space-y-3">
                                             {refreshResult.key_results.map((item) => (
-                                                <li key={item.key_name} className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
-                                                    <span className="min-w-0 break-words sm:max-w-[35%]">{item.key_name}</span>
-                                                    {item.success ? (
-                                                        <div className="min-w-0 sm:flex-1 sm:text-right">
-                                                            <p>{t('refresh.keyModels', { count: item.model_count })}</p>
-                                                            {item.error && (
-                                                                <p className="break-words text-amber-700 dark:text-amber-300" title={item.error}>
-                                                                    {t('refresh.warning', { detail: item.error })}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <span className="min-w-0 break-words text-destructive" title={item.error}>{item.error || t('refresh.keyFailed')}</span>
-                                                    )}
+                                                <li key={item.key_name} className="min-w-0 space-y-1">
+                                                    <p className="break-words">
+                                                        {item.key_name}{' '}
+                                                        <span className="text-muted-foreground">{t('refresh.keyModels', { count: item.model_count })}</span>
+                                                    </p>
+                                                    <p className={`font-medium ${refreshResult.success && item.success ? 'text-emerald-700 dark:text-emerald-300' : 'text-destructive'}`}>
+                                                        {t(refreshResult.success && item.success ? 'refresh.successTitle' : 'refresh.failed')}
+                                                    </p>
+                                                    <p className="text-muted-foreground">{t('refresh.changeSummary', { added: item.added_count ?? '—', removed: item.removed_count ?? '—' })}</p>
+                                                    {item.error ? (
+                                                        <p className={`break-words ${item.success ? 'text-amber-700 dark:text-amber-300' : 'text-destructive'}`}>
+                                                            {item.success ? t('refresh.warning', { detail: item.error }) : item.error}
+                                                        </p>
+                                                    ) : !item.success && <p className="text-destructive">{t('refresh.keyFailed')}</p>}
                                                 </li>
                                             ))}
                                         </ul>
-                                    </div>
-                                )}
-                            </PopoverContent>
-                        </Popover>
+                                    )}
+                                    {refreshResult?.error && <p className={refreshResult.success ? 'text-amber-700 dark:text-amber-300' : 'text-destructive'}>{refreshResult.success ? t('refresh.warning', { detail: refreshResult.error }) : refreshResult.error}</p>}
+                                    {refreshResult?.success && refreshResult.warnings?.map((warning, index) => (
+                                        <p key={`${index}-${warning}`} className="text-amber-700 dark:text-amber-300">{t('refresh.maintenanceWarning', { detail: warning })}</p>
+                                    ))}
+                                    {refreshStatus.isError && <p role="alert" className="text-destructive">{refreshStatus.error.message}</p>}
+                                </div>
+                            </Dialog.Content>
+                        </Dialog.Root>
                     </div>
 
                 </article>

@@ -20,6 +20,16 @@ import (
 
 var channelRefreshFixtureID atomic.Int64
 
+func assertRefreshKeyChanges(t *testing.T, result model.ChannelModelRefreshKeyResult, added, removed int) {
+	t.Helper()
+	if result.AddedCount == nil || result.RemovedCount == nil {
+		t.Fatalf("key %q has no change counts", result.KeyName)
+	}
+	if *result.AddedCount != added || *result.RemovedCount != removed {
+		t.Fatalf("key %q changes = +%d -%d, want +%d -%d", result.KeyName, *result.AddedCount, *result.RemovedCount, added, removed)
+	}
+}
+
 // 检查持久化行和读侧缓存，失败探测不能删除模型、授权或手动选择。
 func assertFailedRefreshPreservesState(t *testing.T, before model.ChannelDetail, group model.Group, grantID int) {
 	t.Helper()
@@ -352,6 +362,9 @@ func TestRefreshChannelModelsMergesKeysAndReplacesGrants(t *testing.T) {
 	if len(result.KeyResults) != 2 || !result.KeyResults[0].Success || !result.KeyResults[1].Success || result.KeyResults[0].ModelCount != 2 || result.KeyResults[1].ModelCount != 2 {
 		t.Fatalf("unexpected per-key results: %+v", result.KeyResults)
 	}
+	for _, keyResult := range result.KeyResults {
+		assertRefreshKeyChanges(t, keyResult, 2, 1)
+	}
 	if _, ok := channelGrantCache.Get(oldGrantID); ok {
 		t.Fatal("removed model grant remains in cache")
 	}
@@ -375,6 +388,52 @@ func TestRefreshChannelModelsMergesKeysAndReplacesGrants(t *testing.T) {
 	}
 	if updatedGroup.ActiveItemID != 0 || len(updatedGroup.Items) != 0 {
 		t.Fatalf("removed active grant left group state: %+v", updatedGroup)
+	}
+}
+
+func TestRefreshChannelModelsReportsIndependentKeyChanges(t *testing.T) {
+	var changed atomic.Bool
+	server := newModelListServer(t, func(key string, anthropic bool) (int, string) {
+		if anthropic {
+			return http.StatusUnauthorized, `{"error":"unsupported endpoint"}`
+		}
+		if changed.Load() {
+			if key == "key-a" {
+				return http.StatusOK, `{"data":[{"id":"shared"},{"id":"only-b"},{"id":"extra"}]}`
+			}
+			return http.StatusOK, `{"data":[{"id":"shared"}]}`
+		}
+		if key == "key-a" {
+			return http.StatusOK, `{"data":[{"id":"shared"},{"id":"only-a"}]}`
+		}
+		return http.StatusOK, `{"data":[{"id":"shared"},{"id":"only-b"}]}`
+	})
+	channelID, _ := newRefreshChannel(t, server.URL, []model.ChannelKeyConfig{
+		{Name: "key-a", Key: "key-a", Enabled: true},
+		{Name: "key-b", Key: "key-b", Enabled: true},
+	})
+	result, err := RefreshChannelModels(t.Context(), channelID, model.ChannelModelRefreshOptions{})
+	if err != nil || !result.Success {
+		t.Fatalf("initial refresh: result=%+v err=%v", result, err)
+	}
+	changed.Store(true)
+	result, err = RefreshChannelModels(t.Context(), channelID, model.ChannelModelRefreshOptions{})
+	if err != nil || !result.Success || !slices.Equal(result.AddedModels, []string{"extra"}) || !slices.Equal(result.RemovedModels, []string{"only-a"}) {
+		t.Fatalf("channel refresh delta: result=%+v err=%v", result, err)
+	}
+	want := map[string]struct{ models, added, removed int }{
+		"key-a": {models: 3, added: 2, removed: 1},
+		"key-b": {models: 1, added: 0, removed: 1},
+	}
+	if len(result.KeyResults) != len(want) {
+		t.Fatalf("unexpected key count: %+v", result.KeyResults)
+	}
+	for _, keyResult := range result.KeyResults {
+		expected, ok := want[keyResult.KeyName]
+		if !ok || !keyResult.Success || keyResult.ModelCount != expected.models {
+			t.Fatalf("unexpected key result: %+v", keyResult)
+		}
+		assertRefreshKeyChanges(t, keyResult, expected.added, expected.removed)
 	}
 }
 
@@ -683,6 +742,9 @@ func TestRefreshChannelModelsFailurePreservesOldStateAndReportsEveryKey(t *testi
 	}
 	if result.Success || len(result.KeyResults) != 2 || !result.KeyResults[0].Success || result.KeyResults[1].Success || !strings.Contains(result.KeyResults[1].Error, "upstream 401") {
 		t.Fatalf("unexpected failed refresh result: %+v", result)
+	}
+	for _, keyResult := range result.KeyResults {
+		assertRefreshKeyChanges(t, keyResult, 0, 0)
 	}
 	updated, err := ChannelDetailGet(channelID)
 	if err != nil || !slices.Equal(updated.Models, []string{"old-model"}) || len(updated.Grants) != 2 {

@@ -187,9 +187,10 @@ func TestRefreshMaintenanceCancellationPolicy(t *testing.T) {
 
 func TestRefreshDiagnosticCopiesDoNotMutateCachedRecord(t *testing.T) {
 	const id = -1000
+	added, removed := 2, 1
 	record := model.ChannelRefreshRecord{ChannelID: id, Status: "success", Result: model.ChannelModelRefreshResult{
 		AddedModels: []string{"added"}, RemovedModels: []string{"removed"}, Warnings: []string{"warning"},
-		KeyResults: []model.ChannelModelRefreshKeyResult{{KeyName: "original"}},
+		KeyResults: []model.ChannelModelRefreshKeyResult{{KeyName: "original", AddedCount: &added, RemovedCount: &removed}},
 	}}
 	channelRefreshRecords.Set(id, record)
 	t.Cleanup(func() { channelRefreshRecords.Del(id) })
@@ -199,6 +200,8 @@ func TestRefreshDiagnosticCopiesDoNotMutateCachedRecord(t *testing.T) {
 	detail.Last.Result.RemovedModels[0] = "changed"
 	detail.Last.Result.Warnings[0] = "changed"
 	detail.Last.Result.KeyResults[0].KeyName = "changed"
+	*detail.Last.Result.KeyResults[0].AddedCount = 99
+	*detail.Last.Result.KeyResults[0].RemovedCount = 99
 	summary := ChannelRefreshSummary(id)
 	summary.Last.Status = "changed"
 	got := ChannelRefreshStatus(id)
@@ -207,6 +210,7 @@ func TestRefreshDiagnosticCopiesDoNotMutateCachedRecord(t *testing.T) {
 		got.Last.Result.KeyResults[0].KeyName != "original" || ChannelRefreshSummary(id).Last.Status != "success" {
 		t.Fatal("diagnostic mutation leaked into shared cache")
 	}
+	assertRefreshKeyChanges(t, got.Last.Result.KeyResults[0], 2, 1)
 }
 
 func TestChannelRefreshRecordFailureSuccessAndReload(t *testing.T) {
@@ -260,6 +264,10 @@ func TestChannelRefreshRecordFailureSuccessAndReload(t *testing.T) {
 	if status.Last.Status != "success" || status.Last.BeforeCount != 1 || status.Last.AfterCount != 0 {
 		t.Fatal(status.Last)
 	}
+	if len(status.Last.Result.KeyResults) != 1 {
+		t.Fatalf("reloaded diagnostic lost key results: %+v", status.Last.Result)
+	}
+	assertRefreshKeyChanges(t, status.Last.Result.KeyResults[0], 0, 1)
 	if _, err := GroupGet(group.ID); err != nil {
 		t.Fatal("refresh deleted group")
 	}

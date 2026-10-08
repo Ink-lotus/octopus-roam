@@ -198,10 +198,12 @@ type ChannelModelRefreshOptions struct {
 
 // 单个启用凭据的模型探测结果; Error 也会说明不影响提交的单侧探测失败。
 type ChannelModelRefreshKeyResult struct {
-	KeyName    string `json:"key_name"`
-	Success    bool   `json:"success"`
-	ModelCount int    `json:"model_count"`
-	Error      string `json:"error,omitempty"`
+	KeyName      string `json:"key_name"`
+	Success      bool   `json:"success"`
+	ModelCount   int    `json:"model_count"`
+	AddedCount   *int   `json:"added_count,omitempty"` // 实际提交的模型授权变化；旧诊断未记录时为 nil。
+	RemovedCount *int   `json:"removed_count,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 // 渠道模型持久化刷新结果。

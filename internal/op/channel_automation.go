@@ -88,10 +88,21 @@ func ChannelRefreshStatus(id int) *model.ChannelRefreshStatus {
 	started := channelRefreshStartedAt(id)
 	status := &model.ChannelRefreshStatus{Running: started != nil, StartedAt: started}
 	if record, ok := channelRefreshRecords.Get(id); ok {
-		// 仅复制可变切片，不在热查询里执行 JSON 往返。
+		// 仅复制可变字段，不在热查询里执行 JSON 往返。
 		record.Result.AddedModels = slices.Clone(record.Result.AddedModels)
 		record.Result.RemovedModels = slices.Clone(record.Result.RemovedModels)
 		record.Result.KeyResults = slices.Clone(record.Result.KeyResults)
+		for i := range record.Result.KeyResults {
+			keyResult := &record.Result.KeyResults[i]
+			if keyResult.AddedCount != nil {
+				count := *keyResult.AddedCount
+				keyResult.AddedCount = &count
+			}
+			if keyResult.RemovedCount != nil {
+				count := *keyResult.RemovedCount
+				keyResult.RemovedCount = &count
+			}
+		}
 		record.Result.Warnings = slices.Clone(record.Result.Warnings)
 		status.Last = &record
 	}

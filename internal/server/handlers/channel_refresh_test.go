@@ -93,6 +93,9 @@ func TestRefreshChannelModelsHandlerReturnsPerKeyResult(t *testing.T) {
 	if keyResult.KeyName != "primary" || !keyResult.Success || keyResult.ModelCount != 1 {
 		t.Fatalf("unexpected per-key refresh result: %+v", keyResult)
 	}
+	if keyResult.AddedCount == nil || keyResult.RemovedCount == nil || *keyResult.AddedCount != 1 || *keyResult.RemovedCount != 1 {
+		t.Fatalf("per-key changes missing from response: %+v", keyResult)
+	}
 	if !strings.Contains(keyResult.Error, "anthropic:") || strings.Contains(keyResult.Error, "handler-refresh-key") {
 		t.Fatalf("tolerated-side diagnostic missing or secret was not redacted: %+v", keyResult)
 	}
@@ -146,6 +149,10 @@ func TestRefreshChannelModelsHandlerReturnsPerKeyResult(t *testing.T) {
 	if diagnostic.Code != http.StatusOK || diagnosticEnvelope.Data.Last == nil ||
 		len(diagnosticEnvelope.Data.Last.Result.KeyResults) != 1 || len(diagnosticEnvelope.Data.Last.Result.AddedModels) != 1 {
 		t.Fatalf("full diagnostic unavailable: %s", diagnostic.Body.String())
+	}
+	keyResult = diagnosticEnvelope.Data.Last.Result.KeyResults[0]
+	if keyResult.AddedCount == nil || keyResult.RemovedCount == nil || *keyResult.AddedCount != 1 || *keyResult.RemovedCount != 1 {
+		t.Fatalf("per-key changes missing from saved diagnostic: %+v", keyResult)
 	}
 	for _, target := range []struct {
 		id   string

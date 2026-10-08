@@ -135,6 +135,8 @@ export type ChannelModelRefreshKeyResult = {
     key_name: string;
     success: boolean;
     model_count: number;
+    added_count?: number;
+    removed_count?: number;
     error?: string;
 };
 

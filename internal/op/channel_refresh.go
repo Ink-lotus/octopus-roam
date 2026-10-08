@@ -280,10 +280,12 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 			keyErrors = append(keyErrors, "anthropic: "+probe.AnthropicError)
 		}
 		keyResult := model.ChannelModelRefreshKeyResult{
-			KeyName:    channelKey.Name,
-			Success:    !keyFailed,
-			ModelCount: len(probe.Models),
-			Error:      strings.Join(keyErrors, "; "),
+			KeyName:      channelKey.Name,
+			Success:      !keyFailed,
+			ModelCount:   len(probe.Models),
+			AddedCount:   new(int),
+			RemovedCount: new(int),
+			Error:        strings.Join(keyErrors, "; "),
 		}
 		if keyFailed {
 			failed = true
@@ -365,6 +367,24 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 		return syncRefreshedChannelGroups(tx, channelID, options.AutoAddGroups, oldGrantIDs)
 	}); err != nil {
 		return result, err
+	}
+
+	// 仅在事务提交后统计各 Key 的授权变化，失败或并发冲突保留零变更。
+	keyResultsByName := make(map[string]*model.ChannelModelRefreshKeyResult, len(result.KeyResults))
+	for i := range result.KeyResults {
+		keyResultsByName[result.KeyResults[i].KeyName] = &result.KeyResults[i]
+	}
+	for _, grant := range grants {
+		if _, exists := grantSnapshot[channelRefreshGrantKey{modelName: grant.ModelName, keyName: grant.KeyName}]; !exists {
+			(*keyResultsByName[grant.KeyName].AddedCount)++
+		}
+	}
+	for grantKey := range grantSnapshot {
+		if _, exists := grantIndex[grantKey.modelName+"\x00"+grantKey.keyName]; !exists {
+			if keyResult, enabled := keyResultsByName[grantKey.keyName]; enabled {
+				(*keyResult.RemovedCount)++
+			}
+		}
 	}
 
 	newNames := make(map[string]struct{}, len(modelNames))
