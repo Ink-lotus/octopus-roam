@@ -1,14 +1,20 @@
 package resp
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/bestruirui/octopus/internal/privacy"
 	"github.com/gin-gonic/gin"
 )
 
 func TestErrorRedactsCredentialEchoes(t *testing.T) {
+	previous := privacy.DiagnosticsEnabled()
+	t.Cleanup(func() { privacy.SetDiagnosticsEnabled(previous) })
+	privacy.SetDiagnosticsEnabled(true)
+
 	response := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(response)
 	c.Request = httptest.NewRequest("GET", "/?key=fixture-query-secret", nil)
@@ -20,5 +26,25 @@ func TestErrorRedactsCredentialEchoes(t *testing.T) {
 		if strings.Contains(response.Body.String(), secret) {
 			t.Fatalf("error leaked a fixture credential: %s", response.Body)
 		}
+	}
+}
+
+func TestErrorPreservesDiagnosticsWhenPrivacyDisabled(t *testing.T) {
+	previous := privacy.DiagnosticsEnabled()
+	t.Cleanup(func() { privacy.SetDiagnosticsEnabled(previous) })
+	privacy.SetDiagnosticsEnabled(false)
+
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest("GET", "/?key=fixture-query-secret", nil)
+	c.Request.Header.Set("Authorization", "Bearer fixture-inbound-secret")
+	message := "failed fixture-query-secret fixture-inbound-secret"
+	Error(c, 502, message)
+	var body ResponseStruct
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != 502 || body.Code != 502 || body.Message != message {
+		t.Fatalf("disabled privacy changed the error response: %+v", body)
 	}
 }

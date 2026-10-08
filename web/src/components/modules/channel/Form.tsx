@@ -117,7 +117,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
         }
         const detail = toChannelDetail({ ...state, name }, channel?.id ?? 0);
         const mutation = channel ? updateChannel : createChannel;
-        mutation.mutate(detail, {
+        mutation.mutate({ ...detail, auto_add_groups: autoAddGroups }, {
             onSuccess: (saved) => {
                 saveAutoAddGroups(saved.id, autoAddGroups);
                 setIsOpen(false);

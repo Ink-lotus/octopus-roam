@@ -455,9 +455,7 @@ func channelGrantIDsInTx(tx *gorm.DB, channelID int) (map[int]struct{}, error) {
 }
 
 // syncRefreshedChannelGroups 在刷新事务中同步现有分组成员。
-// 授权删除造成的失效成员由此显式清理; 仅在启用自动添加且授权是本次新获取时,
-// 才按分组匹配规则把该渠道的新授权追加到末尾。这样不会把用户以前刻意省略的
-// 已有授权在每次刷新时重新加入。
+// 授权删除造成的失效成员由此显式清理; 启用自动添加时补齐所有匹配的当前授权。
 func syncRefreshedChannelGroups(tx *gorm.DB, channelID int, autoAdd bool, oldGrantIDs map[int]struct{}) error {
 	currentGrantIDs, err := channelGrantIDsInTx(tx, channelID)
 	if err != nil {
@@ -480,6 +478,12 @@ func syncRefreshedChannelGroups(tx *gorm.DB, channelID int, autoAdd bool, oldGra
 	if !autoAdd {
 		return nil
 	}
+	return appendMatchingChannelGroups(tx, channelID)
+}
+
+// appendMatchingChannelGroups 供渠道保存和刷新共用，在同一事务中补齐已有分组。
+// 调用方必须持有 groupWriteMu，已有成员及其优先级保持不变。
+func appendMatchingChannelGroups(tx *gorm.DB, channelID int) error {
 	var channel model.Channel
 	if err := tx.Select("enabled").First(&channel, channelID).Error; err != nil {
 		return fmt.Errorf("failed to load refreshed channel status: %w", err)
@@ -496,18 +500,12 @@ func syncRefreshedChannelGroups(tx *gorm.DB, channelID int, autoAdd bool, oldGra
 	for _, channelModel := range channelModels {
 		modelNames[channelModel.ID] = channelModel.Name
 	}
-	newGrantIDs := make([]int, 0)
-	for grantID := range currentGrantIDs {
-		if _, existed := oldGrantIDs[grantID]; !existed {
-			newGrantIDs = append(newGrantIDs, grantID)
-		}
-	}
-	if len(newGrantIDs) == 0 {
-		return nil
-	}
-
 	var grants []model.ChannelGrant
-	if err := tx.Where("id IN ?", newGrantIDs).Order("id ASC").Find(&grants).Error; err != nil {
+	models := tx.Model(&model.ChannelModel{}).Select("id").Where("channel_id = ?", channelID)
+	keys := tx.Model(&model.ChannelKey{}).Select("id").Where("channel_id = ? AND enabled = ?", channelID, true).
+		Where(clause.Neq{Column: "key", Value: ""})
+	if err := tx.Where("channel_model_id IN (?) AND channel_key_id IN (?)", models, keys).
+		Order("id ASC").Find(&grants).Error; err != nil {
 		return fmt.Errorf("failed to load refreshed grants for groups: %w", err)
 	}
 	if len(grants) == 0 {

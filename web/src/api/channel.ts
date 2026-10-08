@@ -41,7 +41,7 @@ export type ChannelGrant = {
 
 /**
  * 渠道完整配置（与后端 model.ChannelDetail 对齐）
- * 读写同构：编辑表单读到什么形状就提交什么形状，故创建与更新共用此类型，无需另建提交类型。
+ * 创建与更新共用此配置形状，保存时可附带本次操作的分组匹配选项。
  * 提交即全量，未列出的凭据与模型会被删除并级联删除其授权；创建时 id 取 0，由后端分配。
  * keys、models、grants 和 custom_header 恒为数组，后端读取侧承诺不为 null。
  */
@@ -66,6 +66,9 @@ export type ChannelDetail = {
     channel_proxy: string;
     match_regex: string;
 };
+
+// 选项只用于本次保存，浏览器单独保存用户偏好。
+type ChannelSaveRequest = ChannelDetail & { auto_add_groups?: boolean };
 
 // ChannelModelStats 是单个渠道模型的累计统计，自带名称。
 export type ChannelModelStats = StatsMetrics & {
@@ -246,11 +249,13 @@ export function useCreateChannel() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: (data: ChannelDetail) =>
+        mutationFn: (data: ChannelSaveRequest) =>
             apiRequest<ChannelDetail>('/api/v1/channel/create', { method: 'POST', body: data }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['channels'] });
             queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] });
         },
     });
 }
@@ -269,12 +274,13 @@ export function useUpdateChannel() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: (data: ChannelDetail) =>
+        mutationFn: (data: ChannelSaveRequest) =>
             apiRequest<ChannelDetail>('/api/v1/channel/update', { method: 'POST', body: data }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['channels'] });
             queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey });
             queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
+            queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] });
         },
     });
 }

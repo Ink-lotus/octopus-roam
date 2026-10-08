@@ -137,16 +137,20 @@ func listChannelGrant(c *gin.Context) {
 }
 
 func createChannel(c *gin.Context) {
-	var req model.ChannelDetail
+	var req model.ChannelSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
-	channel, err := op.ChannelCreate(&req, c.Request.Context())
+	groupMutationMu.Lock()
+	defer groupMutationMu.Unlock()
+	previousGroups := allGroupsByID()
+	channel, err := op.ChannelCreateWithOptions(&req.ChannelDetail, req.ChannelSaveOptions, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
+	refreshChangedChannelGroups(channel.ID, previousGroups, allGroupsByID())
 	if err := addChannelModelPrices(channel.Models, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -155,7 +159,7 @@ func createChannel(c *gin.Context) {
 }
 
 func updateChannel(c *gin.Context) {
-	var req model.ChannelDetail
+	var req model.ChannelSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
@@ -167,7 +171,7 @@ func updateChannel(c *gin.Context) {
 	groupMutationMu.Lock()
 	defer groupMutationMu.Unlock()
 	previousGroups := allGroupsByID()
-	channel, err := op.ChannelUpdate(&req, c.Request.Context())
+	channel, err := op.ChannelUpdateWithOptions(&req.ChannelDetail, req.ChannelSaveOptions, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return

@@ -68,8 +68,17 @@ func ChannelStatsList() []model.ChannelStats {
 // 三者在同一事务内落库: 授权按名称引用两侧, 待凭据与模型拿到主键后由 syncChannelGrants 解析,
 // 由此建一个带授权的渠道只需一趟请求。
 func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.ChannelDetail, error) {
+	return ChannelCreateWithOptions(detail, model.ChannelSaveOptions{}, ctx)
+}
+
+// ChannelCreateWithOptions 将渠道创建和可选的分组补齐放在同一事务内。
+func ChannelCreateWithOptions(detail *model.ChannelDetail, options model.ChannelSaveOptions, ctx context.Context) (*model.ChannelDetail, error) {
 	if err := normalizeChannelDetail(detail); err != nil {
 		return nil, err
+	}
+	if options.AutoAddGroups {
+		groupWriteMu.Lock()
+		defer groupWriteMu.Unlock()
 	}
 
 	channel := model.Channel{ChannelConfig: detail.ChannelConfig}
@@ -77,7 +86,13 @@ func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 		if err := tx.Create(&channel).Error; err != nil {
 			return fmt.Errorf("failed to create channel: %w", err)
 		}
-		return syncChannelChildren(tx, channel.ID, detail)
+		if err := syncChannelChildren(tx, channel.ID, detail); err != nil {
+			return err
+		}
+		if options.AutoAddGroups {
+			return appendMatchingChannelGroups(tx, channel.ID)
+		}
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -88,6 +103,11 @@ func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := reloadChannelChildren(ctx, channel.ID); err != nil {
 		return nil, err
 	}
+	if options.AutoAddGroups {
+		if err := groupRefreshCacheLocked(ctx); err != nil {
+			return nil, fmt.Errorf("failed to refresh groups: %w", err)
+		}
+	}
 	created := channelDetail(channel)
 	return &created, nil
 }
@@ -96,6 +116,11 @@ func ChannelCreate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 // 提交即全量而非按字段比对增量: 渠道是人工编辑的十几个字段, 表单本就一次给出完整配置,
 // 未列出的凭据与模型会被删除并级联删除其授权。
 func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.ChannelDetail, error) {
+	return ChannelUpdateWithOptions(detail, model.ChannelSaveOptions{}, ctx)
+}
+
+// ChannelUpdateWithOptions 保存配置时按已有分组规则补齐匹配授权。
+func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.ChannelSaveOptions, ctx context.Context) (*model.ChannelDetail, error) {
 	if _, ok := channelCache.Get(detail.ID); !ok {
 		return nil, fmt.Errorf("channel not found")
 	}
@@ -104,6 +129,8 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	}
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
+	groupWriteMu.Lock()
+	defer groupWriteMu.Unlock()
 
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 逐列点名而不整行覆盖: 全量提交下 enabled 置假与被清空的可选字段都必须落库, 按零值跳过会写不进去;
@@ -115,7 +142,13 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 			Updates(&model.Channel{ChannelConfig: detail.ChannelConfig}).Error; err != nil {
 			return fmt.Errorf("failed to update channel: %w", err)
 		}
-		return syncChannelChildren(tx, detail.ID, detail)
+		if err := syncChannelChildren(tx, detail.ID, detail); err != nil {
+			return err
+		}
+		if options.AutoAddGroups {
+			return appendMatchingChannelGroups(tx, detail.ID)
+		}
+		return nil
 	}); err != nil {
 		return nil, err
 	}
@@ -134,7 +167,7 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 	if err := reloadChannelChildren(ctx, detail.ID); err != nil {
 		return nil, err
 	}
-	if err := groupRefreshCache(ctx); err != nil {
+	if err := groupRefreshCacheLocked(ctx); err != nil {
 		return nil, fmt.Errorf("failed to refresh groups: %w", err)
 	}
 	updated := channelDetail(channel)

@@ -430,6 +430,48 @@ func TestRefreshChannelModelsAutoAddsNewGrantsByMatchMode(t *testing.T) {
 	}
 }
 
+func TestRefreshChannelModelsBackfillsExistingGrants(t *testing.T) {
+	server := newModelListServer(t, func(_ string, anthropic bool) (int, string) {
+		if anthropic {
+			return http.StatusUnauthorized, `{"error":"unsupported endpoint"}`
+		}
+		return http.StatusOK, `{"data":[{"id":"old-model"}]}`
+	})
+	channelID, keys := newRefreshChannel(t, server.URL, []model.ChannelKeyConfig{{Name: "key", Key: "fixture-key", Enabled: true}})
+	grantID := refreshGrantID(t, channelID, keys["key"], "old-model")
+	group, err := GroupCreate(&model.GroupCreateRequest{Name: "old-model", ModelMatchMode: model.GroupModelMatchModeExact}, t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = GroupDel(group.ID, t.Context()) })
+	t.Cleanup(func() { _ = ChannelDel(channelID, t.Context()) })
+
+	var itemID int
+	for _, autoAdd := range []bool{false, true, true} {
+		result, err := RefreshChannelModelsWithClient(t.Context(), channelID, model.ChannelModelRefreshOptions{AutoAddGroups: autoAdd}, newRefreshHTTPClient(t))
+		if err != nil || !result.Success || len(result.AddedModels) != 0 {
+			t.Fatalf("refresh existing model: result=%+v err=%v", result, err)
+		}
+		updated, err := GroupGet(group.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !autoAdd {
+			if len(updated.Items) != 0 {
+				t.Fatal("disabled auto-add appended an existing grant")
+			}
+			continue
+		}
+		if len(updated.Items) != 1 || updated.Items[0].ChannelGrantID != grantID || updated.Items[0].Priority != 1 {
+			t.Fatalf("existing matching grant was not backfilled once: %+v", updated.Items)
+		}
+		if itemID != 0 && updated.Items[0].ID != itemID {
+			t.Fatal("repeated refresh replaced an existing group member")
+		}
+		itemID = updated.Items[0].ID
+	}
+}
+
 func TestRefreshChannelModelsDoesNotAutoAddWhenDisabled(t *testing.T) {
 	token := fmt.Sprintf("new-disabled-%d", channelRefreshFixtureID.Add(1))
 	server := newModelListServer(t, func(_ string, anthropic bool) (int, string) {

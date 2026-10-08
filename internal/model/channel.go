@@ -114,6 +114,16 @@ type ChannelDetail struct {
 	Grants        []ChannelGrantConfig `json:"grants"` // 渠道下的授权。
 }
 
+// ChannelSaveOptions 只控制本次保存，不写入渠道配置。
+type ChannelSaveOptions struct {
+	AutoAddGroups bool `json:"auto_add_groups"`
+}
+
+type ChannelSaveRequest struct {
+	ChannelDetail
+	ChannelSaveOptions
+}
+
 // 渠道授权的可编辑形状, 两侧按名称引用。
 // 名称在渠道内唯一, 本就是模型与凭据的匹配依据; 而新增的模型与凭据在同一事务内才分配主键,
 // 提交方拿不到, 无法在一次请求里既建模型又给它授权。读写用同一种寻址, 界面无需在主键与名称之间翻译。
@@ -180,7 +190,7 @@ type ChannelFetchModel struct {
 	Protocols Protocol `json:"protocols"` // 由探测结果得出的协议位掩码。
 }
 
-// 渠道模型刷新选项; AutoAddGroups 控制是否按已有分组规则追加本次刷新得到的新授权。
+// 渠道模型刷新选项; AutoAddGroups 控制是否按已有分组规则补齐匹配的授权。
 type ChannelModelRefreshOptions struct {
 	AutoAddGroups bool `json:"auto_add_groups"`
 	Automatic     bool `json:"-"` // 只由服务端调度器设置。
