@@ -79,7 +79,7 @@ cp "${OUTPUT_DIR}/bin/${APP_NAME}-linux-arm64" "${OUTPUT_DIR}/docker/linux/arm64
 # 每个平台只替换可执行文件名，许可证报告和发布文档保持一致。
 GOFLAGS="-tags=jsoniter" go run github.com/google/go-licenses/v2@v2.0.1 report . \
     --ignore "${MODULE_PATH}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
-cp README.md LICENSE "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" "${OUTPUT_DIR}/archives/"
+cp README.md README_zh.md LICENSE "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" "${OUTPUT_DIR}/archives/"
 for file in "${OUTPUT_DIR}"/bin/"${APP_NAME}"-*; do
     archive_name="$(basename "${file}").zip"
     executable_name="${APP_NAME}"
@@ -87,10 +87,18 @@ for file in "${OUTPUT_DIR}"/bin/"${APP_NAME}"-*; do
         executable_name="${APP_NAME}.exe"
     fi
     cp "${file}" "${OUTPUT_DIR}/archives/${executable_name}"
-    (cd "${OUTPUT_DIR}/archives" && zip -q "${archive_name}" "${executable_name}" README.md LICENSE THIRD_PARTY_LICENSES.csv)
+    (cd "${OUTPUT_DIR}/archives" && zip -q "${archive_name}" "${executable_name}" README.md README_zh.md LICENSE THIRD_PARTY_LICENSES.csv)
+    if [[ "${file}" == *-windows-* ]]; then
+        # 一个可双击入口；PowerShell 支持文件放在 windows 子目录。
+        archive_path="$(cd "${OUTPUT_DIR}/archives" && pwd)/${archive_name}"
+        zip -q -j "${archive_path}" scripts/windows/octopus-roam.cmd
+        (cd scripts && zip -q "${archive_path}" \
+            windows/octopus-roam-menu.ps1 windows/octopus-roam-start.ps1 \
+            windows/octopus-roam-autostart.ps1 windows/send-stop-signal.ps1)
+    fi
     rm -f "${OUTPUT_DIR:?}/archives/${executable_name}"
 done
-rm -f "${OUTPUT_DIR:?}/archives/README.md" "${OUTPUT_DIR}/archives/LICENSE" \
+rm -f "${OUTPUT_DIR:?}/archives/README.md" "${OUTPUT_DIR}/archives/README_zh.md" "${OUTPUT_DIR}/archives/LICENSE" \
     "${OUTPUT_DIR}/archives/THIRD_PARTY_LICENSES.csv"
 (cd "${OUTPUT_DIR}/archives" && sha256sum ./*.zip >SHA256SUMS)
 echo "Artifacts: ${OUTPUT_DIR}/archives"

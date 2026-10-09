@@ -43,7 +43,18 @@ docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.i
 
 ### 📦 Download from Release
 
-When available, download the binary for your platform from [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases), then run:
+When available, download the archive for your platform from [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases) and extract the entire archive into a permanent folder.
+
+**Windows:** double-click `octopus-roam.cmd` and choose a numbered option:
+
+1. Start the service.
+2. Start the service and enable automatic startup.
+3. Stop the service.
+4. Stop the service and disable automatic startup.
+
+The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Automatic startup runs when the current Windows user signs in. The menu shows service and startup status. Closing the menu leaves the service running; choose `3` or `4` to stop it. Keep the included `windows` folder, which contains the menu's support files.
+
+**Linux / macOS and other platforms:** run from the extracted folder:
 
 ```bash
 ./octopus-roam start

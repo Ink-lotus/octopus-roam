@@ -22,10 +22,14 @@ function Get-RuntimeProcess {
 }
 
 try {
-    foreach ($relativePath in @('octopus-roam.exe', 'data\config.json', 'octopus-roam-start.ps1')) {
+    foreach ($relativePath in @('octopus-roam.exe', 'data\config.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $runtimePath $relativePath) -PathType Leaf)) {
             throw "Missing runtime file: $relativePath"
         }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $runtimePath 'octopus-roam-start.ps1') -PathType Leaf) `
+        -and -not (Test-Path -LiteralPath (Join-Path $runtimePath 'windows\octopus-roam-start.ps1') -PathType Leaf)) {
+        throw 'Missing runtime launcher: windows\octopus-roam-start.ps1'
     }
     if ([string]::Equals($sourceDirectory, $runtimePath, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Source and runtime directories must be different.'
@@ -75,6 +79,12 @@ try {
             sha256 = (Get-FileHash -LiteralPath $binaryPath -Algorithm SHA256).Hash
         }
         $buildInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PreparedDirectory 'build-info.json') -Encoding UTF8
+        $preparedWindows = Join-Path $PreparedDirectory 'windows'
+        [IO.Directory]::CreateDirectory($preparedWindows) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'octopus-roam.cmd') -Destination $PreparedDirectory
+        foreach ($scriptName in @('octopus-roam-menu.ps1', 'octopus-roam-start.ps1', 'octopus-roam-autostart.ps1', 'send-stop-signal.ps1')) {
+            Copy-Item -LiteralPath (Join-Path $PSScriptRoot $scriptName) -Destination $preparedWindows
+        }
     }
 
     $PreparedDirectory = [IO.Path]::GetFullPath($PreparedDirectory)
@@ -83,6 +93,15 @@ try {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ((Get-FileHash -LiteralPath $newExecutable -Algorithm SHA256).Hash -ne $manifest.sha256) {
         throw 'Prepared executable does not match build-info.json.'
+    }
+    $launcherFiles = @('octopus-roam.cmd', 'windows\octopus-roam-menu.ps1', 'windows\octopus-roam-start.ps1', 'windows\octopus-roam-autostart.ps1', 'windows\send-stop-signal.ps1')
+    $hasLauncherPackage = @( $launcherFiles | Where-Object { Test-Path -LiteralPath (Join-Path $PreparedDirectory $_) } ).Count -gt 0
+    if ($hasLauncherPackage) {
+        foreach ($relativePath in $launcherFiles) {
+            if (-not (Test-Path -LiteralPath (Join-Path $PreparedDirectory $relativePath) -PathType Leaf)) {
+                throw "Incomplete prepared launcher package: $relativePath"
+            }
+        }
     }
     Write-Host "Prepared update: $PreparedDirectory"
     if (-not $Apply) {
@@ -125,14 +144,35 @@ try {
         Copy-Item -LiteralPath $runtimeExecutable -Destination $backupDirectory
         $oldManifest = Join-Path $runtimePath 'build-info.json'
         if (Test-Path -LiteralPath $oldManifest) { Copy-Item -LiteralPath $oldManifest -Destination $backupDirectory }
+        foreach ($launcherEntry in @('octopus-roam.cmd', 'windows', 'enable-autostart.cmd', 'disable-autostart.cmd')) {
+            $existingLauncher = Join-Path $runtimePath $launcherEntry
+            if (Test-Path -LiteralPath $existingLauncher) { Copy-Item -LiteralPath $existingLauncher -Destination $backupDirectory -Recurse }
+        }
         Write-Host "Backup: $backupDirectory"
         Copy-Item -LiteralPath $newExecutable -Destination $runtimeExecutable -Force
         Copy-Item -LiteralPath $manifestPath -Destination $oldManifest -Force
+        if ($hasLauncherPackage) {
+            [IO.Directory]::CreateDirectory((Join-Path $runtimePath 'windows')) | Out-Null
+            foreach ($relativePath in $launcherFiles) {
+                Copy-Item -LiteralPath (Join-Path $PreparedDirectory $relativePath) -Destination (Join-Path $runtimePath $relativePath) -Force
+            }
+            # Remove the superseded entry points only after their replacements
+            # are installed. The files were preserved in the update backup above.
+            foreach ($legacyEntry in @('enable-autostart.cmd', 'disable-autostart.cmd')) {
+                $legacyPath = Join-Path $runtimePath $legacyEntry
+                if (Test-Path -LiteralPath $legacyPath -PathType Leaf) { Remove-Item -LiteralPath $legacyPath -Force }
+            }
+        }
     } finally {
         if ($ownsMutex) { $mutex.ReleaseMutex() }
         $mutex.Dispose()
     }
-    & $powerShellPath -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $runtimePath 'octopus-roam-start.ps1')
+    $packagedLauncher = Join-Path $runtimePath 'windows\octopus-roam-start.ps1'
+    if (Test-Path -LiteralPath $packagedLauncher -PathType Leaf) {
+        & $powerShellPath -NoProfile -ExecutionPolicy RemoteSigned -File $packagedLauncher -RuntimeDirectory $runtimePath
+    } else {
+        & $powerShellPath -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $runtimePath 'octopus-roam-start.ps1')
+    }
     if ($LASTEXITCODE -ne 0) { throw "Restart failed. Inspect runtime logs. Backup: $backupDirectory" }
     Write-Host "Updated to $($manifest.version). Reload the browser; if necessary, use Settings > Version information > Force refresh."
 } catch {

@@ -2,12 +2,13 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Enable', 'Disable', 'Status')]
-    [string]$Action = 'Status'
+    [string]$Action = 'Status',
+    [string]$RuntimeDirectory = $PSScriptRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'octopus-roam-start.ps1')
+. (Join-Path $PSScriptRoot 'octopus-roam-start.ps1') -RuntimeDirectory $RuntimeDirectory
 
 function Get-OctopusStartupDirectory {
     $directory = [Environment]::GetFolderPath('Startup')
@@ -17,11 +18,35 @@ function Get-OctopusStartupDirectory {
 
 function Get-OctopusShortcutDefinition {
     $powershell = Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\v1.0\powershell.exe'
-    $launcher = Join-Path $script:OctopusDirectory 'octopus-roam-start.ps1'
+    $launcher = Get-OctopusScriptPath 'octopus-roam-start.ps1'
+    $arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File "' + $launcher + '"'
+    if (-not [string]::Equals((Split-Path -Parent $launcher), $script:OctopusDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+        $arguments += ' -RuntimeDirectory "' + $script:OctopusDirectory + '"'
+    }
     return [pscustomobject]@{
         TargetPath = $powershell
-        Arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File "' + $launcher + '"'
+        Arguments = $arguments
         WorkingDirectory = $script:OctopusDirectory
+    }
+}
+
+function Get-OctopusAutostartState {
+    $shortcutPath = Join-Path (Get-OctopusStartupDirectory) 'Octopus Roam.lnk'
+    if (-not (Test-Path -LiteralPath $shortcutPath)) { return 'Disabled' }
+    $definition = Get-OctopusShortcutDefinition
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $null
+    try {
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        if ([string]::Equals($shortcut.TargetPath, $definition.TargetPath, [StringComparison]::OrdinalIgnoreCase) `
+            -and [string]::Equals($shortcut.Arguments, $definition.Arguments, [StringComparison]::Ordinal) `
+            -and [string]::Equals($shortcut.WorkingDirectory, $definition.WorkingDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+            return 'Enabled'
+        }
+        return 'Conflict'
+    } finally {
+        if ($null -ne $shortcut) { [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) | Out-Null }
+        [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) | Out-Null
     }
 }
 

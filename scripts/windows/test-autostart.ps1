@@ -54,9 +54,13 @@ $configPath = Join-Path $dataDirectory 'config.json'
 [IO.File]::WriteAllText($configPath, '{')
 Assert-Fails { Invoke-OctopusAutostart -Mode Enable } 'valid JSON'
 Assert-True (-not (Test-Path -LiteralPath $shortcutPath)) 'Invalid JSON created a startup shortcut.'
-[IO.File]::WriteAllText($configPath, '{"server":{"host":"127.0.0.1","port":8080},"database":{"type":"sqlite","path":"data/data.db"}}')
+$portProbe = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+$portProbe.Start()
+$fixturePort = $portProbe.LocalEndpoint.Port
+$portProbe.Stop()
+[IO.File]::WriteAllText($configPath, ('{"server":{"host":"127.0.0.1","port":' + $fixturePort + '},"database":{"type":"sqlite","path":"data/data.db"}}'))
 
-foreach ($file in @('octopus-roam-start.ps1', 'octopus-roam-autostart.ps1', 'enable-autostart.cmd', 'disable-autostart.cmd')) {
+foreach ($file in @('octopus-roam-start.ps1', 'octopus-roam-autostart.ps1')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $script:OctopusDirectory $file)
 }
 Invoke-OctopusAutostart -Mode Enable
@@ -120,27 +124,6 @@ Assert-True ($foreignShortcut -eq [Convert]::ToBase64String([IO.File]::ReadAllBy
 Assert-True (Test-Path -LiteralPath $configPath) 'Deployment data was removed.'
 Assert-True (@(Get-OctopusProcess).Count -eq 0) 'A fixture process is still running.'
 
-# Exercise the double-click wrappers with a harmless fixture instead of changing
-# the real user's startup folder. Verify argument forwarding and exit codes.
-$wrapperDirectory = Join-Path $fixture 'wrappers % !'
-[IO.Directory]::CreateDirectory($wrapperDirectory) | Out-Null
-$wrapperFixture = @'
-param([string]$Action)
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'action.txt'), $Action)
-if ($Action -eq 'Disable') { exit 17 }
-'@
-[IO.File]::WriteAllText((Join-Path $wrapperDirectory 'octopus-roam-autostart.ps1'), $wrapperFixture)
-foreach ($wrapperMode in @('Enable', 'Disable')) {
-    $wrapperName = $wrapperMode.ToLowerInvariant() + '-autostart.cmd'
-    $wrapperPath = Join-Path $wrapperDirectory $wrapperName
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $wrapperName) -Destination $wrapperPath
-    $wrapperCommand = '""' + $wrapperPath + '" <NUL >NUL 2>&1"'
-    $wrapperProcess = Start-Process -FilePath (Join-Path ([Environment]::GetFolderPath('System')) 'cmd.exe') `
-        -ArgumentList @('/d', '/v:off', '/s', '/c', $wrapperCommand) -WindowStyle Hidden -PassThru
-    Assert-True ($wrapperProcess.WaitForExit(15000)) 'Double-click wrapper did not finish.'
-    $expectedExit = if ($wrapperMode -eq 'Disable') { 17 } else { 0 }
-    Assert-True ($wrapperProcess.ExitCode -eq $expectedExit) 'Wrapper lost the PowerShell exit code.'
-    Assert-True ([IO.File]::ReadAllText((Join-Path $wrapperDirectory 'action.txt')) -eq $wrapperMode) 'Wrapper passed an incorrect action.'
-}
-Write-Host 'PASS: shortcuts, idempotence, path quoting, hidden launch, cwd, logs, duplicate start, early exit, ownership, and double-click wrappers.'
+# The single double-click entry is covered by test-menu.ps1.
+Write-Host 'PASS: shortcuts, idempotence, path quoting, hidden launch, cwd, logs, duplicate start, early exit, and ownership.'
 Write-Host "Temporary test artifacts: $fixture"

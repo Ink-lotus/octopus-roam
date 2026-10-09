@@ -43,7 +43,18 @@ docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.i
 
 ### 📦 从 Release 下载
 
-独立版本发布后，从 [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases) 下载对应平台的二进制文件，然后运行：
+独立版本发布后，从 [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases) 下载对应平台的压缩包，并将整个压缩包解压到固定目录。
+
+**Windows：**双击 `octopus-roam.cmd`，输入序号即可操作，无需输入命令：
+
+1. 启动服务。
+2. 启动服务并添加开机自启。
+3. 关闭服务。
+4. 关闭服务并关闭开机自启。
+
+首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。开机自启在当前 Windows 用户登录后生效。菜单会显示运行及自启状态，关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。请保留压缩包中的 `windows` 文件夹，里面是菜单所需的支持文件。
+
+**Linux / macOS 等平台：**在解压目录运行：
 
 ```bash
 ./octopus-roam start
