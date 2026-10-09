@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 func TestEncryptedBackupRoundTripAndTampering(t *testing.T) {
 	password := "  example backup password  "
-	dump := &model.DBDump{Product: "octopus-solo", Version: 1000,
+	dump := &model.DBDump{Product: "octopus-roam", Version: 1000,
 		ChannelKeys: []model.ChannelKey{{ChannelKeyConfig: model.ChannelKeyConfig{Key: "synthetic-secret-in-backup", Enabled: false}}},
 	}
 	raw, err := EncryptBackup(dump, password)
@@ -33,7 +33,7 @@ func TestEncryptedBackupRoundTripAndTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.Product != "octopus-solo" || restored.Version != 1000 || restored.ChannelKeys[0].Key != dump.ChannelKeys[0].Key || restored.ChannelKeys[0].Enabled {
+	if restored.Product != "octopus-roam" || restored.Version != 1000 || restored.ChannelKeys[0].Key != dump.ChannelKeys[0].Key || restored.ChannelKeys[0].Enabled {
 		t.Fatal("round trip lost data")
 	}
 	if _, err := DecryptBackup(raw, strings.TrimSpace(password)); !errors.Is(err, ErrBackupDecrypt) {
@@ -81,7 +81,7 @@ func TestEncryptedBackupRoundTripAndTampering(t *testing.T) {
 }
 
 func TestBackupCryptoLimits(t *testing.T) {
-	dump := &model.DBDump{Product: "octopus-solo", Version: 1000}
+	dump := &model.DBDump{Product: "octopus-roam", Version: 1000}
 	for _, password := range []string{"", "short", strings.Repeat("a", 1025)} {
 		if _, err := EncryptBackup(dump, password); !errors.Is(err, ErrBackupPassword) {
 			t.Fatalf("invalid password: %v", err)

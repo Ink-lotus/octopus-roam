@@ -6,17 +6,17 @@
 
 设置页导出时输入备份口令并再次确认，下载一个加密 JSON 文件。恢复时选择文件、输入该文件的口令，服务端解密并完成已有的增量导入。口令由用户保管，服务器不保存，遗失后无法恢复；页面在成功、失败或离开时清空本次口令，不写入 localStorage、URL 或日志。
 
-导出不再提供明文下载。升级前已有的上游 `0`/`5` JSON 仍可直接导入，无标识 `6` 继续拒绝；程序内部的 `octopus-solo` / `1000` JSON 可导入，但 UI 正常导出只生成加密文件。已有数据库在新程序中直接打开后即可重新导出，不要求先导入旧 `6` 号文件。
+导出不再提供明文下载。升级前已有的上游 `0`/`5` JSON 仍可直接导入，无标识 `6` 继续拒绝；程序内部的 `octopus-roam` / `1000` JSON 可导入，但 UI 正常导出只生成加密文件。已有数据库在新程序中直接打开后即可重新导出，不要求先导入旧 `6` 号文件。
 
 ## 格式与密码学
 
-内层是现有完整 `DBDump`：`product = "octopus-solo"`、`version = 1000`，渠道凭据、API Key、Webhook 认证头及带认证信息的 URL 一并加密。统计与设置同样位于密文内。管理账号、数据库迁移记录及刷新诊断沿用原有备份边界，不加入本格式。
+内层是现有完整 `DBDump`：`product = "octopus-roam"`、`version = 1000`，渠道凭据、API Key、Webhook 认证头及带认证信息的 URL 一并加密。统计与设置同样位于密文内。管理账号、数据库迁移记录及刷新诊断沿用原有备份边界，不加入本格式。
 
 外层 JSON 只有以下字段，不包含渠道名、模型名、凭据或明文摘要：
 
 | 字段 | 值 / 编码 |
 | --- | --- |
-| `product` | `octopus-solo` |
+| `product` | `octopus-roam` |
 | `format` | `encrypted-backup` |
 | `version` | `1`（加密容器版本，与内层 `1000` 分开） |
 | `kdf` | `scrypt-n32768-r8-p1` |
@@ -27,7 +27,7 @@
 
 使用 Go 标准库 `crypto/rand`、`crypto/aes`、`crypto/cipher` 和已有依赖 `golang.org/x/crypto/scrypt`，不新增或升级依赖。scrypt 固定 `N=32768, r=8, p=1`，派生 32 字节密钥，单次内存约 32 MiB。导入不采纳文件提供的任意成本参数，未知 `kdf`/`cipher`/容器版本直接拒绝。
 
-GCM additional data 固定为 UTF-8 字节串 `octopus-solo\nencrypted-backup\n1\nscrypt-n32768-r8-p1\naes-256-gcm`。所有 header 均精确匹配后才解密；salt 参与密钥派生，nonce 参与 GCM 校验。每次导出独立生成 salt 和 nonce；相同口令及内容也得到不同密文。禁止复用密钥/nonce、固定随机数、忽略认证失败或回退明文。
+GCM additional data 固定为 UTF-8 字节串 `octopus-roam\nencrypted-backup\n1\nscrypt-n32768-r8-p1\naes-256-gcm`。所有 header 均精确匹配后才解密；salt 参与密钥派生，nonce 参与 GCM 校验。每次导出独立生成 salt 和 nonce；相同口令及内容也得到不同密文。禁止复用密钥/nonce、固定随机数、忽略认证失败或回退明文。
 
 口令按 UTF-8 原始字节使用，不 trim、不做 Unicode 归一化。导出口令要求至少 12 个 Unicode 字符，最多 1024 字节；导入只限制非空且不超过 1024 字节，兼顾其他兼容工具产生的旧文件。前端校验用于交互，服务端重复校验。
 
@@ -39,7 +39,7 @@ GCM additional data 固定为 UTF-8 字节串 `octopus-solo\nencrypted-backup\n1
 | 原明文导出 | `GET /api/v1/setting/export` 返回 `405`，不生成任何备份内容，并提示使用口令导出 |
 | 导入 | 保留 `POST /api/v1/setting/import`；multipart 包含 `file`，加密文件额外包含 `password` 字段 |
 | 旧脚本导入 | 原有裸 JSON 导入继续接受已支持的明文内容；加密容器通过 multipart 上传，避免把口令放入查询参数或自定义日志头 |
-| 成功下载 | `application/json`，文件名 `octopus-solo-backup-<UTC时间>.encrypted.json`，`Cache-Control: no-store` |
+| 成功下载 | `application/json`，文件名 `octopus-roam-backup-<UTC时间>.encrypted.json`，`Cache-Control: no-store` |
 | 成功导入 | 保留 `{code,message,data:{rows_affected}}` 响应，缓存重载与路由重置沿用现有成功路径 |
 
 前端分别设置“导出口令”“再次输入口令”“导入口令”及可访问的 label，输入框 `type=password`、合适的 autocomplete。提示备份口令不是登录密码且无法找回；匹配失败、口令太短时在提交前显示可理解的错误。旧文件导入可留空口令。三份 locale 同步，不在 UI 展示 KDF 参数等实现细节。

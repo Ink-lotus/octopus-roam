@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 )
 
 func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
@@ -29,27 +29,27 @@ func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
 		content []string
 	}{
 		{
-			name: "manual failure", title: "🚨 Octopus 故障告警",
+			name: "manual failure", title: "🚨 Octopus Roam 故障告警",
 			event:   Event{Event: "failure", Mode: model.GroupModeManual, FailureStreak: 12, Threshold: 10, RetryCount: 11},
 			content: []string{"事件：故障告警", "模式：手动模式", "连续失败：12 次", "失效成员：不适用", "通知阈值：10 次", "重试次数：11 次"},
 		},
 		{
-			name: "manual recovery", title: "✅ Octopus 恢复通知",
+			name: "manual recovery", title: "✅ Octopus Roam 恢复通知",
 			event:   Event{Event: "recovery", Mode: model.GroupModeManual, Threshold: 10, RetryCount: 2},
 			content: []string{"事件：恢复通知", "模式：手动模式", "连续失败：0 次", "失效成员：不适用", "通知阈值：10 次", "重试次数：2 次", "最近错误"},
 		},
 		{
-			name: "failover failure", title: "🚨 Octopus 故障告警",
+			name: "failover failure", title: "🚨 Octopus Roam 故障告警",
 			event:   Event{Event: "failure", Mode: model.GroupModeFailover, FailedChannels: 4, Threshold: 3, RetryCount: 7},
 			content: []string{"模式：故障转移", "连续失败：不适用", "失效成员：4 个", "通知阈值：3 个", "重试次数：7 次"},
 		},
 		{
-			name: "failover recovery", title: "✅ Octopus 恢复通知",
+			name: "failover recovery", title: "✅ Octopus Roam 恢复通知",
 			event:   Event{Event: "recovery", Mode: model.GroupModeFailover, FailedChannels: 2, Threshold: 3, RetryCount: 1},
 			content: []string{"模式：故障转移", "连续失败：不适用", "失效成员：2 个", "通知阈值：3 个", "重试次数：1 次"},
 		},
 		{
-			name: "test preview", title: "🧪 Octopus 测试通知", event: Event{Event: "test"},
+			name: "test preview", title: "🧪 Octopus Roam 测试通知", event: Event{Event: "test"},
 			content: []string{"测试预览", "示例数据", "事件：测试通知", "示例分组", "示例渠道", "示例错误"},
 		},
 	} {
@@ -69,7 +69,7 @@ func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
 			if err := json.Unmarshal(body, &decoded); err != nil {
 				t.Fatalf("default template produced invalid JSON: %s (%v)", body, err)
 			}
-			if decoded["title"] != test.title || decoded["from"] != "octopus-solo" {
+			if decoded["title"] != test.title || decoded["from"] != "octopus-roam" {
 				t.Fatalf("rendered notification metadata = %#v", decoded)
 			}
 			content, ok := decoded["content"].(string)

@@ -39,7 +39,7 @@ func PrintBanner() {
 	fmt.Print(Reset)
 
 	fmt.Print(Blue + Bold)
-	fmt.Printf("          🚀 %s - %s\n", APP_NAME, APP_DESC)
+	fmt.Printf("          🚀 %s - %s\n", APP_DISPLAY_NAME, APP_DESC)
 	fmt.Print(Reset)
 
 	fmt.Print(Dim)

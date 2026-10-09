@@ -12,21 +12,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/relay"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/relay"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
 )
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "octopus-webhook-test")
+	dir, err := os.MkdirTemp("", "octopus-roam-webhook-test")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "create webhook test directory: %v\n", err)
 		os.Exit(1)
 	}
-	if err := db.InitDB("sqlite", filepath.Join(dir, "octopus.db"), false); err != nil {
+	if err := db.InitDB("sqlite", filepath.Join(dir, "octopus-roam.db"), false); err != nil {
 		fmt.Fprintf(os.Stderr, "initialize webhook test database: %v\n", err)
 		_ = os.RemoveAll(dir)
 		os.Exit(1)

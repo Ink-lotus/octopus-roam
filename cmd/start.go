@@ -1,13 +1,13 @@
 package cmd
 
 import (
-	"github.com/bestruirui/octopus/internal/conf"
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/server"
-	"github.com/bestruirui/octopus/internal/task"
-	"github.com/bestruirui/octopus/internal/utils/shutdown"
-	"github.com/bestruirui/octopus/internal/webhook"
+	"github.com/Ink-lotus/octopus-roam/internal/conf"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/server"
+	"github.com/Ink-lotus/octopus-roam/internal/task"
+	"github.com/Ink-lotus/octopus-roam/internal/utils/shutdown"
+	"github.com/Ink-lotus/octopus-roam/internal/webhook"
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 )

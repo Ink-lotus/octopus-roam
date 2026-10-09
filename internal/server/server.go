@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/bestruirui/octopus/internal/conf"
-	_ "github.com/bestruirui/octopus/internal/server/handlers"
-	"github.com/bestruirui/octopus/internal/server/middleware"
-	"github.com/bestruirui/octopus/internal/server/router"
-	"github.com/bestruirui/octopus/static"
+	"github.com/Ink-lotus/octopus-roam/internal/conf"
+	_ "github.com/Ink-lotus/octopus-roam/internal/server/handlers"
+	"github.com/Ink-lotus/octopus-roam/internal/server/middleware"
+	"github.com/Ink-lotus/octopus-roam/internal/server/router"
+	"github.com/Ink-lotus/octopus-roam/static"
 	"github.com/charmbracelet/log"
 	"github.com/gin-gonic/gin"
 )

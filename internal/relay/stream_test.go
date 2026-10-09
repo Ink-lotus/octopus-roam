@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 // TestStreamingRetryBeforeFirstEventCommit 覆盖流式路径的首帧前重试:

@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/dlclark/regexp2"
 )
 

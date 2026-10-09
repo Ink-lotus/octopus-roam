@@ -15,6 +15,6 @@ export const useChannelPreferences = create<ChannelPreferences>()(
                 autoAddGroups: { ...state.autoAddGroups, [channelId]: enabled },
             })),
         }),
-        { name: 'octopus-channel-preferences' },
+        { name: 'octopus-roam-channel-preferences' },
     ),
 );

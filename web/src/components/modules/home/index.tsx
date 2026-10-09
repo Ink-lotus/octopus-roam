@@ -86,7 +86,7 @@ export function HomeActions() {
         if (!preview) return;
         const link = document.createElement('a');
         link.href = preview.url;
-        link.download = `octopus-${dayjs().format('YYYYMMDD')}.png`;
+        link.download = `octopus-roam-${dayjs().format('YYYYMMDD')}.png`;
         link.click();
     };
 
@@ -137,7 +137,7 @@ export function HomeActions() {
                     {/* 分享图抬头, 与应用顶栏一致的标识和名称。 */}
                     <div className="mb-4 flex items-center gap-x-2 px-2">
                         <Logo size={48} />
-                        <span className="text-3xl font-bold">Octopus</span>
+                        <span className="text-3xl font-bold">Octopus Roam</span>
                     </div>
                     <HomeSections />
                 </div>

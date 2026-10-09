@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 )
 
 const (
@@ -25,7 +25,7 @@ const (
 )
 
 const DefaultBodyTemplate = `{
-  "title": {{ if eq .Event "failure" }}"🚨 Octopus 故障告警"{{ else if eq .Event "recovery" }}"✅ Octopus 恢复通知"{{ else if eq .Event "test" }}"🧪 Octopus 测试通知"{{ else }}"📣 Octopus 通知"{{ end }},
+  "title": {{ if eq .Event "failure" }}"🚨 Octopus Roam 故障告警"{{ else if eq .Event "recovery" }}"✅ Octopus Roam 恢复通知"{{ else if eq .Event "test" }}"🧪 Octopus Roam 测试通知"{{ else }}"📣 Octopus Roam 通知"{{ end }},
   "content": {{ if eq .Event "test" }}
     {{ printf "🧪 测试预览\n以下分组、渠道、计数和错误为示例数据。\n\n事件：测试通知\n🕒 时间：%s\n\n📦 分组：示例分组（ID：1）\n⚙️ 模式：手动模式\n🔌 当前渠道：示例渠道\n\n📊 故障统计\n连续失败：10 次\n失效成员：不适用\n通知阈值：10 次\n重试次数：9 次\n\n📝 最近错误\n示例错误：上游请求超时" .Timestamp | json }}
   {{ else }}
@@ -35,7 +35,7 @@ const DefaultBodyTemplate = `{
     {{ else if eq .Mode "failover" }}{{ $mode = "故障转移" }}{{ $failed = printf "%d 个" .FailedChannels }}{{ $threshold = printf "%d 个" .Threshold }}{{ end }}
     {{ printf "事件：%s\n🕒 时间：%s\n\n📦 分组：%s（ID：%d）\n⚙️ 模式：%s\n🔌 当前渠道：%s\n\n📊 故障统计\n连续失败：%s\n失效成员：%s\n通知阈值：%s\n重试次数：%d 次\n\n📝 最近错误\n%s" $event .Timestamp (or .GroupName "未提供") .GroupID (or $mode "未提供") (or .CurrentChannel "未提供") $failures $failed $threshold .RetryCount (or .LastError "无错误详情") | json }}
   {{ end }},
-  "from": "octopus-solo"
+  "from": "octopus-roam"
 }`
 
 type Event struct {

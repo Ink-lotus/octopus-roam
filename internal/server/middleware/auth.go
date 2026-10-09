@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/server/auth"
-	"github.com/bestruirui/octopus/internal/server/resp"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/server/auth"
+	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
 	"github.com/gin-gonic/gin"
 )
 

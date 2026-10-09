@@ -1,8 +1,8 @@
 // 缓存策略或预缓存结构变化时递增版本，以便激活阶段清理旧缓存。
 const CACHE_VERSION = 'v2';
 const CACHE_NAMES = {
-    shell: `octopus-shell-${CACHE_VERSION}`,
-    static: `octopus-static-${CACHE_VERSION}`,
+    shell: `octopus-roam-shell-${CACHE_VERSION}`,
+    static: `octopus-roam-static-${CACHE_VERSION}`,
 };
 
 // 应用壳除构建入口外还必须包含的固定 PWA 资源。
@@ -54,7 +54,7 @@ self.addEventListener('activate', (event) => {
         const cacheNames = await caches.keys();
         await Promise.all(
             cacheNames
-                .filter((name) => name.startsWith('octopus-') && !currentCaches.has(name))
+                .filter((name) => name.startsWith('octopus-roam-') && !currentCaches.has(name))
                 .map((name) => caches.delete(name)),
         );
         await self.clients.claim();

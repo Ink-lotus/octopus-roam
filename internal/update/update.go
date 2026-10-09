@@ -10,15 +10,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/conf"
-	"github.com/bestruirui/octopus/internal/rhttp"
+	"github.com/Ink-lotus/octopus-roam/internal/conf"
+	"github.com/Ink-lotus/octopus-roam/internal/rhttp"
 	"github.com/charmbracelet/log"
 )
 
-var ErrSelfUpdateDisabled = errors.New("automatic updates are disabled for Octopus Solo; install an independent release manually")
+var ErrSelfUpdateDisabled = errors.New("automatic updates are disabled for Octopus Roam; install an independent release manually")
 
 type LatestInfo struct {
 	TagName     string `json:"tag_name"`
@@ -27,7 +26,7 @@ type LatestInfo struct {
 	Message     string `json:"message"`
 }
 
-var github_pat = os.Getenv(strings.ToUpper(conf.APP_NAME) + "_GITHUB_PAT")
+var github_pat = os.Getenv(conf.ENV_PREFIX + "_GITHUB_PAT")
 
 // doRequestWithFallback performs an HTTP GET request, first without proxy, then with proxy if failed.
 func doRequestWithFallback(url string) ([]byte, error) {

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/utils/cache"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/utils/cache"
 )
 
 var apiKeyCache = cache.New[int, model.APIKey](16)

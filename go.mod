@@ -1,4 +1,4 @@
-module github.com/bestruirui/octopus
+module github.com/Ink-lotus/octopus-roam
 
 go 1.26.4
 

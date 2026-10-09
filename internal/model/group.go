@@ -63,10 +63,10 @@ const (
 	RetryModeExponential RetryMode = "exponential" // 每次重试的等待按固定倍数递增, 直到最大间隔。
 )
 
-// 指数退避的取值边界: 初始间隔默认 1 秒, 最大间隔默认 600 秒并以此为硬上限。
+// 指数退避默认从 1 秒开始, 最大间隔默认 600 秒; 两者均可按需配置。
 const (
 	RetryInitialIntervalSecondsDefault = 1
-	RetryMaxIntervalSecondsLimit       = 600
+	RetryMaxIntervalSecondsDefault     = 600
 )
 
 // 分组 Relay 的持久化配置，数据库中以 JSON 存储。
@@ -92,9 +92,9 @@ func DefaultGroupRelayConfig() GroupRelayConfig {
 		MemberStreamFirstEventTimeoutSeconds:  30,
 		MemberCooldownSeconds:                 60,
 		MemberAffinitySeconds:                 0,
-		RetryMode:                             RetryModeFixed,
+		RetryMode:                             RetryModeExponential,
 		RetryInitialIntervalSeconds:           RetryInitialIntervalSecondsDefault,
-		RetryMaxIntervalSeconds:               RetryMaxIntervalSecondsLimit,
+		RetryMaxIntervalSeconds:               RetryMaxIntervalSecondsDefault,
 		ManualMaxAttempts:                     0,
 	}
 }
@@ -115,16 +115,16 @@ func NormalizeGroupRelayConfig(config *GroupRelayConfig) {
 	if config.RetryMode != RetryModeFixed && config.RetryMode != RetryModeExponential {
 		config.RetryMode = RetryModeFixed
 	}
-	// 初始间隔同样以最大间隔的硬上限收口: 首次等待本就不可能超过它, 且无上限的取值在换算为
-	// time.Duration 时会回绕。与最大间隔字段的夹取保持同一套边界。
+	// 600 秒只用于缺省回填; 初始间隔不超过用户配置的最大间隔。
+	// 秒数转换及指数翻倍的溢出保护由实际计算等待时间的 RetryDelay 处理。
+	if config.RetryMaxIntervalSeconds < 1 {
+		config.RetryMaxIntervalSeconds = RetryMaxIntervalSecondsDefault
+	}
 	if config.RetryInitialIntervalSeconds < RetryInitialIntervalSecondsDefault {
 		config.RetryInitialIntervalSeconds = RetryInitialIntervalSecondsDefault
 	}
-	if config.RetryInitialIntervalSeconds > RetryMaxIntervalSecondsLimit {
-		config.RetryInitialIntervalSeconds = RetryMaxIntervalSecondsLimit
-	}
-	if config.RetryMaxIntervalSeconds < 1 || config.RetryMaxIntervalSeconds > RetryMaxIntervalSecondsLimit {
-		config.RetryMaxIntervalSeconds = RetryMaxIntervalSecondsLimit
+	if config.RetryInitialIntervalSeconds > config.RetryMaxIntervalSeconds {
+		config.RetryInitialIntervalSeconds = config.RetryMaxIntervalSeconds
 	}
 	if config.MemberMaxAttempts < 1 {
 		config.MemberMaxAttempts = defaults.MemberMaxAttempts
@@ -163,8 +163,8 @@ func ValidateGroupRelayConfig(config GroupRelayConfig, mode GroupMode) error {
 	if config.MemberRetryIntervalSeconds < 0 || config.MemberNonStreamResponseTimeoutSeconds < 0 || config.MemberStreamFirstEventTimeoutSeconds < 0 {
 		return fmt.Errorf("%w: retry interval and response timeouts cannot be negative", ErrInvalidGroupConfig)
 	}
-	if config.RetryInitialIntervalSeconds < 0 || config.RetryInitialIntervalSeconds > RetryMaxIntervalSecondsLimit || config.RetryMaxIntervalSeconds < 0 || config.RetryMaxIntervalSeconds > RetryMaxIntervalSecondsLimit {
-		return fmt.Errorf("%w: exponential retry intervals must be between 0 and 600 seconds", ErrInvalidGroupConfig)
+	if config.RetryInitialIntervalSeconds < 0 || config.RetryMaxIntervalSeconds < 0 {
+		return fmt.Errorf("%w: exponential retry intervals cannot be negative", ErrInvalidGroupConfig)
 	}
 	if mode == GroupModeManual && config.ManualMaxAttempts < 0 {
 		return fmt.Errorf("%w: manual attempts cannot be negative", ErrInvalidGroupConfig)

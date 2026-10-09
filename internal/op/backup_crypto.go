@@ -10,7 +10,7 @@ import (
 	"io"
 	"unicode/utf8"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"golang.org/x/crypto/scrypt"
 )
 
@@ -19,7 +19,7 @@ const (
 	MaxBackupRequestBytes   = 96 << 20
 	backupKDF               = "scrypt-n32768-r8-p1"
 	backupCipher            = "aes-256-gcm"
-	backupAAD               = "octopus-solo\nencrypted-backup\n1\nscrypt-n32768-r8-p1\naes-256-gcm"
+	backupAAD               = "octopus-roam\nencrypted-backup\n1\nscrypt-n32768-r8-p1\naes-256-gcm"
 )
 
 var (

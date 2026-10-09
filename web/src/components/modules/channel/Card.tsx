@@ -42,6 +42,7 @@ function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
     const [openInEditing, setOpenInEditing] = useState(false);
     const autoAddGroups = useChannelPreferences((preferences) => preferences.autoAddGroups[channel.channel_id] ?? true);
     const [showRefreshDetails, setShowRefreshDetails] = useState(false);
+    const refreshDetailsRef = useRef<HTMLDivElement>(null);
     const refreshStatus = useChannelRefreshStatus(channel.channel_id, showRefreshDetails);
     const [localRefresh, setLocalRefresh] = useState<{ result: ChannelModelRefreshResult | null; previousFinishedAt?: string } | null>(null);
     const lastRefresh = channel.refresh?.last;
@@ -244,6 +245,12 @@ function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
                             </Dialog.Trigger>
                             {/* 结果框在卡片内向上展开，顶部为渠道名称预留空间。 */}
                             <Dialog.Content
+                                ref={refreshDetailsRef}
+                                tabIndex={-1}
+                                onOpenAutoFocus={(event) => {
+                                    event.preventDefault();
+                                    refreshDetailsRef.current?.focus({ preventScroll: true });
+                                }}
                                 aria-describedby={undefined}
                                 className={`absolute inset-x-2 bottom-2 z-50 flex max-h-[calc(100%-3.5rem)] flex-col gap-2 rounded-2xl border p-3 text-xs [overflow-wrap:anywhere] shadow-xl outline-none ${refreshResult
                                     ? refreshResult.success

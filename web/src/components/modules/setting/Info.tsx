@@ -5,7 +5,7 @@ import { useNowVersion } from '@/api/update';
 import { Button } from '@/components/ui/button';
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'unknown'; // 当前前端构建对应的应用版本。
-const GITHUB_REPO = (import.meta.env.VITE_GITHUB_REPO || 'https://github.com/Ink-lotus/octopus-solo').replace(/\/+$/, '');
+const GITHUB_REPO = (import.meta.env.VITE_GITHUB_REPO || 'https://github.com/Ink-lotus/octopus-roam').replace(/\/+$/, '');
 
 // SettingInfo 展示版本信息，并在更新后清理本项目的浏览器缓存。
 export function SettingInfo() {
@@ -17,11 +17,11 @@ export function SettingInfo() {
     // 前端版本与后端当前版本不一致 → 浏览器缓存问题
     const isCacheMismatch = !!backendNowVersion && backendNowVersion !== APP_VERSION;
 
-    // clearCacheAndReload 清理 Octopus 缓存和根作用域注册后刷新页面。
+    // clearCacheAndReload 清理 Octopus Roam 缓存和根作用域注册后刷新页面。
     const clearCacheAndReload = async () => {
         if ('caches' in window) {
             const names = await caches.keys();
-            await Promise.all(names.filter((name) => name.startsWith('octopus-')).map((name) => caches.delete(name)));
+            await Promise.all(names.filter((name) => name.startsWith('octopus-roam-')).map((name) => caches.delete(name)));
         }
 
         if ('serviceWorker' in navigator) {

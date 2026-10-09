@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="web/public/logo.svg" alt="Octopus Logo" width="120" height="120">
+<img src="web/public/logo.svg" alt="Octopus Roam Logo" width="120" height="120">
 
-### Octopus Solo
+### Octopus Roam
 
 **为个人打造的简单、美观、优雅的 LLM API 聚合服务**
 
@@ -10,7 +10,7 @@
 
 </div>
 
-Octopus Solo 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；当前 R1 正在验收，尚未发布独立候选版或正式版。参见[变更日志](CHANGELOG.md)、[升级与备份说明](docs/upgrade-r1.md)和 [R1 验收记录](plan/r1-result.md)。
+Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；当前 R1 正在验收，尚未发布独立候选版或正式版。参见[变更日志](CHANGELOG.md)、[升级与备份说明](docs/upgrade-r1.md)和 [R1 验收记录](plan/r1-result.md)。
 
 
 ## ✨ 特性
@@ -35,18 +35,18 @@ Octopus Solo 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.
 独立版本发布后使用其镜像和明确版本号，替换下方 `<version>`：
 
 ```bash
-docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-solo:<version>
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:<version>
 ```
 
-`docker-compose.yml` 使用同一独立镜像，默认标签为 `latest`；可通过 `OCTOPUS_VERSION` 指定已发布标签，例如 `v0.1.0-rc.1`。候选版不会更新 `latest`，首个正式版发布前须指定候选版标签。当前镜像尚未发布。
+`docker-compose.yml` 使用同一独立镜像，默认标签为 `latest`；可通过 `OCTOPUS_ROAM_VERSION` 指定已发布标签，例如 `v0.1.0-rc.1`。候选版不会更新 `latest`，首个正式版发布前须指定候选版标签。当前镜像尚未发布。
 
 
 ### 📦 从 Release 下载
 
-独立版本发布后，从 [Octopus Solo Releases](https://github.com/Ink-lotus/octopus-solo/releases) 下载对应平台的二进制文件，然后运行：
+独立版本发布后，从 [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases) 下载对应平台的二进制文件，然后运行：
 
 ```bash
-./octopus start
+./octopus-roam start
 ```
 
 ### 🛠️ 源码运行
@@ -135,7 +135,7 @@ http://localhost:5173
 {
   "database": {
     "type": "mysql",
-    "path": "root:password@tcp(127.0.0.1:3306)/octopus"
+    "path": "root:password@tcp(127.0.0.1:3306)/octopus-roam"
   }
 }
 ```
@@ -146,7 +146,7 @@ http://localhost:5173
 {
   "database": {
     "type": "postgres",
-    "path": "postgresql://user:password@localhost:5432/octopus?sslmode=disable"
+    "path": "postgresql://user:password@localhost:5432/octopus-roam?sslmode=disable"
   }
 }
 ```
@@ -155,16 +155,16 @@ http://localhost:5173
 
 **环境变量：**
 
-所有配置项均可通过环境变量覆盖，格式为 `OCTOPUS_` + 配置路径（用 `_` 连接）：
+所有配置项均可通过环境变量覆盖，格式为 `OCTOPUS_ROAM_` + 配置路径（用 `_` 连接）：
 
 | 环境变量 | 对应配置项 |
 |----------|-----------|
-| `OCTOPUS_SERVER_PORT` | `server.port` |
-| `OCTOPUS_SERVER_HOST` | `server.host` |
-| `OCTOPUS_DATABASE_TYPE` | `database.type` |
-| `OCTOPUS_DATABASE_PATH` | `database.path` |
-| `OCTOPUS_LOG_LEVEL` | `log.level` |
-| `OCTOPUS_GITHUB_PAT` | 用于获取最新版本时的速率限制(可选) |
+| `OCTOPUS_ROAM_SERVER_PORT` | `server.port` |
+| `OCTOPUS_ROAM_SERVER_HOST` | `server.host` |
+| `OCTOPUS_ROAM_DATABASE_TYPE` | `database.type` |
+| `OCTOPUS_ROAM_DATABASE_PATH` | `database.path` |
+| `OCTOPUS_ROAM_LOG_LEVEL` | `log.level` |
+| `OCTOPUS_ROAM_GITHUB_PAT` | 用于获取最新版本时的速率限制(可选) |
 
 
 ## 📸 界面预览
@@ -310,10 +310,10 @@ import os
 
 client = OpenAI(   
     base_url="http://127.0.0.1:8080/v1",   
-    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
+    api_key="sk-octopus-roam-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
 )
 completion = client.chat.completions.create(
-    model="octopus-openai",  // 填写正确的分组名称
+    model="octopus-roam-openai",  // 填写正确的分组名称
     messages = [
         {"role": "user", "content": "Hello"},
     ],
@@ -329,14 +329,14 @@ print(completion.choices[0].message.content)
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-",
+    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-roam-",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "ANTHROPIC_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_SMALL_FAST_MODEL": "octopus-haiku-4-5",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "octopus-haiku-4-5"
+    "ANTHROPIC_MODEL": "octopus-roam-sonnet-4-5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "octopus-roam-haiku-4-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "octopus-roam-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "octopus-roam-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "octopus-roam-haiku-4-5"
   }
 }
 ```
@@ -348,16 +348,16 @@ print(completion.choices[0].message.content)
 ```toml
 model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
-model_provider = "octopus"
+model_provider = "octopus-roam"
 preferred_auth_method = "apikey"
 
-[model_providers.octopus]
+[model_providers.octopus-roam]
 base_url = "http://127.0.0.1:8080/v1"
-name = "octopus"
+name = "octopus-roam"
 supports_websockets = false
 requires_openai_auth = true
 wire_api = "responses"
-experimental_bearer_token = "sk-octopus-"
+experimental_bearer_token = "sk-octopus-roam-"
 ```
 编辑 `~/.codex/auth.json`
 

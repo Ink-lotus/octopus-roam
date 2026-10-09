@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"gorm.io/gorm/logger"
 )
 

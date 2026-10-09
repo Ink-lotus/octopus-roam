@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"gorm.io/gorm"
 )
 
@@ -61,6 +61,7 @@ func TestRouteDefaultsOnlyAffectNewGroupsWithoutApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := rawGroupConfig(t, existing.ID)
+	config.RetryMode = model.RetryModeFixed
 	config.MemberRetryIntervalSeconds = 17
 	config.ManualMaxAttempts = 5
 	config.MemberAffinitySeconds = 900
@@ -244,6 +245,9 @@ func TestRouteDefaultsBackupAndInvalidWrites(t *testing.T) {
 	baseline := keepRouteDefaults(t)
 	custom := baseline
 	custom.MemberRetryIntervalSeconds += 7
+	custom.RetryMode = model.RetryModeExponential
+	custom.RetryInitialIntervalSeconds = 1800
+	custom.RetryMaxIntervalSeconds = 3600
 	if _, _, err := GroupRouteDefaultsSet(custom, false, t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +279,7 @@ func TestRouteDefaultsBackupAndInvalidWrites(t *testing.T) {
 	if config, _ := GroupRouteDefaultsGet(); config != custom {
 		t.Fatal("旧备份缺键时覆盖了已有默认策略")
 	}
-	for _, invalid := range []string{"null", "[]", "{broken", `{"manual_max_attempts":-1}`, `{"member_cooldown_seconds":-1}`, `{"retry_max_interval_seconds":601}`, `{"unknown":1}`} {
+	for _, invalid := range []string{"null", "[]", "{broken", `{"manual_max_attempts":-1}`, `{"member_cooldown_seconds":-1}`, `{"retry_max_interval_seconds":-1}`, `{"retry_initial_interval_seconds":-1}`, `{"retry_max_interval_seconds":1.5}`, `{"retry_max_interval_seconds":9223372036854775808}`, `{"unknown":1}`} {
 		if _, err := DBImportIncremental(t.Context(), &model.DBDump{Settings: []model.Setting{{Key: model.SettingKeyGroupRouteDefaults, Value: invalid}}}); err == nil {
 			t.Fatalf("备份导入接受非法默认策略 %q", invalid)
 		}

@@ -1,4 +1,4 @@
-# Octopus Solo 产品版本路线图
+# Octopus Roam 产品版本路线图
 
 本文档是当前产品线的版本入口。旧的 `v1.0plan.md` 和 `phase*.md` 保留为上游二开阶段的历史契约与验收记录；新的功能开发按本文档的里程碑序列推进。
 
@@ -54,7 +54,7 @@
 
 前两条已经精确记录改动次数，因此对外版本号不承担计数职责，只回答「用户能否安全升级」。这也是它可以走得比里程碑慢的原因。
 
-R1 已通过 `product: "octopus-solo"` 和内容版本 `1000` 隔离备份身份。无标识只接受已审计的上游 `0`/`5`；无标识 `6` 明确拒绝。导出增加口令加密容器，内容版本不因加密容器版本而混用。见[身份设计](../docs/superpowers/specs/2026-09-26-backup-format-identity-design.md)与[加密设计](../docs/backup-encryption-design.md)。
+R1 已通过 `product: "octopus-roam"` 和内容版本 `1000` 隔离备份身份。无标识只接受已审计的上游 `0`/`5`；无标识 `6` 明确拒绝。导出增加口令加密容器，内容版本不因加密容器版本而混用。见[身份设计](../docs/superpowers/specs/2026-09-26-backup-format-identity-design.md)与[加密设计](../docs/backup-encryption-design.md)。
 
 ### 强制升 minor 的判据
 

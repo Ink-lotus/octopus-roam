@@ -26,12 +26,12 @@ func platformInt(v int64) int {
 }
 
 // TestDefaultGroupRelayConfigPinsRetryDefaults 锁定新分组使用的重试默认值:
-// 默认固定模式并沿用既有 3 秒间隔, 指数参数取 1 秒起, 600 秒封顶, 手动上限 0 表示不限额。
+// 默认指数模式取 1 秒起、600 秒封顶, 固定模式的备用间隔为 3 秒, 手动上限 0 表示不限额。
 func TestDefaultGroupRelayConfigPinsRetryDefaults(t *testing.T) {
 	defaults := DefaultGroupRelayConfig()
 
-	if defaults.RetryMode != RetryModeFixed {
-		t.Fatalf("默认重试模式 = %q, 期望 %q", defaults.RetryMode, RetryModeFixed)
+	if defaults.RetryMode != RetryModeExponential {
+		t.Fatalf("默认重试模式 = %q, 期望 %q", defaults.RetryMode, RetryModeExponential)
 	}
 	if defaults.MemberRetryIntervalSeconds != 3 {
 		t.Fatalf("默认固定重试间隔 = %d, 期望 3", defaults.MemberRetryIntervalSeconds)
@@ -107,7 +107,10 @@ func TestNormalizeGroupRelayConfigBounds(t *testing.T) {
 		{"初始间隔超上限夹到 600", GroupRelayConfig{RetryMode: RetryModeExponential, RetryInitialIntervalSeconds: 5000}, RetryModeExponential, 600, 600, 0},
 		{"初始间隔为超大值夹到 600", GroupRelayConfig{RetryMode: RetryModeExponential, RetryInitialIntervalSeconds: platformInt(9223372037)}, RetryModeExponential, 600, 600, 0},
 		{"最大间隔为零补 600", GroupRelayConfig{RetryMode: RetryModeExponential, RetryMaxIntervalSeconds: 0}, RetryModeExponential, 1, 600, 0},
-		{"最大间隔超上限夹到 600", GroupRelayConfig{RetryMode: RetryModeExponential, RetryMaxIntervalSeconds: 5000}, RetryModeExponential, 1, 600, 0},
+		{"最大间隔超过 600 仍保留", GroupRelayConfig{RetryMode: RetryModeExponential, RetryMaxIntervalSeconds: 5000}, RetryModeExponential, 1, 5000, 0},
+		{"长初始间隔被保留", GroupRelayConfig{RetryMode: RetryModeExponential, RetryInitialIntervalSeconds: 3600, RetryMaxIntervalSeconds: 86400}, RetryModeExponential, 3600, 86400, 0},
+		{"初始间隔遵守自定义上限", GroupRelayConfig{RetryMode: RetryModeExponential, RetryInitialIntervalSeconds: 7200, RetryMaxIntervalSeconds: 3600}, RetryModeExponential, 3600, 3600, 0},
+		{"最大 int 配置被保留", GroupRelayConfig{RetryMode: RetryModeExponential, RetryInitialIntervalSeconds: math.MaxInt, RetryMaxIntervalSeconds: math.MaxInt}, RetryModeExponential, math.MaxInt, math.MaxInt, 0},
 		{"最大间隔在范围内保留", GroupRelayConfig{RetryMode: RetryModeExponential, RetryMaxIntervalSeconds: 30}, RetryModeExponential, 1, 30, 0},
 		{"手动上限为负归零", GroupRelayConfig{ManualMaxAttempts: -3}, RetryModeFixed, 1, 600, 0},
 		{"手动上限为正保留", GroupRelayConfig{ManualMaxAttempts: 5}, RetryModeFixed, 1, 600, 5},
@@ -131,6 +134,27 @@ func TestNormalizeGroupRelayConfigBounds(t *testing.T) {
 				t.Fatalf("手动上限 = %d, 期望 %d", config.ManualMaxAttempts, testCase.wantManual)
 			}
 		})
+	}
+}
+
+func TestValidateExponentialRetryIntervals(t *testing.T) {
+	for _, mode := range []GroupMode{GroupModeManual, GroupModeFailover} {
+		for _, seconds := range []int{0, 601, 3600, 86400, math.MaxInt} {
+			config := DefaultGroupRelayConfig()
+			config.RetryInitialIntervalSeconds = seconds
+			config.RetryMaxIntervalSeconds = seconds
+			if err := ValidateGroupRelayConfig(config, mode); err != nil {
+				t.Errorf("%s 拒绝合法指数间隔 %d: %v", mode, seconds, err)
+			}
+		}
+		for _, config := range []GroupRelayConfig{
+			{RetryMode: RetryModeExponential, RetryInitialIntervalSeconds: -1},
+			{RetryMode: RetryModeExponential, RetryMaxIntervalSeconds: -1},
+		} {
+			if err := ValidateGroupRelayConfig(config, mode); err == nil {
+				t.Errorf("%s 接受负数指数间隔: %+v", mode, config)
+			}
+		}
 	}
 }
 

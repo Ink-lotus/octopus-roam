@@ -1,15 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-readonly APP_NAME="octopus" # 发布产物和容器内的可执行文件名。
+readonly APP_NAME="octopus-roam" # 发布产物和容器内的可执行文件名。
+readonly MODULE_PATH="$(go list -m)" # 模块路径独立于程序名。
 readonly OUTPUT_DIR="build" # 所有构建、归档和容器输入的根目录。
 readonly VERSION="$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev')" # 当前发布版本。
 readonly COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" # 当前提交短哈希。
-readonly LDFLAGS="-X 'github.com/bestruirui/${APP_NAME}/internal/conf.Version=${VERSION}' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.BuildTime=$(TZ='Asia/Shanghai' date +'%F %T %z')' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Author=Ink-lotus' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Repo=https://github.com/Ink-lotus/octopus-solo' \
-                  -X 'github.com/bestruirui/${APP_NAME}/internal/conf.Commit=${COMMIT}' \
+readonly LDFLAGS="-X '${MODULE_PATH}/internal/conf.Version=${VERSION}' \
+                  -X '${MODULE_PATH}/internal/conf.BuildTime=$(TZ='Asia/Shanghai' date +'%F %T %z')' \
+                  -X '${MODULE_PATH}/internal/conf.Author=Ink-lotus' \
+                  -X '${MODULE_PATH}/internal/conf.Repo=https://github.com/Ink-lotus/octopus-roam' \
+                  -X '${MODULE_PATH}/internal/conf.Commit=${COMMIT}' \
                   -s -w" # 注入版本信息并缩小发布二进制。
 
 build_standard() {
@@ -77,7 +78,7 @@ cp "${OUTPUT_DIR}/bin/${APP_NAME}-linux-arm64" "${OUTPUT_DIR}/docker/linux/arm64
 
 # 每个平台只替换可执行文件名，许可证报告和发布文档保持一致。
 GOFLAGS="-tags=jsoniter" go run github.com/google/go-licenses/v2@v2.0.1 report . \
-    --ignore "github.com/bestruirui/${APP_NAME}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
+    --ignore "${MODULE_PATH}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
 cp README.md LICENSE "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" "${OUTPUT_DIR}/archives/"
 for file in "${OUTPUT_DIR}"/bin/"${APP_NAME}"-*; do
     archive_name="$(basename "${file}").zip"

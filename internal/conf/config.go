@@ -41,7 +41,7 @@ func Load(path string) error {
 	}
 
 	viper.AutomaticEnv()
-	viper.SetEnvPrefix(APP_NAME)
+	viper.SetEnvPrefix(ENV_PREFIX)
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	setDefaults()

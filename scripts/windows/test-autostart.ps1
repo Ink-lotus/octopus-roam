@@ -1,7 +1,7 @@
 # Run with Windows PowerShell 5.1. All shortcut changes use a temporary folder.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'octopus-autostart.ps1')
+. (Join-Path $PSScriptRoot 'octopus-roam-autostart.ps1')
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
@@ -19,16 +19,16 @@ function Assert-Fails {
 }
 
 # Spaces, brackets, apostrophes, ampersands and non-ASCII characters must be literal.
-$fixtureName = "octopus-startup [test] & O'Brien " + [char]0x6D4B + [char]0x8BD5 + '-' + [guid]::NewGuid().ToString('N')
+$fixtureName = "octopus-roam-startup [test] & O'Brien " + [char]0x6D4B + [char]0x8BD5 + '-' + [guid]::NewGuid().ToString('N')
 $fixture = Join-Path (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Temp') $fixtureName
 $script:OctopusDirectory = Join-Path $fixture 'runtime'
 $script:TestStartupDirectory = Join-Path $fixture 'startup'
 function Get-OctopusStartupDirectory { return $script:TestStartupDirectory }
 [IO.Directory]::CreateDirectory($script:OctopusDirectory) | Out-Null
-$shortcutPath = Join-Path $script:TestStartupDirectory 'Octopus Solo.lnk'
+$shortcutPath = Join-Path $script:TestStartupDirectory 'Octopus Roam.lnk'
 
 Invoke-OctopusAutostart -Mode Disable
-Assert-Fails { Invoke-OctopusAutostart -Mode Enable } 'Missing octopus.exe'
+Assert-Fails { Invoke-OctopusAutostart -Mode Enable } 'Missing octopus-roam.exe'
 Assert-True (-not (Test-Path -LiteralPath $shortcutPath)) 'An incomplete deployment created a startup shortcut.'
 
 $fakeProgram = @'
@@ -45,9 +45,9 @@ public static class OctopusLauncherFixture {
     }
 }
 '@
-$fixtureExecutable = Join-Path ([IO.Path]::GetTempPath()) ('octopus-launcher-fixture-' + [guid]::NewGuid().ToString('N') + '.exe')
+$fixtureExecutable = Join-Path ([IO.Path]::GetTempPath()) ('octopus-roam-launcher-fixture-' + [guid]::NewGuid().ToString('N') + '.exe')
 Add-Type -TypeDefinition $fakeProgram -OutputAssembly $fixtureExecutable -OutputType ConsoleApplication
-Copy-Item -LiteralPath $fixtureExecutable -Destination (Join-Path $script:OctopusDirectory 'octopus.exe')
+Copy-Item -LiteralPath $fixtureExecutable -Destination (Join-Path $script:OctopusDirectory 'octopus-roam.exe')
 $dataDirectory = Join-Path $script:OctopusDirectory 'data'
 [IO.Directory]::CreateDirectory($dataDirectory) | Out-Null
 $configPath = Join-Path $dataDirectory 'config.json'
@@ -56,7 +56,7 @@ Assert-Fails { Invoke-OctopusAutostart -Mode Enable } 'valid JSON'
 Assert-True (-not (Test-Path -LiteralPath $shortcutPath)) 'Invalid JSON created a startup shortcut.'
 [IO.File]::WriteAllText($configPath, '{"server":{"host":"127.0.0.1","port":8080},"database":{"type":"sqlite","path":"data/data.db"}}')
 
-foreach ($file in @('octopus-start.ps1', 'octopus-autostart.ps1', 'enable-autostart.cmd', 'disable-autostart.cmd')) {
+foreach ($file in @('octopus-roam-start.ps1', 'octopus-roam-autostart.ps1', 'enable-autostart.cmd', 'disable-autostart.cmd')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $script:OctopusDirectory $file)
 }
 Invoke-OctopusAutostart -Mode Enable
@@ -129,7 +129,7 @@ param([string]$Action)
 [IO.File]::WriteAllText((Join-Path $PSScriptRoot 'action.txt'), $Action)
 if ($Action -eq 'Disable') { exit 17 }
 '@
-[IO.File]::WriteAllText((Join-Path $wrapperDirectory 'octopus-autostart.ps1'), $wrapperFixture)
+[IO.File]::WriteAllText((Join-Path $wrapperDirectory 'octopus-roam-autostart.ps1'), $wrapperFixture)
 foreach ($wrapperMode in @('Enable', 'Disable')) {
     $wrapperName = $wrapperMode.ToLowerInvariant() + '-autostart.cmd'
     $wrapperPath = Join-Path $wrapperDirectory $wrapperName

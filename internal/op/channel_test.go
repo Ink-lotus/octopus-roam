@@ -3,7 +3,7 @@ package op
 import (
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 func TestNormalizeChannelConfigValidatesTrimmedMatchRegex(t *testing.T) {

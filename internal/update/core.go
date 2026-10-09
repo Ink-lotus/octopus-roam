@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/bestruirui/octopus/internal/utils/shutdown"
+	"github.com/Ink-lotus/octopus-roam/internal/utils/shutdown"
 	"github.com/charmbracelet/log"
 )
 
@@ -48,36 +48,36 @@ func getDownloadFilename() (string, error) {
 	case "windows":
 		switch arch {
 		case "amd64":
-			return "octopus-windows-amd64.zip", nil
+			return "octopus-roam-windows-amd64.zip", nil
 		}
 	case "darwin":
 		switch arch {
 		case "amd64":
-			return "octopus-darwin-amd64.zip", nil
+			return "octopus-roam-darwin-amd64.zip", nil
 		case "arm64":
-			return "octopus-darwin-arm64.zip", nil
+			return "octopus-roam-darwin-arm64.zip", nil
 		}
 	case "linux":
 		switch arch {
 		case "386":
-			return "octopus-linux-386.zip", nil
+			return "octopus-roam-linux-386.zip", nil
 		case "amd64":
-			return "octopus-linux-amd64.zip", nil
+			return "octopus-roam-linux-amd64.zip", nil
 		case "arm":
-			return "octopus-linux-arm.zip", nil
+			return "octopus-roam-linux-arm.zip", nil
 		case "arm64":
-			return "octopus-linux-arm64.zip", nil
+			return "octopus-roam-linux-arm64.zip", nil
 		}
 	case "android":
 		switch arch {
 		case "386":
-			return "octopus-android-386.zip", nil
+			return "octopus-roam-android-386.zip", nil
 		case "amd64":
-			return "octopus-android-amd64.zip", nil
+			return "octopus-roam-android-amd64.zip", nil
 		case "arm":
-			return "octopus-android-arm.zip", nil
+			return "octopus-roam-android-arm.zip", nil
 		case "arm64":
-			return "octopus-android-arm64.zip", nil
+			return "octopus-roam-android-arm64.zip", nil
 		}
 	}
 	return "", fmt.Errorf("unsupported platform: %s/%s", goos, arch)

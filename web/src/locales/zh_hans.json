@@ -37,7 +37,7 @@
         "passwordPlaceholder": "请输入密码",
         "trustDevice": "信任此设备",
         "apikey": "API 密钥",
-        "apikeyPlaceholder": "请输入 API 密钥 (sk-octopus-...)",
+        "apikeyPlaceholder": "请输入 API 密钥 (sk-octopus-roam-...)",
         "mode": {
             "user": "账户登录",
             "apikey": "密钥登录"
@@ -522,7 +522,7 @@
             }
         },
         "info": {
-            "manualUpgrade": "已停用自动升级。请先备份数据库，再从 Octopus Solo 独立版本发布页手动升级。",
+            "manualUpgrade": "已停用自动升级。请先备份数据库，再从 Octopus Roam 独立版本发布页手动升级。",
             "title": "版本信息",
             "currentVersion": "当前版本",
             "latestVersion": "最新版本",
@@ -618,7 +618,7 @@
             "retryInitialInterval": "指数初始间隔（秒）",
             "retryInitialIntervalHint": "首次重试的等待时间，之后每次重试翻一倍",
             "retryMaxInterval": "指数最大间隔（秒）",
-            "retryMaxIntervalHint": "指数退避的等待上限，后端硬上限 600 秒",
+            "retryMaxIntervalHint": "指数退避的最大等待时间，默认 600 秒，可按需调大",
             "manualMaxAttempts": "手动尝试上限",
             "manualMaxAttemptsHint": "手动模式下单个成员包含首次请求的总尝试次数，0 表示无限重试",
             "nonStreamTimeout": "非流式超时（秒）",

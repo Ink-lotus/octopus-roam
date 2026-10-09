@@ -5,10 +5,11 @@ package relay
 
 import (
 	"math"
+	"math/big"
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 // TestRetryDelayFixedMode 锁定固定模式: 无论第几次重试都返回 member_retry_interval_seconds。
@@ -27,11 +28,7 @@ func TestRetryDelayFixedMode(t *testing.T) {
 
 // TestRetryDelayExponentialSequence 锁定默认参数下的指数序列: 1, 2, 4, 8 ... 直到 600 秒封顶并保持。
 func TestRetryDelayExponentialSequence(t *testing.T) {
-	config := model.GroupRelayConfig{
-		RetryMode:                   model.RetryModeExponential,
-		RetryInitialIntervalSeconds: model.RetryInitialIntervalSecondsDefault,
-		RetryMaxIntervalSeconds:     model.RetryMaxIntervalSecondsLimit,
-	}
+	config := model.DefaultGroupRelayConfig()
 	want := []time.Duration{
 		1, 2, 4, 8, 16, 32, 64, 128, 256, 512, // 第 1..10 次重试
 		600, 600, 600, // 第 11 次起超过上限, 保持上限值
@@ -66,12 +63,12 @@ func TestRetryDelayExponentialHandlesHugeRetryCount(t *testing.T) {
 	config := model.GroupRelayConfig{
 		RetryMode:                   model.RetryModeExponential,
 		RetryInitialIntervalSeconds: model.RetryInitialIntervalSecondsDefault,
-		RetryMaxIntervalSeconds:     model.RetryMaxIntervalSecondsLimit,
+		RetryMaxIntervalSeconds:     model.RetryMaxIntervalSecondsDefault,
 	}
 	for _, retryCount := range []int{62, 63, 64, 1024, math.MaxInt32, math.MaxInt} {
 		got := RetryDelay(config, retryCount)
-		if got != model.RetryMaxIntervalSecondsLimit*time.Second {
-			t.Fatalf("retryCount=%d 的等待 = %v, 期望上限 %ds", retryCount, got, model.RetryMaxIntervalSecondsLimit)
+		if got != model.RetryMaxIntervalSecondsDefault*time.Second {
+			t.Fatalf("retryCount=%d 的等待 = %v, 期望上限 %ds", retryCount, got, model.RetryMaxIntervalSecondsDefault)
 		}
 	}
 }
@@ -87,25 +84,65 @@ func TestRetryDelayExponentialClampsHugeInitialInterval(t *testing.T) {
 	}{
 		{"换算后为负数", platformInt(9223372037)},       // 9223372037 * 1e9 超出 int64 上限
 		{"换算后为零", platformInt(36028797018963968)}, // 回绕后恰好落在 0
-		{"int 最大值", math.MaxInt},                   //
+		{"int 最大值", math.MaxInt},                  //
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			config := model.GroupRelayConfig{
 				RetryMode:                   model.RetryModeExponential,
 				RetryInitialIntervalSeconds: testCase.initial,
-				RetryMaxIntervalSeconds:     model.RetryMaxIntervalSecondsLimit,
+				RetryMaxIntervalSeconds:     model.RetryMaxIntervalSecondsDefault,
 			}
 			for _, retryCount := range []int{1, 2, 3, math.MaxInt} {
 				got := RetryDelay(config, retryCount)
 				if got <= 0 {
 					t.Fatalf("初始间隔 %d 的第 %d 次重试等待 = %v, 必须为正, 否则会立即重试而失去退避保护", testCase.initial, retryCount, got)
 				}
-				if got > model.RetryMaxIntervalSecondsLimit*time.Second {
-					t.Fatalf("初始间隔 %d 的第 %d 次重试等待 = %v, 超出 %d 秒硬上限", testCase.initial, retryCount, got, model.RetryMaxIntervalSecondsLimit)
+				if got > model.RetryMaxIntervalSecondsDefault*time.Second {
+					t.Fatalf("初始间隔 %d 的第 %d 次重试等待 = %v, 超出配置的 %d 秒上限", testCase.initial, retryCount, got, model.RetryMaxIntervalSecondsDefault)
 				}
 			}
 		})
+	}
+}
+
+// 以任意精度整数独立计算期望值, 覆盖秒数转换与翻倍跨过 int64 边界的情况。
+func TestRetryDelayExponentialLongIntervalsAvoidOverflow(t *testing.T) {
+	cases := []struct {
+		initial int
+		limit   int
+	}{
+		{1, 601},
+		{600, 3600},
+		{3600, 86400},
+		{7200, 3600},
+		{1, math.MaxInt},
+		{platformInt(1 << 32), math.MaxInt},
+		{platformInt(9223372037), math.MaxInt},
+		{math.MaxInt, math.MaxInt},
+	}
+	for _, testCase := range cases {
+		config := model.GroupRelayConfig{
+			RetryMode:                   model.RetryModeExponential,
+			RetryInitialIntervalSeconds: testCase.initial,
+			RetryMaxIntervalSeconds:     testCase.limit,
+		}
+		ceiling := new(big.Int).Mul(big.NewInt(int64(testCase.limit)), big.NewInt(int64(time.Second)))
+		if ceiling.Cmp(big.NewInt(math.MaxInt64)) > 0 {
+			ceiling.SetInt64(math.MaxInt64)
+		}
+		for _, retryCount := range []int{1, 2, 3, 10, 32, 33, 34, 63, 64, math.MaxInt} {
+			// 2^64 秒已大于任何可表示的等待; 超大序号无需分配同样大的整数。
+			exponent := min(retryCount-1, 64)
+			want := new(big.Int).Lsh(big.NewInt(int64(testCase.initial)), uint(exponent))
+			want.Mul(want, big.NewInt(int64(time.Second)))
+			if want.Cmp(ceiling) > 0 {
+				want.Set(ceiling)
+			}
+			if got := RetryDelay(config, retryCount); got != time.Duration(want.Int64()) {
+				t.Fatalf("initial=%d limit=%d retryCount=%d: 等待 %v, 期望 %v", testCase.initial, testCase.limit, retryCount, got, time.Duration(want.Int64()))
+			}
+		}
 	}
 }
 
@@ -127,12 +164,12 @@ func TestRetryDelayUnnormalizedConfigStaysInBounds(t *testing.T) {
 	if got := RetryDelay(model.GroupRelayConfig{}, 1); got < time.Second {
 		t.Fatalf("空配置的等待 = %v, 期望至少 1s 以免忙循环", got)
 	}
-	// 指数模式下初始间隔为 0: 同样必须落在 1 秒到硬上限之间。
+	// 指数模式下初始间隔为 0: 同样必须落在 1 秒到默认最大间隔之间。
 	exponential := model.GroupRelayConfig{RetryMode: model.RetryModeExponential}
 	for _, retryCount := range []int{1, 10, math.MaxInt} {
 		got := RetryDelay(exponential, retryCount)
-		if got < time.Second || got > model.RetryMaxIntervalSecondsLimit*time.Second {
-			t.Fatalf("零值指数配置 retryCount=%d 的等待 = %v, 期望落在 1s 与 %ds 之间", retryCount, got, model.RetryMaxIntervalSecondsLimit)
+		if got < time.Second || got > model.RetryMaxIntervalSecondsDefault*time.Second {
+			t.Fatalf("零值指数配置 retryCount=%d 的等待 = %v, 期望落在 1s 与 %ds 之间", retryCount, got, model.RetryMaxIntervalSecondsDefault)
 		}
 	}
 }
@@ -142,10 +179,10 @@ func TestRetryDelayTreatsNonPositiveRetryCountAsFirstRetry(t *testing.T) {
 	config := model.GroupRelayConfig{
 		RetryMode:                   model.RetryModeExponential,
 		RetryInitialIntervalSeconds: 4,
-		RetryMaxIntervalSeconds:     model.RetryMaxIntervalSecondsLimit,
+		RetryMaxIntervalSeconds:     model.RetryMaxIntervalSecondsDefault,
 	}
 	first := RetryDelay(config, 1)
-	for _, retryCount := range []int{0, -1} {
+	for _, retryCount := range []int{0, -1, math.MinInt} {
 		if got := RetryDelay(config, retryCount); got != first {
 			t.Fatalf("retryCount=%d 的等待 = %v, 期望与首次重试一致 %v", retryCount, got, first)
 		}

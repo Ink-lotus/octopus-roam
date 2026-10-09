@@ -15,7 +15,7 @@ export const useSettingStore = create<SettingState>()(
             setLocale: (locale) => set({ locale }),
         }),
         {
-            name: 'octopus-settings',
+            name: 'octopus-roam-settings',
         }
     )
 );

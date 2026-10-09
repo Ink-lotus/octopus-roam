@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"gorm.io/gorm"
 )
 
@@ -17,7 +17,7 @@ func TestValidateDumpOrigin(t *testing.T) {
 		dump      *model.DBDump
 		wantError string
 	}{
-		{"solo", &model.DBDump{Product: "octopus-solo", Version: 1000}, ""},
+		{"roam", &model.DBDump{Product: "octopus-roam", Version: 1000}, ""},
 		{"upstream zero", &model.DBDump{Version: 0}, ""},
 		{"upstream five", &model.DBDump{Version: 5}, ""},
 		{"nil", nil, "empty dump"},
@@ -25,12 +25,12 @@ func TestValidateDumpOrigin(t *testing.T) {
 		{"upstream four", &model.DBDump{Version: 4}, "no product marker"},
 		{"future upstream", &model.DBDump{Version: 7}, "no product marker"},
 		{"missing identity", &model.DBDump{Version: 1000}, "no product marker"},
-		{"foreign", &model.DBDump{Product: "octopus", Version: 5}, "product"},
-		{"case", &model.DBDump{Product: "Octopus-Solo", Version: 1000}, "product"},
-		{"whitespace", &model.DBDump{Product: " octopus-solo ", Version: 1000}, "product"},
-		{"solo zero", &model.DBDump{Product: "octopus-solo", Version: 0}, "unsupported octopus-solo"},
-		{"solo six", &model.DBDump{Product: "octopus-solo", Version: 6}, "unsupported octopus-solo"},
-		{"future solo", &model.DBDump{Product: "octopus-solo", Version: 1001}, "unsupported octopus-solo"},
+		{"foreign", &model.DBDump{Product: "foreign-product", Version: 5}, "product"},
+		{"case", &model.DBDump{Product: "Octopus-Roam", Version: 1000}, "product"},
+		{"whitespace", &model.DBDump{Product: " octopus-roam ", Version: 1000}, "product"},
+		{"roam zero", &model.DBDump{Product: "octopus-roam", Version: 0}, "unsupported octopus-roam"},
+		{"roam six", &model.DBDump{Product: "octopus-roam", Version: 6}, "unsupported octopus-roam"},
+		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1001}, "unsupported octopus-roam"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateDumpOrigin(tc.dump)
@@ -47,7 +47,7 @@ func TestValidateDumpOrigin(t *testing.T) {
 
 func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 	// 后续上游同步不能带入其版本或扩大接受白名单，否则重新引入备份撞号。
-	if dumpProduct != "octopus-solo" || dbDumpVersion != 1000 {
+	if dumpProduct != "octopus-roam" || dbDumpVersion != 1000 {
 		t.Fatal("backup identity changed")
 	}
 	if len(upstreamDumpVersions) != 2 {
@@ -58,11 +58,11 @@ func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 			t.Fatalf("missing upstream %d", version)
 		}
 	}
-	if len(soloDumpVersions) != 1 {
-		t.Fatal("solo whitelist changed")
+	if len(roamDumpVersions) != 1 {
+		t.Fatal("roam whitelist changed")
 	}
-	if _, ok := soloDumpVersions[1000]; !ok {
-		t.Fatal("missing solo 1000")
+	if _, ok := roamDumpVersions[1000]; !ok {
+		t.Fatal("missing roam 1000")
 	}
 }
 
@@ -156,8 +156,8 @@ func TestBackupExportJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dump.Product != "octopus-solo" || dump.Version != 1000 {
-		t.Fatal("export lacks solo identity")
+	if dump.Product != "octopus-roam" || dump.Version != 1000 {
+		t.Fatal("export lacks roam identity")
 	}
 	raw, err := json.Marshal(dump)
 	if err != nil {
@@ -167,7 +167,7 @@ func TestBackupExportJSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		t.Fatal(err)
 	}
-	if string(wire["product"]) != `"octopus-solo"` {
+	if string(wire["product"]) != `"octopus-roam"` {
 		t.Fatal("product JSON tag missing")
 	}
 	var decoded model.DBDump

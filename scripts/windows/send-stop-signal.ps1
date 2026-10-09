@@ -35,7 +35,7 @@ public static class OctopusConsoleSignal {
 
     [OctopusConsoleSignal]::FreeConsole() | Out-Null
     if (-not [OctopusConsoleSignal]::AttachConsole([uint32]$TargetProcessId)) {
-        throw 'Cannot attach to the server console. Stop Octopus with Ctrl+C in its original terminal, then retry.'
+        throw 'Cannot attach to the server console. Stop Octopus Roam with Ctrl+C in its original terminal, then retry.'
     }
     try {
         $consoleProcesses = New-Object uint32[] 64
@@ -50,7 +50,7 @@ public static class OctopusConsoleSignal {
             if ($consoleProcessId -eq $PID -or $consoleProcessId -eq $TargetProcessId) { continue }
             $other = Get-Process -Id $consoleProcessId -ErrorAction Stop
             if (-not [string]::Equals($other.Path, $systemShell, [StringComparison]::OrdinalIgnoreCase)) {
-                throw 'The server shares a console with another application. Stop Octopus with Ctrl+C in its original terminal, then retry.'
+                throw 'The server shares a console with another application. Stop Octopus Roam with Ctrl+C in its original terminal, then retry.'
             }
             $shellCount++
         }

@@ -7,8 +7,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 func TestChannelAllowedProtocolsApplyToGrantsAndGroups(t *testing.T) {

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/relay"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/relay"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
 )
@@ -26,12 +26,12 @@ import (
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 
-	dir, err := os.MkdirTemp("", "octopus-handler-test")
+	dir, err := os.MkdirTemp("", "octopus-roam-handler-test")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "创建测试临时目录失败: %v\n", err)
 		os.Exit(1)
 	}
-	if err := db.InitDB("sqlite", filepath.Join(dir, "octopus.db"), false); err != nil {
+	if err := db.InitDB("sqlite", filepath.Join(dir, "octopus-roam.db"), false); err != nil {
 		fmt.Fprintf(os.Stderr, "初始化测试数据库失败: %v\n", err)
 		os.Exit(1)
 	}

@@ -3,7 +3,7 @@ package resp
 import (
 	"net/http"
 
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/gin-gonic/gin"
 )
 

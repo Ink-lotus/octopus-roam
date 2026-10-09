@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/auth"
 	"github.com/looplj/axonhub/llm/httpclient"

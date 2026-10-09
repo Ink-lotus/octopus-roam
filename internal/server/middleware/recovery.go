@@ -4,8 +4,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/bestruirui/octopus/internal/privacy"
-	"github.com/bestruirui/octopus/internal/server/resp"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
 	"github.com/gin-gonic/gin"
 )
 

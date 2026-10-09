@@ -3,9 +3,9 @@ package op
 import (
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 )
 
 func TestPrivacySettingDefaultsPersistsAndReloads(t *testing.T) {

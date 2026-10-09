@@ -67,8 +67,8 @@ export function RelayConfigFields({ value, onChange, mode, disabled = false }: {
                     {value.retry_mode === 'fixed'
                         ? numberField('member_retry_interval_seconds', t('retryInterval'), t('retryIntervalHint'))
                         : <>
-                            {numberField('retry_initial_interval_seconds', t('retryInitialInterval'), t('retryInitialIntervalHint'), 1, 600)}
-                            {numberField('retry_max_interval_seconds', t('retryMaxInterval'), t('retryMaxIntervalHint'), 1, 600)}
+                            {numberField('retry_initial_interval_seconds', t('retryInitialInterval'), t('retryInitialIntervalHint'), 1, Number.MAX_SAFE_INTEGER)}
+                            {numberField('retry_max_interval_seconds', t('retryMaxInterval'), t('retryMaxIntervalHint'), 1, Number.MAX_SAFE_INTEGER)}
                         </>}
                 </div>
             </fieldset>

@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 // maxWaitSeconds 是换算为 time.Duration 之前允许的最大秒数。
@@ -25,7 +25,7 @@ func secondsToDuration(seconds int) time.Duration {
 // 即"第 N 次尝试失败后等待的是 RetryDelay(config, N)"。
 // 固定模式恒取 member_retry_interval_seconds; 指数模式取 min(初始间隔 * 2^(retryCount-1), 最大间隔)。
 // 配置可能来自尚未经过 NormalizeGroupRelayConfig 的旧数据, 故此处自行夹住取值:
-// 等待至少 1 秒以免退化成无等待的忙循环, 至多 600 秒(指数模式), 且换算不得回绕。
+// 等待至少 1 秒以免退化成无等待的忙循环; 指数模式遵守配置的最大间隔, 换算及翻倍均不得回绕。
 func RetryDelay(config model.GroupRelayConfig, retryCount int) time.Duration {
 	if config.RetryMode == model.RetryModeExponential {
 		return exponentialRetryDelay(config, retryCount)
@@ -48,8 +48,8 @@ func exponentialRetryDelay(config model.GroupRelayConfig, retryCount int) time.D
 		initial = model.RetryInitialIntervalSecondsDefault
 	}
 	limit := config.RetryMaxIntervalSeconds
-	if limit < 1 || limit > model.RetryMaxIntervalSecondsLimit {
-		limit = model.RetryMaxIntervalSecondsLimit
+	if limit < 1 {
+		limit = model.RetryMaxIntervalSecondsDefault
 	}
 
 	// 首次等待本身不得超过最大间隔, 且在换算之前夹住: 超大的初始间隔会让换算回绕,
@@ -60,11 +60,12 @@ func exponentialRetryDelay(config model.GroupRelayConfig, retryCount int) time.D
 
 	delay := secondsToDuration(initial)
 	ceiling := secondsToDuration(limit)
-	for steps := retryCount - 1; steps > 0 && delay < ceiling; steps-- {
+	for remaining := retryCount; remaining > 1 && delay < ceiling; remaining-- {
+		// 先比较剩余空间, 再翻倍: 即使 ceiling 已饱和到 time.Duration 的最大值也不会溢出。
+		if delay >= ceiling-delay {
+			return ceiling
+		}
 		delay *= 2
-	}
-	if delay > ceiling {
-		delay = ceiling
 	}
 	return delay
 }

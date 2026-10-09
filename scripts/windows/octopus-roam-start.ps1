@@ -1,12 +1,12 @@
-# Windows PowerShell 5.1 compatible. Keep this file beside octopus.exe.
+# Windows PowerShell 5.1 compatible. Keep this file beside octopus-roam.exe.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:OctopusDirectory = $PSScriptRoot
 
 function Assert-OctopusDeployment {
-    foreach ($relativePath in @('octopus.exe', 'data\config.json')) {
+    foreach ($relativePath in @('octopus-roam.exe', 'data\config.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $script:OctopusDirectory $relativePath) -PathType Leaf)) {
-            throw "Missing $relativePath. Copy the launcher scripts beside the deployed octopus.exe and prepare data\config.json first."
+            throw "Missing $relativePath. Copy the launcher scripts beside the deployed octopus-roam.exe and prepare data\config.json first."
         }
     }
     try {
@@ -18,8 +18,8 @@ function Assert-OctopusDeployment {
 }
 
 function Get-OctopusProcess {
-    $executable = Join-Path $script:OctopusDirectory 'octopus.exe'
-    foreach ($candidate in @(Get-Process -Name octopus -ErrorAction SilentlyContinue)) {
+    $executable = Join-Path $script:OctopusDirectory 'octopus-roam.exe'
+    foreach ($candidate in @(Get-Process -Name octopus-roam -ErrorAction SilentlyContinue)) {
         # Some processes owned by other users do not expose their executable path.
         try { $candidatePath = $candidate.Path } catch { continue }
         if ($candidatePath -and [string]::Equals($candidatePath, $executable, [StringComparison]::OrdinalIgnoreCase)) {
@@ -38,7 +38,7 @@ function Start-Octopus {
         $hasher.Dispose()
     }
 
-    $mutex = New-Object Threading.Mutex($false, "Local\OctopusSolo-$lockId")
+    $mutex = New-Object Threading.Mutex($false, "Local\OctopusRoam-$lockId")
     $ownsMutex = $false
     try {
         try {
@@ -49,7 +49,7 @@ function Start-Octopus {
         if (-not $ownsMutex) { throw 'Another launcher is busy. Try again shortly.' }
         $running = @(Get-OctopusProcess)
         if ($running.Count -gt 0) {
-            Write-Host "Octopus Solo is already running (PID $($running[0].Id))."
+            Write-Host "Octopus Roam is already running (PID $($running[0].Id))."
             return
         }
 
@@ -64,7 +64,7 @@ function Start-Octopus {
         # Resolve the directory literally and let cmd redirect to fixed relative
         # file names. PowerShell 5.1 treats brackets in redirection paths as globs.
         # The command contains only fixed arguments plus a generated timestamp/PID.
-        $runCommand = '"".\octopus.exe" start --config "data\config.json" 1>".\logs\' + $logName + '.out.log" 2>".\logs\' + $logName + '.err.log""'
+        $runCommand = '"".\octopus-roam.exe" start --config "data\config.json" 1>".\logs\' + $logName + '.out.log" 2>".\logs\' + $logName + '.err.log""'
         Push-Location -LiteralPath $script:OctopusDirectory
         try {
             $process = Start-Process -FilePath (Join-Path ([Environment]::GetFolderPath('System')) 'cmd.exe') `
@@ -74,9 +74,9 @@ function Start-Octopus {
             Pop-Location
         }
         if ($process.WaitForExit(2000)) {
-            throw "Octopus Solo exited during startup. Check $logsDirectory."
+            throw "Octopus Roam exited during startup. Check $logsDirectory."
         }
-        Write-Host "Started Octopus Solo. Logs: $logsDirectory"
+        Write-Host "Started Octopus Roam. Logs: $logsDirectory"
     } finally {
         if ($ownsMutex) { $mutex.ReleaseMutex() }
         $mutex.Dispose()

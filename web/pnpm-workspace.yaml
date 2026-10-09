@@ -1,3 +1,4 @@
+storeDir: ../.pnpm-store
 minimumReleaseAgeExclude:
   - '@zumer/snapdom@2.24.10'
   - '@thesvg/react@3.3.2'

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 var ErrRouteConflict = errors.New("route state changed")

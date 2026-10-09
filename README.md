@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="web/public/logo.svg" alt="Octopus Logo" width="120" height="120">
+<img src="web/public/logo.svg" alt="Octopus Roam Logo" width="120" height="120">
 
-### Octopus Solo
+### Octopus Roam
 
 **A Simple, Beautiful, and Elegant LLM API Aggregation Service for Individuals**
 
@@ -10,7 +10,7 @@
 
 </div>
 
-Octopus Solo is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. R1 is under validation; no independent release has been published yet. See the [changelog](CHANGELOG.md), [upgrade and backup guide](docs/upgrade-r1.md), and [R1 results](plan/r1-result.md).
+Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. R1 is under validation; no independent release has been published yet. See the [changelog](CHANGELOG.md), [upgrade and backup guide](docs/upgrade-r1.md), and [R1 results](plan/r1-result.md).
 
 
 ## ✨ Features
@@ -35,18 +35,18 @@ Octopus Solo is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 After the independent release is published, use its image and explicit version tag (replace `<version>`):
 
 ```bash
-docker run -d --name octopus-solo -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-solo:<version>
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:<version>
 ```
 
-`docker-compose.yml` uses the same independent image with the `latest` tag by default. Set `OCTOPUS_VERSION` to a published tag such as `v0.1.0-rc.1` to select a specific version. Candidate releases do not update `latest`; use a candidate tag until the first stable release. The image has not been published yet.
+`docker-compose.yml` uses the same independent image with the `latest` tag by default. Set `OCTOPUS_ROAM_VERSION` to a published tag such as `v0.1.0-rc.1` to select a specific version. Candidate releases do not update `latest`; use a candidate tag until the first stable release. The image has not been published yet.
 
 
 ### 📦 Download from Release
 
-When available, download the binary for your platform from [Octopus Solo Releases](https://github.com/Ink-lotus/octopus-solo/releases), then run:
+When available, download the binary for your platform from [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases), then run:
 
 ```bash
-./octopus start
+./octopus-roam start
 ```
 
 ### 🛠️ Build from Source
@@ -135,7 +135,7 @@ Three database types are supported:
 {
   "database": {
     "type": "mysql",
-    "path": "root:password@tcp(127.0.0.1:3306)/octopus"
+    "path": "root:password@tcp(127.0.0.1:3306)/octopus-roam"
   }
 }
 ```
@@ -146,7 +146,7 @@ Three database types are supported:
 {
   "database": {
     "type": "postgres",
-    "path": "postgresql://user:password@localhost:5432/octopus?sslmode=disable"
+    "path": "postgresql://user:password@localhost:5432/octopus-roam?sslmode=disable"
   }
 }
 ```
@@ -155,16 +155,16 @@ Three database types are supported:
 
 ### 🌐 Environment Variables
 
-All configuration options can be overridden via environment variables using the format `OCTOPUS_` + configuration path (joined with `_`):
+All configuration options can be overridden via environment variables using the format `OCTOPUS_ROAM_` + configuration path (joined with `_`):
 
 | Environment Variable | Configuration Option |
 |---------------------|---------------------|
-| `OCTOPUS_SERVER_PORT` | `server.port` |
-| `OCTOPUS_SERVER_HOST` | `server.host` |
-| `OCTOPUS_DATABASE_TYPE` | `database.type` |
-| `OCTOPUS_DATABASE_PATH` | `database.path` |
-| `OCTOPUS_LOG_LEVEL` | `log.level` |
-| `OCTOPUS_GITHUB_PAT` | For rate limiting when getting the latest version (optional) |
+| `OCTOPUS_ROAM_SERVER_PORT` | `server.port` |
+| `OCTOPUS_ROAM_SERVER_HOST` | `server.host` |
+| `OCTOPUS_ROAM_DATABASE_TYPE` | `database.type` |
+| `OCTOPUS_ROAM_DATABASE_PATH` | `database.path` |
+| `OCTOPUS_ROAM_LOG_LEVEL` | `log.level` |
+| `OCTOPUS_ROAM_GITHUB_PAT` | For rate limiting when getting the latest version (optional) |
 
 ## 📸 Screenshots
 
@@ -308,10 +308,10 @@ import os
 
 client = OpenAI(   
     base_url="http://127.0.0.1:8080/v1",   
-    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
+    api_key="sk-octopus-roam-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
 )
 completion = client.chat.completions.create(
-    model="octopus-openai",  # Use the correct group name
+    model="octopus-roam-openai",  # Use the correct group name
     messages = [
         {"role": "user", "content": "Hello"},
     ],
@@ -327,14 +327,14 @@ Edit `~/.claude/settings.json`
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
+    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-roam-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "ANTHROPIC_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_SMALL_FAST_MODEL": "octopus-haiku-4-5",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "octopus-haiku-4-5"
+    "ANTHROPIC_MODEL": "octopus-roam-sonnet-4-5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "octopus-roam-haiku-4-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "octopus-roam-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "octopus-roam-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "octopus-roam-haiku-4-5"
   }
 }
 ```
@@ -346,16 +346,16 @@ Edit `~/.codex/config.toml`
 ```toml
 model = "gpt-5.6-sol"
 model_reasoning_effort = "xhigh"
-model_provider = "octopus"
+model_provider = "octopus-roam"
 preferred_auth_method = "apikey"
 
-[model_providers.octopus]
+[model_providers.octopus-roam]
 base_url = "http://127.0.0.1:8080/v1"
-name = "octopus"
+name = "octopus-roam"
 supports_websockets = false
 requires_openai_auth = true
 wire_api = "responses"
-experimental_bearer_token = "sk-octopus-"
+experimental_bearer_token = "sk-octopus-roam-"
 ```
 
 Edit `~/.codex/auth.json`

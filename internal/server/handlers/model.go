@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/price"
-	"github.com/bestruirui/octopus/internal/server/middleware"
-	"github.com/bestruirui/octopus/internal/server/resp"
-	"github.com/bestruirui/octopus/internal/server/router"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/price"
+	"github.com/Ink-lotus/octopus-roam/internal/server/middleware"
+	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
+	"github.com/Ink-lotus/octopus-roam/internal/server/router"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 )
@@ -90,7 +90,7 @@ func getModelList(c *gin.Context) {
 				ID:      m,
 				Object:  "model",
 				Created: 1763395200,
-				OwnedBy: "octopus",
+				OwnedBy: "octopus-roam",
 			})
 		}
 		c.JSON(200, gin.H{

@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"github.com/dlclark/regexp2"
 	"golang.org/x/net/proxy"
 	"gorm.io/gorm"

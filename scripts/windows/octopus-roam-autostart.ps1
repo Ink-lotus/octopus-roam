@@ -7,7 +7,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'octopus-start.ps1')
+. (Join-Path $PSScriptRoot 'octopus-roam-start.ps1')
 
 function Get-OctopusStartupDirectory {
     $directory = [Environment]::GetFolderPath('Startup')
@@ -17,7 +17,7 @@ function Get-OctopusStartupDirectory {
 
 function Get-OctopusShortcutDefinition {
     $powershell = Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\v1.0\powershell.exe'
-    $launcher = Join-Path $script:OctopusDirectory 'octopus-start.ps1'
+    $launcher = Join-Path $script:OctopusDirectory 'octopus-roam-start.ps1'
     return [pscustomobject]@{
         TargetPath = $powershell
         Arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy RemoteSigned -File "' + $launcher + '"'
@@ -30,11 +30,11 @@ function Invoke-OctopusAutostart {
 
     if ($Mode -eq 'Enable') { Assert-OctopusDeployment }
     $startupDirectory = Get-OctopusStartupDirectory
-    $shortcutPath = Join-Path $startupDirectory 'Octopus Solo.lnk'
+    $shortcutPath = Join-Path $startupDirectory 'Octopus Roam.lnk'
     $definition = Get-OctopusShortcutDefinition
     $exists = Test-Path -LiteralPath $shortcutPath
     if (-not $exists -and $Mode -ne 'Enable') {
-        Write-Host 'Octopus Solo automatic startup is disabled.'
+        Write-Host 'Octopus Roam automatic startup is disabled.'
         return
     }
 
@@ -48,7 +48,7 @@ function Invoke-OctopusAutostart {
                 -and [string]::Equals($shortcut.Arguments, $definition.Arguments, [StringComparison]::Ordinal) `
                 -and [string]::Equals($shortcut.WorkingDirectory, $definition.WorkingDirectory, [StringComparison]::OrdinalIgnoreCase)
             if (-not $owned) {
-                throw 'The Octopus Solo startup shortcut belongs to another deployment or was modified. Manage that shortcut before retrying.'
+                throw 'The Octopus Roam startup shortcut belongs to another deployment or was modified. Manage that shortcut before retrying.'
             }
         }
 
@@ -59,15 +59,15 @@ function Invoke-OctopusAutostart {
                     $shortcut.Arguments = $definition.Arguments
                     $shortcut.WorkingDirectory = $definition.WorkingDirectory
                     $shortcut.WindowStyle = 7
-                    $shortcut.Description = 'Start this local Octopus Solo deployment after Windows sign-in.'
+                    $shortcut.Description = 'Start this local Octopus Roam deployment after Windows sign-in.'
                     $shortcut.Save()
                 }
-                Write-Host 'Automatic startup enabled for the current user. Octopus Solo will start after your next Windows sign-in.'
+                Write-Host 'Automatic startup enabled for the current user. Octopus Roam will start after your next Windows sign-in.'
             }
             'Disable' {
                 # Remove only the verified shortcut, never the executable or data.
                 Remove-Item -LiteralPath $shortcutPath -Force
-                Write-Host 'Automatic startup disabled. Any running Octopus Solo process is left running.'
+                Write-Host 'Automatic startup disabled. Any running Octopus Roam process is left running.'
             }
             'Status' {
                 Write-Host "Automatic startup is enabled for: $($definition.WorkingDirectory)"

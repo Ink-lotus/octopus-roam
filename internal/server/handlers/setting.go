@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/relay"
-	"github.com/bestruirui/octopus/internal/server/middleware"
-	"github.com/bestruirui/octopus/internal/server/resp"
-	"github.com/bestruirui/octopus/internal/server/router"
-	"github.com/bestruirui/octopus/internal/task"
-	"github.com/bestruirui/octopus/internal/webhook"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/relay"
+	"github.com/Ink-lotus/octopus-roam/internal/server/middleware"
+	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
+	"github.com/Ink-lotus/octopus-roam/internal/server/router"
+	"github.com/Ink-lotus/octopus-roam/internal/task"
+	"github.com/Ink-lotus/octopus-roam/internal/webhook"
 	"github.com/gin-gonic/gin"
 )
 
@@ -183,7 +183,7 @@ func exportDB(c *gin.Context) {
 	if c.Request.Context().Err() != nil {
 		return
 	}
-	c.Header("Content-Disposition", "attachment; filename=\"octopus-solo-backup-"+time.Now().UTC().Format("20060102150405")+".encrypted.json\"")
+	c.Header("Content-Disposition", "attachment; filename=\"octopus-roam-backup-"+time.Now().UTC().Format("20060102150405")+".encrypted.json\"")
 	c.Data(http.StatusOK, "application/json", encrypted)
 }
 

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
 )
 
 // request 状态流确认转发已进入等待后再修改配置, 避免用睡眠猜测调度顺序。

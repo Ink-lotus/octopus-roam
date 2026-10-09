@@ -1,6 +1,6 @@
 # Windows PowerShell 5.1 compatible. Default: build only. -Apply updates the runtime.
 param(
-    [string]$RuntimeDirectory = 'D:\tool\AI\octopus-solo-runtime',
+    [string]$RuntimeDirectory = 'D:\tool\AI\octopus-roam-runtime',
     [switch]$Apply,
     [string]$PreparedDirectory
 )
@@ -9,11 +9,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $sourceDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $runtimePath = [IO.Path]::GetFullPath($RuntimeDirectory).TrimEnd('\')
-$runtimeExecutable = Join-Path $runtimePath 'octopus.exe'
+$runtimeExecutable = Join-Path $runtimePath 'octopus-roam.exe'
 $powerShellPath = Join-Path ([Environment]::GetFolderPath('System')) 'WindowsPowerShell\v1.0\powershell.exe'
 
 function Get-RuntimeProcess {
-    foreach ($candidate in @(Get-Process -Name octopus -ErrorAction SilentlyContinue)) {
+    foreach ($candidate in @(Get-Process -Name octopus-roam -ErrorAction SilentlyContinue)) {
         try { $candidatePath = $candidate.Path } catch { continue }
         if ([string]::Equals($candidatePath, $runtimeExecutable, [StringComparison]::OrdinalIgnoreCase)) {
             $candidate
@@ -22,7 +22,7 @@ function Get-RuntimeProcess {
 }
 
 try {
-    foreach ($relativePath in @('octopus.exe', 'data\config.json', 'octopus-start.ps1')) {
+    foreach ($relativePath in @('octopus-roam.exe', 'data\config.json', 'octopus-roam-start.ps1')) {
         if (-not (Test-Path -LiteralPath (Join-Path $runtimePath $relativePath) -PathType Leaf)) {
             throw "Missing runtime file: $relativePath"
         }
@@ -58,8 +58,8 @@ try {
             } finally { Pop-Location }
             Push-Location -LiteralPath $buildSource
             try {
-                $binaryPath = Join-Path $PreparedDirectory 'octopus.exe'
-                & go build -trimpath -tags=jsoniter -ldflags "-s -w -X github.com/bestruirui/octopus/internal/conf.Version=$version" -o $binaryPath .
+                $binaryPath = Join-Path $PreparedDirectory 'octopus-roam.exe'
+                & go build -trimpath -tags=jsoniter -ldflags "-s -w -X github.com/Ink-lotus/octopus-roam/internal/conf.Version=$version" -o $binaryPath .
                 if ($LASTEXITCODE -ne 0) { throw 'Backend build failed.' }
             } finally { Pop-Location }
         } finally {
@@ -78,7 +78,7 @@ try {
     }
 
     $PreparedDirectory = [IO.Path]::GetFullPath($PreparedDirectory)
-    $newExecutable = Join-Path $PreparedDirectory 'octopus.exe'
+    $newExecutable = Join-Path $PreparedDirectory 'octopus-roam.exe'
     $manifestPath = Join-Path $PreparedDirectory 'build-info.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ((Get-FileHash -LiteralPath $newExecutable -Algorithm SHA256).Hash -ne $manifest.sha256) {
@@ -96,7 +96,7 @@ try {
     try {
         $lockId = [BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($runtimePath.ToUpperInvariant()))).Replace('-', '')
     } finally { $hasher.Dispose() }
-    $mutex = New-Object Threading.Mutex($false, "Local\OctopusSolo-$lockId")
+    $mutex = New-Object Threading.Mutex($false, "Local\OctopusRoam-$lockId")
     $ownsMutex = $false
     try {
         try { $ownsMutex = $mutex.WaitOne(10000) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
@@ -115,9 +115,9 @@ try {
             if (-not (Test-Path -LiteralPath "$signalLog.json")) { throw "Signal helper did not report completion (exit $($helper.ExitCode)). See $signalLog.err.log" }
             $signalResult = Get-Content -LiteralPath "$signalLog.json" -Raw | ConvertFrom-Json
             if (-not $signalResult.success) { throw $signalResult.error }
-            if (-not $running[0].WaitForExit(60000)) { throw 'Octopus did not exit within 60 seconds. No files were replaced.' }
+            if (-not $running[0].WaitForExit(60000)) { throw 'Octopus Roam did not exit within 60 seconds. No files were replaced.' }
         }
-        if (@(Get-RuntimeProcess).Count -ne 0) { throw 'Octopus is still running. No files were replaced.' }
+        if (@(Get-RuntimeProcess).Count -ne 0) { throw 'Octopus Roam is still running. No files were replaced.' }
 
         $backupDirectory = Join-Path $runtimePath ('backups\before-update-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
         [IO.Directory]::CreateDirectory($backupDirectory) | Out-Null
@@ -132,7 +132,7 @@ try {
         if ($ownsMutex) { $mutex.ReleaseMutex() }
         $mutex.Dispose()
     }
-    & $powerShellPath -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $runtimePath 'octopus-start.ps1')
+    & $powerShellPath -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $runtimePath 'octopus-roam-start.ps1')
     if ($LASTEXITCODE -ne 0) { throw "Restart failed. Inspect runtime logs. Backup: $backupDirectory" }
     Write-Host "Updated to $($manifest.version). Reload the browser; if necessary, use Settings > Version information > Force refresh."
 } catch {

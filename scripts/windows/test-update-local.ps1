@@ -33,9 +33,9 @@ $oldFixture = Join-Path $fixtureRoot 'old.exe'
 $newFixture = Join-Path $fixtureRoot 'new.exe'
 Add-Type -TypeDefinition $fakeSource.Replace('UPDATE_CLASS', 'OldUpdateFixture').Replace('UPDATE_VERSION', 'old') -OutputAssembly $oldFixture -OutputType ConsoleApplication
 Add-Type -TypeDefinition $fakeSource.Replace('UPDATE_CLASS', 'NewUpdateFixture').Replace('UPDATE_VERSION', 'new') -OutputAssembly $newFixture -OutputType ConsoleApplication
-Copy-Item -LiteralPath $oldFixture -Destination (Join-Path $fixtureRuntime 'octopus.exe')
-Copy-Item -LiteralPath $newFixture -Destination (Join-Path $fixturePrepared 'octopus.exe')
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'octopus-start.ps1') -Destination $fixtureRuntime
+Copy-Item -LiteralPath $oldFixture -Destination (Join-Path $fixtureRuntime 'octopus-roam.exe')
+Copy-Item -LiteralPath $newFixture -Destination (Join-Path $fixturePrepared 'octopus-roam.exe')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'octopus-roam-start.ps1') -Destination $fixtureRuntime
 [IO.File]::WriteAllText((Join-Path $fixtureRuntime 'data\config.json'), '{}')
 [IO.File]::WriteAllText((Join-Path $fixtureRuntime 'data\data.db'), 'database-sentinel')
 [IO.File]::WriteAllText((Join-Path $fixtureRuntime 'data\data.db-wal'), 'wal-sentinel')
@@ -47,17 +47,17 @@ $updaterPath = Join-Path $PSScriptRoot 'update-local.ps1'
 
 & $shellPath -NoProfile -ExecutionPolicy RemoteSigned -File $updaterPath -RuntimeDirectory $fixtureRuntime -PreparedDirectory $fixturePrepared
 Assert-True ($LASTEXITCODE -eq 0) 'Build-only validation failed.'
-Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRuntime 'octopus.exe')).Hash -eq $oldHash) 'Build-only mode replaced the runtime.'
+Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRuntime 'octopus-roam.exe')).Hash -eq $oldHash) 'Build-only mode replaced the runtime.'
 
-& $shellPath -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $fixtureRuntime 'octopus-start.ps1')
+& $shellPath -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $fixtureRuntime 'octopus-roam-start.ps1')
 Assert-True ($LASTEXITCODE -eq 0) 'Fixture launch failed.'
 & $shellPath -NoProfile -ExecutionPolicy RemoteSigned -File $updaterPath -RuntimeDirectory $fixtureRuntime -PreparedDirectory $fixturePrepared -Apply
 Assert-True ($LASTEXITCODE -eq 0) 'Fixture update failed.'
-Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRuntime 'octopus.exe')).Hash -eq $newHash) 'Executable was not replaced.'
+Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRuntime 'octopus-roam.exe')).Hash -eq $newHash) 'Executable was not replaced.'
 Assert-True ((Get-Content -LiteralPath (Join-Path $fixtureRuntime 'started-version.txt') -Raw) -eq 'new') 'New executable was not started.'
 $backup = @(Get-ChildItem -LiteralPath (Join-Path $fixtureRuntime 'backups') -Directory)
 Assert-True ($backup.Count -eq 1) 'Expected one backup.'
-Assert-True ((Get-FileHash -LiteralPath (Join-Path $backup[0].FullName 'octopus.exe')).Hash -eq $oldHash) 'Backup does not contain the old executable.'
+Assert-True ((Get-FileHash -LiteralPath (Join-Path $backup[0].FullName 'octopus-roam.exe')).Hash -eq $oldHash) 'Backup does not contain the old executable.'
 foreach ($directory in @($fixtureRuntime, $backup[0].FullName)) {
     Assert-True ((Get-Content -LiteralPath (Join-Path $directory 'data\data.db') -Raw) -eq 'database-sentinel') 'Database content changed.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $directory 'data\data.db-wal') -Raw) -eq 'wal-sentinel') 'WAL file was not preserved.'
@@ -65,8 +65,8 @@ foreach ($directory in @($fixtureRuntime, $backup[0].FullName)) {
 }
 
 # Shut down only the synthetic process created by this test.
-$fixtureExe = Join-Path $fixtureRuntime 'octopus.exe'
-$fixtureProcess = @(Get-Process -Name octopus | Where-Object { $_.Path -eq $fixtureExe })
+$fixtureExe = Join-Path $fixtureRuntime 'octopus-roam.exe'
+$fixtureProcess = @(Get-Process -Name octopus-roam | Where-Object { $_.Path -eq $fixtureExe })
 Assert-True ($fixtureProcess.Count -eq 1) 'Expected exactly one restarted fixture.'
 $stopArguments = '-NoProfile -ExecutionPolicy RemoteSigned -File "{0}" -TargetProcessId {1} -ExpectedExecutable "{2}" -ResultPath "{3}"' -f (Join-Path $PSScriptRoot 'send-stop-signal.ps1'), $fixtureProcess[0].Id, $fixtureExe, (Join-Path $fixtureRoot 'cleanup-stop.json')
 $stopper = Start-Process -FilePath $shellPath -ArgumentList $stopArguments -WindowStyle Hidden -PassThru

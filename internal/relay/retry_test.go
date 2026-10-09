@@ -7,6 +7,7 @@ package relay
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 // TestFixedRetrySucceedsAfterSecondAttempt 锁定固定间隔重试: 上游首次失败后按
@@ -188,13 +189,14 @@ func TestExponentialRetryUsesIncreasingBackoff(t *testing.T) {
 }
 
 // TestExponentialRetryBackoffStopsOnContextCancel 锁定退避等待可被取消:
-// 初始间隔 30 秒时首次失败后的等待很长, 取消请求上下文后转发必须立即结束且不再发起新的上游请求。
+// 最大整数间隔会触发时长饱和, 取消请求上下文后转发必须立即结束且不再发起新的上游请求。
 func TestExponentialRetryBackoffStopsOnContextCancel(t *testing.T) {
 	log := &upstreamCallLog{}
 	upstream := newFakeUpstream(t, "member", log, failingStatuses(http.StatusInternalServerError, 64)...)
 	grantID := newTestChannel(t, testName(t, "channel"), upstream.server.URL, "upstream-model")
 	config := testRetryConfigWithMode(model.RetryModeExponential)
-	config.RetryInitialIntervalSeconds = 30
+	config.RetryInitialIntervalSeconds = math.MaxInt
+	config.RetryMaxIntervalSeconds = math.MaxInt
 	groupName := newTestGroup(t, model.GroupModeManual, config, grantID)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -209,7 +211,7 @@ func TestExponentialRetryBackoffStopsOnContextCancel(t *testing.T) {
 		engine.ServeHTTP(httptest.NewRecorder(), req)
 	}()
 
-	// 上游第一次被调用说明首次尝试已经发生, 此刻请求正处在 30 秒的退避等待中。
+	// 上游第一次被调用说明首次尝试已经发生, 此刻请求应进入可取消的长时间退避等待。
 	upstream.awaitRequests(t, 1, 10*time.Second)
 	// 首次尝试后的 3 秒内不应出现第二次上游请求: 固定间隔为 1 秒时会在这里被抓住。
 	select {

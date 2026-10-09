@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 func TestCooldownCompletionRenewsHealthWithoutPreemptingCurrent(t *testing.T) {

@@ -3,12 +3,12 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
-	"github.com/bestruirui/octopus/internal/server/auth"
-	"github.com/bestruirui/octopus/internal/server/middleware"
-	"github.com/bestruirui/octopus/internal/server/resp"
-	"github.com/bestruirui/octopus/internal/server/router"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/server/auth"
+	"github.com/Ink-lotus/octopus-roam/internal/server/middleware"
+	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
+	"github.com/Ink-lotus/octopus-roam/internal/server/router"
 	"github.com/gin-gonic/gin"
 )
 

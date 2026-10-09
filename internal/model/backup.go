@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// DBDump is a full-database JSON export format for Octopus.
+// DBDump is a full-database JSON export format for Octopus Roam.
 // Import uses incremental semantics (insert new rows, and upsert on tables with natural keys).
 type DBDump struct {
 	Product    string    `json:"product"` // 产品标识，缺失仅接受已审计的上游格式。

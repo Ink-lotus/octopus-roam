@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/relay"
-	serverauth "github.com/bestruirui/octopus/internal/server/auth"
-	"github.com/bestruirui/octopus/internal/server/router"
-	"github.com/bestruirui/octopus/internal/webhook"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/relay"
+	serverauth "github.com/Ink-lotus/octopus-roam/internal/server/auth"
+	"github.com/Ink-lotus/octopus-roam/internal/server/router"
+	"github.com/Ink-lotus/octopus-roam/internal/webhook"
 	"github.com/gin-gonic/gin"
 )
 
@@ -225,7 +225,7 @@ func testWebhookCRUDAndDelivery(t *testing.T, client *http.Client, serverURL, to
 			t.Fatalf("test delivery body = %s, err = %v", call.body, err)
 		}
 		content, ok := body["content"].(string)
-		if !ok || !strings.Contains(content, "事件：测试通知") || !strings.Contains(content, "示例数据") || body["title"] != "🧪 Octopus 测试通知" || body["from"] != "octopus-solo" {
+		if !ok || !strings.Contains(content, "事件：测试通知") || !strings.Contains(content, "示例数据") || body["title"] != "🧪 Octopus Roam 测试通知" || body["from"] != "octopus-roam" {
 			t.Fatalf("test delivery notification = %#v", body)
 		}
 	default:

@@ -3,7 +3,7 @@ package relay
 import (
 	"sync"
 
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 )
 
 // Each request retains at most one result per body. The redactor revision is

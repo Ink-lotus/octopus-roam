@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "octopus-op-test")
+	dir, err := os.MkdirTemp("", "octopus-roam-op-test")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -10,16 +10,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
 	"github.com/gin-gonic/gin"
 )
 
 func TestDecodeBackupRejectsMixedEnvelope(t *testing.T) {
 	for _, raw := range []string{
 		`null`, `[]`, `{"data":null}`, `{"data":{"data":{"version":5}}}`,
-		`{"product":"foreign","data":{"product":"octopus-solo","version":1000}}`,
+		`{"product":"foreign","data":{"product":"octopus-roam","version":1000}}`,
 		`{"channel_keys":[],"data":{"version":5}}`,
 		`{"channel_grants":[],"data":{"version":5}}`,
 	} {
@@ -28,7 +28,7 @@ func TestDecodeBackupRejectsMixedEnvelope(t *testing.T) {
 			t.Fatalf("accepted mixed/invalid shape: %s", raw)
 		}
 	}
-	for _, raw := range []string{`{"version":0}`, `{"version":5}`, `{"product":"octopus-solo","version":1000}`, `{"code":200,"message":"success","data":{"product":"octopus-solo","version":1000}}`} {
+	for _, raw := range []string{`{"version":0}`, `{"version":5}`, `{"product":"octopus-roam","version":1000}`, `{"code":200,"message":"success","data":{"product":"octopus-roam","version":1000}}`} {
 		var dump model.DBDump
 		if err := decodeDBDump([]byte(raw), &dump); err != nil {
 			t.Fatal(err)

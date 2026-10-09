@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/rhttp"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/rhttp"
 	"github.com/charmbracelet/log"
 )
 

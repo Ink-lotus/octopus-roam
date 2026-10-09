@@ -1,10 +1,10 @@
 services:
-  octopus:
-    image: ghcr.io/ink-lotus/octopus-solo:${OCTOPUS_VERSION:-latest}
+  octopus-roam:
+    image: ghcr.io/ink-lotus/octopus-roam:${OCTOPUS_ROAM_VERSION:-latest}
     ports:
        - '8080:8080'
     volumes:      
        - '/path/to/data:/app/data'
-    container_name: octopus
+    container_name: octopus-roam
     restart: unless-stopped
     network_mode: bridge

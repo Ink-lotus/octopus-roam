@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 )
 
 func registerDiagnosticRequest(t *testing.T, redactor *privacy.Redactor, body string) *RequestState {

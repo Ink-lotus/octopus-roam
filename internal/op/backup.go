@@ -8,20 +8,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 const (
-	dumpProduct   = "octopus-solo"
+	dumpProduct   = "octopus-roam"
 	dbDumpVersion = 1000
 )
 
 // 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
 var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
-var soloDumpVersions = map[int]struct{}{dbDumpVersion: {}}
+var roamDumpVersions = map[int]struct{}{dbDumpVersion: {}}
 
 var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
 
@@ -31,20 +31,20 @@ func validateDumpOrigin(dump *model.DBDump) error {
 	}
 	switch dump.Product {
 	case dumpProduct:
-		if _, ok := soloDumpVersions[dump.Version]; ok {
+		if _, ok := roamDumpVersions[dump.Version]; ok {
 			return nil
 		}
-		return fmt.Errorf("unsupported octopus-solo backup version %d", dump.Version)
+		return fmt.Errorf("unsupported octopus-roam backup version %d", dump.Version)
 	case "":
 		if _, ok := upstreamDumpVersions[dump.Version]; ok {
 			return nil
 		}
 		if dump.Version == 6 {
-			return fmt.Errorf("unsupported backup: version 6 without product marker is a pre-release octopus-solo format and is no longer accepted; open the original database with a current build and re-export")
+			return fmt.Errorf("unsupported backup: version 6 without product marker is an unsupported pre-release format; open the original database with a current build and re-export")
 		}
 		return fmt.Errorf("unsupported backup: version %d has no product marker (accepted upstream versions: 0, 5)", dump.Version)
 	default:
-		return fmt.Errorf("unsupported backup: product %q is not octopus-solo", dump.Product)
+		return fmt.Errorf("unsupported backup: product %q is not octopus-roam", dump.Product)
 	}
 }
 

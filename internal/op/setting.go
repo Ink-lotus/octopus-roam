@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/privacy"
-	"github.com/bestruirui/octopus/internal/utils/cache"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/privacy"
+	"github.com/Ink-lotus/octopus-roam/internal/utils/cache"
 )
 
 var settingCache = cache.New[model.SettingKey, string](16)

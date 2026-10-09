@@ -3,7 +3,7 @@ package relay
 import (
 	"testing"
 
-	"github.com/bestruirui/octopus/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
 
 func TestBuildOutboundUsesEffectiveChannelProtocols(t *testing.T) {

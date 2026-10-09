@@ -36,7 +36,7 @@ export interface GroupRelayConfig {
     member_affinity_seconds: number; // 后端保留字段：路由已不再使用亲和，界面也不再提供配置。
     retry_mode: RetryMode; // 同一成员相邻两次尝试的等待策略。
     retry_initial_interval_seconds: number; // 指数模式的首次重试等待秒数，每次重试翻一倍。
-    retry_max_interval_seconds: number; // 指数模式的等待上限秒数，后端硬上限 600。
+    retry_max_interval_seconds: number; // 指数模式的等待上限秒数，默认 600，可按需调大。
     manual_max_attempts: number; // 手动模式下单个成员包含首次请求的总尝试次数，0 表示无限重试。
 }
 

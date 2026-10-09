@@ -37,7 +37,7 @@
         "passwordPlaceholder": "Enter your password",
         "trustDevice": "Trust this device",
         "apikey": "API Key",
-        "apikeyPlaceholder": "Enter your API Key (sk-octopus-...)",
+        "apikeyPlaceholder": "Enter your API Key (sk-octopus-roam-...)",
         "mode": {
             "user": "Account",
             "apikey": "API Key"
@@ -522,7 +522,7 @@
             }
         },
         "info": {
-            "manualUpgrade": "Automatic updates are disabled. Back up your database and install a release from Octopus Solo manually.",
+            "manualUpgrade": "Automatic updates are disabled. Back up your database and install a release from Octopus Roam manually.",
             "title": "Version Info",
             "currentVersion": "Current Version",
             "latestVersion": "Latest Version",
@@ -618,7 +618,7 @@
             "retryInitialInterval": "Backoff Initial Interval (s)",
             "retryInitialIntervalHint": "Wait before the first retry; it doubles on every further retry",
             "retryMaxInterval": "Backoff Max Interval (s)",
-            "retryMaxIntervalHint": "Upper bound for exponential backoff; the backend caps it at 600 seconds",
+            "retryMaxIntervalHint": "Maximum wait for exponential backoff; defaults to 600 seconds and can be increased",
             "manualMaxAttempts": "Manual Attempt Limit",
             "manualMaxAttemptsHint": "Total attempts per member in manual mode, including the first request; 0 means unlimited retries",
             "nonStreamTimeout": "Non-stream Timeout (s)",

@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bestruirui/octopus/internal/db"
-	"github.com/bestruirui/octopus/internal/model"
-	"github.com/bestruirui/octopus/internal/op"
+	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
 )
@@ -39,12 +39,12 @@ const chatCompletionStreamBody = "data: {\"id\":\"chatcmpl-test\",\"object\":\"c
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 
-	dir, err := os.MkdirTemp("", "octopus-relay-test")
+	dir, err := os.MkdirTemp("", "octopus-roam-relay-test")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "创建测试临时目录失败: %v\n", err)
 		os.Exit(1)
 	}
-	if err := db.InitDB("sqlite", filepath.Join(dir, "octopus.db"), false); err != nil {
+	if err := db.InitDB("sqlite", filepath.Join(dir, "octopus-roam.db"), false); err != nil {
 		fmt.Fprintf(os.Stderr, "初始化测试数据库失败: %v\n", err)
 		os.Exit(1)
 	}
@@ -202,7 +202,7 @@ func testRelayConfig(maxAttempts int) model.GroupRelayConfig {
 		MemberAffinitySeconds:                 0,
 		RetryMode:                             model.RetryModeFixed,
 		RetryInitialIntervalSeconds:           model.RetryInitialIntervalSecondsDefault,
-		RetryMaxIntervalSeconds:               model.RetryMaxIntervalSecondsLimit,
+		RetryMaxIntervalSeconds:               model.RetryMaxIntervalSecondsDefault,
 		ManualMaxAttempts:                     0,
 	}
 }

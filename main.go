@@ -1,6 +1,6 @@
 package main
 
-import "github.com/bestruirui/octopus/cmd"
+import "github.com/Ink-lotus/octopus-roam/cmd"
 
 // Version v0.13.6
 

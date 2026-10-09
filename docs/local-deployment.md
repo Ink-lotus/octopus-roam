@@ -1,14 +1,14 @@
 # 本地部署验收
 
-使用生产构建在仓库外运行，建议源码目录为 `D:\tool\AI\octopus-solo`，运行目录为同级的 `D:\tool\AI\octopus-solo-runtime`。运行目录无需 Git 仓库，也无需安装 Go、Node.js 或 pnpm。
+使用生产构建在仓库外运行，建议源码目录为 `D:\tool\AI\octopus-roam`，运行目录为同级的 `D:\tool\AI\octopus-roam-runtime`。运行目录无需 Git 仓库，也无需安装 Go、Node.js 或 pnpm。
 
 以下是目录安排；本机部署结果见文末记录。
 
 ```text
-D:\tool\AI\octopus-solo-runtime\
-  octopus.exe       # 嵌入前端的 Windows 生产构建
-  octopus-start.ps1
-  octopus-autostart.ps1
+D:\tool\AI\octopus-roam-runtime\
+  octopus-roam.exe       # 嵌入前端的 Windows 生产构建
+  octopus-roam-start.ps1
+  octopus-roam-autostart.ps1
   enable-autostart.cmd
   disable-autostart.cmd
   data\
@@ -28,16 +28,16 @@ D:\tool\AI\octopus-solo-runtime\
 powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\windows\update-local.ps1
 ```
 
-脚本使用当前工作区的代码（包含未提交改动），在 `build/local-update-时间戳/` 生成 `octopus.exe` 和 `build-info.json`。前后端使用相同版本号；构建不修改运行目录。现有 Go、Node.js 和 `web/node_modules` 必须可用。
+脚本使用当前工作区的代码（包含未提交改动），在 `build/local-update-时间戳/` 生成 `octopus-roam.exe` 和 `build-info.json`。前后端使用相同版本号；构建不修改运行目录。现有 Go、Node.js 和 `web/node_modules` 必须可用。
 
 退出使用此服务的 AI 终端，等待请求结束后，在普通 PowerShell 中执行下面的命令，将示例目录换成构建输出中的 `Prepared update` 路径：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\windows\update-local.ps1 `
-    -Apply -PreparedDirectory 'D:\tool\AI\octopus-solo\build\local-update-时间戳'
+    -Apply -PreparedDirectory 'D:\tool\AI\octopus-roam\build\local-update-时间戳'
 ```
 
-也可以退出终端后直接加 `-Apply`，让脚本依次完成构建与更新。默认运行目录为 `D:\tool\AI\octopus-solo-runtime`，可用 `-RuntimeDirectory` 指定另一份部署。
+也可以退出终端后直接加 `-Apply`，让脚本依次完成构建与更新。默认运行目录为 `D:\tool\AI\octopus-roam-runtime`，可用 `-RuntimeDirectory` 指定另一份部署。
 
 更新会验证构建文件的 SHA-256，向运行目录对应的进程发送正常退出信号并等待退出，将完整 `data` 目录、旧程序及旧构建信息备份到 `backups/before-update-时间戳/`，然后替换程序、更新构建信息并调用现有启动器。渠道、密钥、分组和配置继续使用运行目录的原有数据。
 
@@ -62,27 +62,27 @@ powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\windows\
 从 PowerShell 启动：
 
 ```powershell
-Set-Location -LiteralPath 'D:\tool\AI\octopus-solo-runtime'
-.\octopus.exe start --config .\data\config.json
+Set-Location -LiteralPath 'D:\tool\AI\octopus-roam-runtime'
+.\octopus-roam.exe start --config .\data\config.json
 ```
 
-工作目录必须是运行目录。只从仓库里执行另一个目录的 `octopus.exe`，或仅传入绝对配置路径，都不会改变相对数据库路径的解析位置。后台启动同样应设置 `-WorkingDirectory`，使用隐藏窗口，并将标准输出和错误分别重定向到 `logs` 下的文件。
+工作目录必须是运行目录。只从仓库里执行另一个目录的 `octopus-roam.exe`，或仅传入绝对配置路径，都不会改变相对数据库路径的解析位置。后台启动同样应设置 `-WorkingDirectory`，使用隐藏窗口，并将标准输出和错误分别重定向到 `logs` 下的文件。
 
 浏览器访问 `http://127.0.0.1:8080`。首次登录方式见 [README](../README_zh.md#-默认账户)。浏览器下载的备份通常进入系统下载目录，需要主动保存到 `backups`；该文件夹不会由程序自动填充。
 
 ## 一键启用／关闭开机自启
 
-将仓库 `scripts/windows/` 下的 `octopus-start.ps1`、`octopus-autostart.ps1`、`enable-autostart.cmd` 和 `disable-autostart.cmd` 复制到运行目录，与 `octopus.exe` 放在一起。准备好 `data/config.json` 后：
+将仓库 `scripts/windows/` 下的 `octopus-roam-start.ps1`、`octopus-roam-autostart.ps1`、`enable-autostart.cmd` 和 `disable-autostart.cmd` 复制到运行目录，与 `octopus-roam.exe` 放在一起。准备好 `data/config.json` 后：
 
 - 双击 **`enable-autostart.cmd`**：启用当前 Windows 用户登录后的自动启动，下次登录生效。
 - 双击 **`disable-autostart.cmd`**：取消以后登录时的自动启动；正在运行的实例继续运行。
 
-这是个人电脑的登录自启，无需管理员权限；登录前不会启动。启用时只在当前用户的 Startup 文件夹创建 `Octopus Solo.lnk`，关闭时只移除指向本运行目录的该快捷方式。重复操作可安全执行；发现同名快捷方式属于其他部署时会报错，避免覆盖或删除其他部署的启动项。Windows 任务管理器的“启动应用”中也应允许此启动项；如果手动将其禁用，应在同处恢复启用。
+这是个人电脑的登录自启，无需管理员权限；登录前不会启动。启用时只在当前用户的 Startup 文件夹创建 `Octopus Roam.lnk`，关闭时只移除指向本运行目录的该快捷方式。重复操作可安全执行；发现同名快捷方式属于其他部署时会报错，避免覆盖或删除其他部署的启动项。Windows 任务管理器的“启动应用”中也应允许此启动项；如果手动将其禁用，应在同处恢复启用。
 
 启动器固定工作目录、隐藏程序窗口、将输出写入 `logs/startup-*.out.log` 和 `logs/startup-*.err.log`；启动器自身失败记录在 `logs/autostart-errors.log`。同一路径的程序已经运行时跳过启动，多个启动器同时运行时也会串行检查。启用自启不会立即启动程序；需要立即后台启动时，从运行目录执行：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\octopus-start.ps1
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\octopus-roam-start.ps1
 ```
 
 脚本仅为自身 PowerShell 进程使用 `RemoteSigned`，不修改系统执行策略，组织策略仍然生效。若下载的脚本因来源标记或组织策略被阻止，应按 Windows 提示和本机策略处理。
@@ -98,7 +98,7 @@ powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\octopus-start.ps
 - 自动刷新与渠道并发限制。
 - 当前版本加密备份导出、错误口令拒绝、在另一个空实例恢复。
 - 正常停止并重启后，配置、禁用状态和业务数据保留。
-- 设置页仓库和手动升级链接指向 `Ink-lotus/octopus-solo`；版本检查与一键更新仍停用。
+- 设置页仓库和手动升级链接指向 `Ink-lotus/octopus-roam`；版本检查与一键更新仍停用。
 
 旧版本升级兼容不作为首次独立发布的门槛。如首版声明支持 MySQL/PostgreSQL，其全新安装、读写及当前版本备份恢复仍需对应实例验证。
 
@@ -109,6 +109,8 @@ powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\octopus-start.ps
 测试结束后，确认进程已退出且无需保留的数据已处理，再清理这个独立运行目录即可。源码仓库中的构建缓存和浏览器存储分别管理，不属于运行目录。
 
 ## 本机部署记录（2026-10-07）
+
+> 以下是更名前 Octopus Solo 的历史部署记录；Octopus Roam 的更名与测试不修改该运行目录。
 
 已部署至 `D:\tool\AI\octopus-solo-runtime`，使用独立 SQLite 数据库，监听 `http://127.0.0.1:8080`。本地构建版本为 `v0.1.0-local`，基于 `b4af012` 加当前工作区的仓库地址及启动脚本改动；不是已发布的 RC 或正式版。前后端使用同一版本标记。
 
