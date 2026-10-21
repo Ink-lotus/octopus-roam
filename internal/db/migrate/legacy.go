@@ -8,7 +8,7 @@ package migrate
 // channels 表快照, 供历史迁移定位表名并读写版本 8 的内嵌统计列。
 type channelsTable struct {
 	ID int `gorm:"primaryKey"` // 渠道主键。
-	snapshotStatsMetrics
+	SnapshotStatsMetrics
 }
 
 func (channelsTable) TableName() string { return "channels" }
@@ -19,7 +19,7 @@ type channelModelsV8 struct {
 	ChannelID int    `gorm:"not null;index:idx_channel_model_name,unique"` // 所属渠道 ID。
 	Name      string `gorm:"not null;index:idx_channel_model_name,unique"` // 上游模型名称。
 	Source    string `gorm:"not null;default:auto"`                        // 模型来源: auto 或 manual。
-	snapshotStatsMetrics
+	SnapshotStatsMetrics
 }
 
 func (channelModelsV8) TableName() string { return "channel_models" }
@@ -42,8 +42,9 @@ type groupsTable struct {
 
 func (groupsTable) TableName() string { return "groups" }
 
-// 历史迁移涉及的内嵌统计列。
-type snapshotStatsMetrics struct {
+// SnapshotStatsMetrics 是历史迁移涉及的内嵌统计列。
+// 嵌入字段必须导出，否则 GORM 的反射会忽略整组统计字段。
+type SnapshotStatsMetrics struct {
 	InputToken     int64   `gorm:"bigint"`    // 累计输入 token。
 	OutputToken    int64   `gorm:"bigint"`    // 累计输出 token。
 	InputCost      float64 `gorm:"type:real"` // 累计输入费用。

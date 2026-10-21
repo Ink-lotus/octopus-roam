@@ -19,8 +19,9 @@ type Log struct {
 }
 
 type Database struct {
-	Type string `mapstructure:"type"`
-	Path string `mapstructure:"path"`
+	Type        string `mapstructure:"type"`
+	Path        string `mapstructure:"path"`
+	MySQLCAFile string `mapstructure:"mysql_ca_file"`
 }
 
 type Config struct {
@@ -73,5 +74,6 @@ func setDefaults() {
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("database.type", "sqlite")
 	viper.SetDefault("database.path", "data/data.db")
+	viper.SetDefault("database.mysql_ca_file", "")
 	viper.SetDefault("log.level", "info")
 }

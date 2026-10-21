@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
@@ -26,12 +27,14 @@ func Init() {
 		return
 	}
 	priceUpdateInterval := time.Duration(priceUpdateIntervalHours) * time.Hour
-	// 注册价格更新任务
-	Register(string(model.SettingKeyModelInfoUpdateInterval), priceUpdateInterval, true, func() {
-		if err := price.UpdateLLMPrice(context.Background()); err != nil {
-			log.Warnf("failed to update price info: %v", err)
-		}
-	})
+	// 本地验收可显式关闭启动即联网的价格任务；生产默认仍保持原行为。
+	if os.Getenv("OCTOPUS_ROAM_SKIP_STARTUP_PRICE_UPDATE") != "1" {
+		Register(string(model.SettingKeyModelInfoUpdateInterval), priceUpdateInterval, true, func() {
+			if err := price.UpdateLLMPrice(context.Background()); err != nil {
+				log.Warnf("failed to update price info: %v", err)
+			}
+		})
+	}
 
 	// 注册统计保存任务
 	statsSaveIntervalMinutes, err := op.SettingGetInt(model.SettingKeyStatsSaveInterval)

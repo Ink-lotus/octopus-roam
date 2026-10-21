@@ -10,7 +10,7 @@
 
 </div>
 
-Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. R1 is under validation; no independent release has been published yet. See the [changelog](CHANGELOG.md), [upgrade and backup guide](docs/upgrade-r1.md), and [R1 results](plan/r1-result.md).
+Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. The independent update path is prepared and locally tested; no independent release has been published yet. See the [changelog](CHANGELOG.md), [upgrade and backup guide](docs/upgrade-r1.md), and [release plan](plan/release-plan-v0.1.0.md).
 
 
 ## ✨ Features
@@ -21,7 +21,7 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 - 🔃 **Model Sync** - Automatic synchronization of available model lists with channels
 - 🛡️ **Automatic Failover** - Automatically switches to an available channel when an upstream channel fails
 - 🔍 **Real-Time End-to-End Request Visualization** - Watch the complete request path in the frontend from the moment the client sends it
-- 🚧 **Upstream Error Shielding** - Intercept all upstream errors to keep agent tasks running without interruption
+- 🛡️ **Retry and Health Protection** - Protect cross-request retries and channel health; a stream that has already sent data may still end when its upstream fails
 - 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
@@ -38,7 +38,7 @@ After the independent release is published, use its image and explicit version t
 docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:<version>
 ```
 
-`docker-compose.yml` uses the same independent image with the `latest` tag by default. Set `OCTOPUS_ROAM_VERSION` to a published tag such as `v0.1.0-rc.1` to select a specific version. Candidate releases do not update `latest`; use a candidate tag until the first stable release. The image has not been published yet.
+`docker-compose.yml` uses the same independent image. Before the first stable release, set `OCTOPUS_ROAM_VERSION` to an explicitly published RC tag such as `v0.1.0-rc.1`; candidate releases do not update `latest`, and this repository has not published an image yet.
 
 
 ### 📦 Download from Release
@@ -76,6 +76,8 @@ go run . start
 ```
 
 > 💡 **Tip**: The frontend build artifacts are embedded into the Go binary, so you must build the frontend before starting the backend.
+
+For an offline local release candidate, use `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/build-local.ps1 -Version v0.1.0-local.<id>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable.
 
 For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](docs/local-deployment.md).
 
@@ -138,7 +140,7 @@ Three database types are supported:
 |------|-----------------|-----------------------|
 | SQLite | `sqlite` | `data/data.db` |
 | MySQL | `mysql` | `user:password@tcp(host:port)/dbname` |
-| PostgreSQL | `postgres` | `postgresql://user:password@host:port/dbname?sslmode=disable` |
+| PostgreSQL | `postgres` | `postgresql://user:password@host:port/dbname?sslmode=verify-full` |
 
 **MySQL Configuration Example:**
 
@@ -157,7 +159,7 @@ Three database types are supported:
 {
   "database": {
     "type": "postgres",
-    "path": "postgresql://user:password@localhost:5432/octopus-roam?sslmode=disable"
+    "path": "postgresql://user:password@localhost:5432/octopus-roam?sslmode=verify-full"
   }
 }
 ```
@@ -175,7 +177,7 @@ All configuration options can be overridden via environment variables using the 
 | `OCTOPUS_ROAM_DATABASE_TYPE` | `database.type` |
 | `OCTOPUS_ROAM_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_ROAM_LOG_LEVEL` | `log.level` |
-| `OCTOPUS_ROAM_GITHUB_PAT` | For rate limiting when getting the latest version (optional) |
+| `OCTOPUS_ROAM_GITHUB_PAT` | Optional token for the fixed Octopus Roam release API (never sent to asset hosts) |
 
 ## 📸 Screenshots
 
@@ -248,7 +250,7 @@ The program automatically appends the API version and endpoint path based on the
 
 Protocol paths are editable per channel. Gemini providers must expose an OpenAI-compatible endpoint; native Gemini requests are not supported by this fork.
 
-### Solo routing, automation, and backups
+### Independent routing, automation, and backups
 
 Global channel updates default to off; the interval defaults to 1440 minutes and automatic group additions to off. Channels follow the global switch unless explicitly opted out. A concurrency limit of `0` is unlimited; positive limits share capacity across keys and groups, including the full lifetime of a stream.
 
@@ -257,6 +259,8 @@ All keys must refresh successfully before model changes commit. A successful emp
 Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts must use authenticated `POST /api/v1/setting/export` with a password in the JSON body; the former GET returns 405. Import supports encrypted backups and audited upstream formats 0/5; unmarked pre-release format 6 is rejected. Save the old database and executable before upgrading—new backups cannot be restored by old builds.
 
 The [upgrade guide](docs/upgrade-r1.md) lists defaults, incremental import rules, status definitions, rollback steps, and troubleshooting for failed keys, empty models, queued requests, and Webhooks.
+
+The Settings page checks only the Octopus Roam release source. Stable builds update only to a higher stable version; an official RC may update to a later RC or the corresponding stable version. Development and local builds show their status without inferring an upgrade order. A candidate is downloaded into an isolated directory and must match the same release's `SHA256SUMS` before replacement. The running program, configuration, database, and backup directories are kept separate. Container deployments are upgraded by replacing the image and restarting the container; the program is not replaced from inside the container.
 
 ---
 

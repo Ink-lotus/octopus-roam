@@ -25,7 +25,7 @@ func isPrivacySetting(key model.SettingKey) bool {
 // defaults. Every completed import invalidates already-open editors.
 func preparePrivacyImport(tx *gorm.DB, incoming []model.Setting) (*privacyImport, error) {
 	var stored []model.Setting
-	if err := tx.Where("key IN ?", []model.SettingKey{model.SettingKeyPrivacyProtectionRules, model.SettingKeyPrivacyProtectionEnabled}).Find(&stored).Error; err != nil {
+	if err := tx.Where(map[string]any{"key": []model.SettingKey{model.SettingKeyPrivacyProtectionRules, model.SettingKeyPrivacyProtectionEnabled}}).Find(&stored).Error; err != nil {
 		return nil, err
 	}
 	result := &privacyImport{previous: map[model.SettingKey]string{}}
@@ -60,7 +60,7 @@ func (update *privacyImport) write(tx *gorm.DB) (int64, error) {
 			if previous == setting.Value {
 				continue
 			}
-			result := tx.Model(&model.Setting{}).Where("key = ? AND value = ?", setting.Key, previous).Update("value", setting.Value)
+			result := tx.Model(&model.Setting{}).Where(map[string]any{"key": setting.Key, "value": previous}).Update("value", setting.Value)
 			if result.Error != nil {
 				return 0, result.Error
 			}

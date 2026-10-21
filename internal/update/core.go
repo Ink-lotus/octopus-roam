@@ -7,15 +7,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"syscall"
+	"strconv"
+	"time"
 
 	"github.com/Ink-lotus/octopus-roam/internal/utils/shutdown"
 	"github.com/charmbracelet/log"
 )
 
-func UpdateCore() error {
-	// 必须在任何网络、文件替换与重启行为之前拒绝，包括旧客户端的调用。
-	return ErrSelfUpdateDisabled
+var shutdownUpdate = shutdown.Shutdown
+
+func UpdateCore(targetVersion string) (*UpdateReceipt, error) {
+	return updateCore(targetVersion)
 }
 
 func copyFile(src, dst string) error {
@@ -39,67 +41,71 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-// getDownloadFilename 返回当前平台对应的发布归档名称。
-func getDownloadFilename() (string, error) {
-	arch := runtime.GOARCH
-	goos := runtime.GOOS
-
-	switch goos {
-	case "windows":
-		switch arch {
-		case "amd64":
-			return "octopus-roam-windows-amd64.zip", nil
-		}
-	case "darwin":
-		switch arch {
-		case "amd64":
-			return "octopus-roam-darwin-amd64.zip", nil
-		case "arm64":
-			return "octopus-roam-darwin-arm64.zip", nil
-		}
-	case "linux":
-		switch arch {
-		case "386":
-			return "octopus-roam-linux-386.zip", nil
-		case "amd64":
-			return "octopus-roam-linux-amd64.zip", nil
-		case "arm":
-			return "octopus-roam-linux-arm.zip", nil
-		case "arm64":
-			return "octopus-roam-linux-arm64.zip", nil
-		}
-	case "android":
-		switch arch {
-		case "386":
-			return "octopus-roam-android-386.zip", nil
-		case "amd64":
-			return "octopus-roam-android-amd64.zip", nil
-		case "arm":
-			return "octopus-roam-android-arm.zip", nil
-		case "arm64":
-			return "octopus-roam-android-arm64.zip", nil
-		}
-	}
-	return "", fmt.Errorf("unsupported platform: %s/%s", goos, arch)
-}
-
-func restartExecutable(execPath string) {
-	shutdown.Shutdown()
+func restartExecutable(execPath, backupDir string) {
+	shutdownUpdate()
 
 	log.Infof("restarting: %q %q", execPath, os.Args[1:])
 
-	if runtime.GOOS == "windows" {
+	if testRuntimeGOOS == "windows" {
 		cmd := exec.Command(execPath, os.Args[1:]...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
 			log.Errorf("restarting failed: %v", err)
+			exitProcess(1)
+			return
 		}
-		os.Exit(0)
+		exitProcess(0)
+		return
 	}
 
-	if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
+	if err := execProcess(execPath, os.Args, os.Environ()); err == nil {
+		return
+	} else {
 		log.Errorf("restarting failed: %v", err)
 	}
+	if err := restoreUpdateBackup(execPath, backupDir); err != nil {
+		log.Errorf("restoring the previous executable failed: %v", err)
+		exitProcess(1)
+		return
+	}
+	if err := execProcess(execPath, os.Args, os.Environ()); err != nil {
+		log.Errorf("restarting the restored executable failed: %v", err)
+		exitProcess(1)
+	}
+}
+
+func restoreUpdateBackup(execPath, backupDir string) error {
+	if backupDir == "" {
+		return fmt.Errorf("update backup is unavailable")
+	}
+	backupExecutable := filepath.Join(backupDir, filepath.Base(execPath))
+	if _, err := os.Stat(backupExecutable); err != nil {
+		return fmt.Errorf("previous executable backup is unavailable: %w", err)
+	}
+	temporary := execPath + ".restore-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if err := copyFile(backupExecutable, temporary); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("copy previous executable: %w", err)
+	}
+	if err := os.Chmod(temporary, 0o755); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("restore executable permissions: %w", err)
+	}
+	if err := os.Rename(temporary, execPath); err != nil {
+		if runtime.GOOS != "windows" {
+			_ = os.Remove(temporary)
+			return fmt.Errorf("replace failed executable: %w", err)
+		}
+		if removeErr := os.Remove(execPath); removeErr != nil {
+			_ = os.Remove(temporary)
+			return fmt.Errorf("replace failed executable: %w", err)
+		}
+		if renameErr := os.Rename(temporary, execPath); renameErr != nil {
+			_ = os.Remove(temporary)
+			return fmt.Errorf("replace failed executable: %w", renameErr)
+		}
+	}
+	return nil
 }

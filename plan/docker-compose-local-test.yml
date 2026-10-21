@@ -1,0 +1,16 @@
+services:
+  octopus-roam:
+    image: "${OCTOPUS_ROAM_IMAGE:-octopus-roam:v0.1.0-local.b-final-20261015-181705-6ebd8c65}"
+    pull_policy: never
+    ports:
+      - "127.0.0.1:${OCTOPUS_ROAM_PORT:-18080}:8080"
+    volumes:
+      - "${OCTOPUS_ROAM_DATA_DIR:?Set OCTOPUS_ROAM_DATA_DIR to an isolated test directory}:/app/data"
+    environment:
+      OCTOPUS_ROAM_DATABASE_TYPE: "${OCTOPUS_ROAM_DATABASE_TYPE:-sqlite}"
+      OCTOPUS_ROAM_DATABASE_PATH: "${OCTOPUS_ROAM_DATABASE_PATH:-data/data.db}"
+      OCTOPUS_ROAM_SKIP_STARTUP_PRICE_UPDATE: "1"
+    container_name: octopus-roam-local-test
+    restart: "no"
+    stop_grace_period: 30s
+    network_mode: bridge

@@ -1,155 +1,203 @@
 name: release
 
 on:
-  push:
-    # 只在产品主分支触发。master 保留为上游同步分支, 上游的版本号提交不应触发本项目发布。
-    branches:
-      - main
-    paths:
-      - main.go
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact reviewed version: v0.1.0-rc.N or v0.1.0'
+        required: true
+        type: string
+      commit:
+        description: 'Reviewed full commit SHA on main'
+        required: true
+        type: string
+      materials_run_id:
+        description: 'Same-repository run containing the reviewed release-materials artifact'
+        required: true
+        type: string
+      materials_sha256:
+        description: 'Reviewed materials.json SHA-256, bound to this version and commit'
+        required: true
+        type: string
+      publish:
+        description: 'Create tag, Release and GHCR images after gates (requires separate authorization)'
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+concurrency:
+  group: release-ghcr
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: release
-    runs-on: ubuntu-latest
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.prepare.outputs.version }}
+      commit: ${{ steps.prepare.outputs.commit }}
+      prerelease: ${{ steps.prepare.outputs.prerelease }}
+      artifact: ${{ steps.prepare.outputs.artifact }}
+      materials_run: ${{ steps.prepare.outputs.materials_run }}
+      materials_sha: ${{ steps.prepare.outputs.materials_sha }}
     steps:
-      - name: Free Disk Space
-        uses: endersonmenezes/free-disk-space@v3
-        with:
-          remove_android: true
-          remove_dotnet: true
-          remove_haskell: true
-          remove_tool_cache: true
-          remove_swap: true
-          remove_packages_one_command: true
-          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
-          remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
-          rm_cmd: "rmz"
-          rmz_version: "3.1.1"
-
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Publish tag
-        id: version
-        run: |
-          VERSION=$(grep '^// Version ' main.go | sed 's|^// Version ||' | tr -d ' ')
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          # 带连字符的版本视为预发布, 例如 v0.1.0-rc.1 或 v0.1.0-beta.1。
-          if [[ "${VERSION}" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-          git tag "${VERSION}"
-          git push origin "${VERSION}"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+          persist-credentials: false
+      - uses: actions/setup-python@v6
         with:
-          node-version: 'latest'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: '11.10.0'
-          cache: true
-          cache_dependency_path: web/pnpm-lock.yaml
-
-      - name: Build frontend
-        working-directory: web
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
+          python-version: '3.14.6'
+      - name: Resolve approved immutable inputs
+        id: prepare
         env:
-          VITE_APP_VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+          MATERIALS_RUN: ${{ inputs.materials_run_id }}
+          MATERIALS_SHA: ${{ inputs.materials_sha256 }}
+        run: |
+          python3 -B scripts/release_contract.py prepare --version "$VERSION" --commit "$COMMIT" --materials-run "$MATERIALS_RUN" --materials-sha "$MATERIALS_SHA"
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
+  test:
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build.yaml
+    with:
+      commit: ${{ needs.prepare.outputs.commit }}
+      version: ${{ needs.prepare.outputs.version }}
+
+  build:
+    needs: [prepare, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GOTOOLCHAIN: local
+      VERSION: ${{ needs.prepare.outputs.version }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      MATERIALS_SHA: ${{ needs.prepare.outputs.materials_sha }}
+      ARTIFACT_ROOT: ${{ github.workspace }}/build/release-artifact
+      MATERIALS_ROOT: ${{ github.workspace }}/build/release-materials
+    steps:
+      - uses: actions/checkout@v7
         with:
-          go-version-file: go.mod
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Check immutable input
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.6'
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: release-materials
+          run-id: ${{ needs.prepare.outputs.materials_run }}
+          github-token: ${{ github.token }}
+          path: ${{ env.MATERIALS_ROOT }}
+      - name: Verify all corresponding source and original notices
+        run: |
+          python3 -B scripts/release_contract.py materials --version "$VERSION" --commit "$COMMIT" --materials "$MATERIALS_ROOT" --materials-sha "$MATERIALS_SHA"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '11.15.1'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.18.0'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.0'
           cache: true
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Update price
-        run: python3 scripts/updatePrice.py
-
-      - name: Setup Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
+      - uses: nttld/setup-ndk@v1
+        id: ndk
         with:
           ndk-version: r28c
-
-      - name: Build
-        run: bash scripts/build.sh
+      - name: Acquire locked dependencies
+        run: |
+          pnpm --dir web install --frozen-lockfile
+          go mod download
+      - name: Build full matrix with the reviewed materials
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-
-      # changelogithub 通过 HEAD 上的标签判定版本与预发布状态, 依赖 Publish tag 已先执行且
-      # checkout 的 HEAD 未改变。调整步骤顺序会让它退化成按分支名判定, 从而多建一个 Release。
-      - name: Generate changelog
-        run: npx changelogithub
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Upload Release
-        uses: softprops/action-gh-release@v3
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          GOPROXY: 'off'
+          GOFLAGS: -mod=readonly
+        run: |
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$COMMIT")"
+          export SOURCE_DATE_EPOCH
+          bash scripts/build.sh --version "$VERSION" --commit "$COMMIT" --output-dir "$ARTIFACT_ROOT" --license-report "$MATERIALS_ROOT/THIRD_PARTY_LICENSES.csv" --materials-dir "$MATERIALS_ROOT" --materials-sha "$MATERIALS_SHA"
+          cp -R "$MATERIALS_ROOT" "$ARTIFACT_ROOT/materials"
+          git diff --exit-code
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Build images without pushing
+        run: bash scripts/release-images.sh build "$ARTIFACT_ROOT"
+      - name: Check actual image files, OS inventory and seal artifact
+        run: |
+          python3 -B scripts/release_contract.py seal --version "$VERSION" --commit "$COMMIT" --output "$ARTIFACT_ROOT" --materials-sha "$MATERIALS_SHA"
+      - uses: actions/upload-artifact@v4.6.2
         with:
-          files: build/archives/*
-          prerelease: ${{ steps.version.outputs.prerelease }}
-          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ needs.prepare.outputs.artifact }}
+          path: ${{ env.ARTIFACT_ROOT }}
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 14
 
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
+  publish:
+    needs: [prepare, test, build]
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: release
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      MATERIALS_SHA: ${{ needs.prepare.outputs.materials_sha }}
+      PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+      ARTIFACT_ROOT: ${{ github.workspace }}/build/release-artifact
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
         with:
-          images: |
-            ghcr.io/${{ github.repository }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
-          # 预发布只推版本号标签, 不覆盖 latest, 避免拉取 latest 的用户拿到候选版。
-          tags: |
-            type=raw,value=latest,enable=${{ steps.version.outputs.prerelease == 'false' }}
-            type=raw,value=${{ steps.version.outputs.version }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
+          ref: ${{ env.COMMIT }}
+          fetch-depth: 0
+      - name: Check immutable input
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.6'
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: ${{ needs.prepare.outputs.artifact }}
+          path: ${{ env.ARTIFACT_ROOT }}
+      - name: Recheck complete downloaded artifact before any publication
+        run: |
+          python3 -B scripts/release_contract.py verify --version "$VERSION" --commit "$COMMIT" --output "$ARTIFACT_ROOT" --materials-sha "$MATERIALS_SHA"
+      - uses: docker/setup-buildx-action@v4
+      - name: Refuse existing tag, Release or version images
+        run: python3 -B scripts/release_contract.py remote-check --version "$VERSION" --commit "$COMMIT"
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./scripts/dockerfile/Dockerfile
-          push: true
-          platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            TARGETPLATFORM
+          password: ${{ github.token }}
+      - name: Create tag for the approved SHA
+        run: |
+          git tag "$VERSION" "$COMMIT"
+          git push origin "refs/tags/$VERSION"
+      - name: Publish the verified image tar files to GHCR
+        run: bash scripts/release-images.sh publish "$ARTIFACT_ROOT"
+      - name: Create Release with the reviewed notes and exact delivery files
+        run: |
+          flags=(--latest=false)
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); else flags=(--latest); fi
+          gh release create "$VERSION" --verify-tag --target "$COMMIT" --title "$VERSION" --notes-file "$ARTIFACT_ROOT/delivery/RELEASE-NOTES.md" "${flags[@]}" "$ARTIFACT_ROOT"/delivery/*

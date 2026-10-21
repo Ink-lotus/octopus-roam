@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Ink-lotus/octopus-roam/internal/conf"
@@ -20,10 +21,13 @@ import (
 var ErrSelfUpdateDisabled = errors.New("automatic updates are disabled for Octopus Roam; install an independent release manually")
 
 type LatestInfo struct {
-	TagName     string `json:"tag_name"`
-	PublishedAt string `json:"published_at"`
-	Body        string `json:"body"`
-	Message     string `json:"message"`
+	CurrentVersion string       `json:"current_version"`
+	TagName        string       `json:"tag_name"`
+	PublishedAt    string       `json:"published_at"`
+	Body           string       `json:"body"`
+	Message        string       `json:"message"`
+	Status         UpdateStatus `json:"status"`
+	CanUpdate      bool         `json:"can_update"`
 }
 
 var github_pat = os.Getenv(conf.ENV_PREFIX + "_GITHUB_PAT")
@@ -59,7 +63,7 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 		return nil, err
 	}
 
-	if github_pat != "" {
+	if github_pat != "" && strings.EqualFold(req.URL.Host, "api.github.com") {
 		req.Header.Set("Authorization", "Bearer "+github_pat)
 	}
 
@@ -79,8 +83,7 @@ func doRequest(url string, useProxy bool) ([]byte, error) {
 }
 
 func GetLatestInfo() (*LatestInfo, error) {
-	// 独立发布源与升级校验尚未建立，禁止查询上游版本诱导跨产品升级。
-	return nil, ErrSelfUpdateDisabled
+	return getLatestInfo()
 }
 
 func unzip(data []byte, dest string) error {

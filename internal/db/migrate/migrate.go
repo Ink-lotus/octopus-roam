@@ -38,19 +38,11 @@ func RegisterAfterAutoMigration(m Migration) {
 }
 
 func BeforeAutoMigrate(db *gorm.DB) error {
-	if err := runMigrationsWithRecord(db, beforeAutoMigrations); err != nil {
-		return err
-	}
-	beforeAutoMigrations = nil
-	return nil
+	return runMigrationsWithRecord(db, beforeAutoMigrations)
 }
 
 func AfterAutoMigrate(db *gorm.DB) error {
-	if err := runMigrationsWithRecord(db, afterAutoMigrations); err != nil {
-		return err
-	}
-	afterAutoMigrations = nil
-	return nil
+	return runMigrationsWithRecord(db, afterAutoMigrations)
 }
 
 func runMigrationsWithRecord(db *gorm.DB, migrations []Migration) error {
@@ -64,7 +56,8 @@ func runMigrationsWithRecord(db *gorm.DB, migrations []Migration) error {
 		return err
 	}
 
-	// 排序
+	// 注册列表属于进程，执行状态属于各数据库；排序不能修改共享列表。
+	migrations = append([]Migration(nil), migrations...)
 	sort.Slice(migrations, func(i, j int) bool {
 		return migrations[i].Version < migrations[j].Version
 	})
@@ -135,7 +128,50 @@ func upsertMigrationRecord(db *gorm.DB, version int, status MigrationRecordStatu
 	}).Create(&rec).Error
 }
 
-// hasPhysicalColumn 判断数据库表中是否存在指定列，不依赖当前模型是否仍声明该字段。
+type physicalColumns map[string]bool
+
+func (columns physicalColumns) has(names ...string) bool {
+	for _, name := range names {
+		if !columns[name] {
+			return false
+		}
+	}
+	return true
+}
+
+// physicalTableColumns 区分表不存在与元数据查询失败；列名来自指定表的实际元数据。
+// 不能用 HasTable/HasColumn 的布尔结果处理迁移前置条件，它们会丢失查询错误，
+// 且 SQLite 的 HasColumn 会把建表 SQL 中的 PRIMARY KEY 当成 key 列。
+func physicalTableColumns(db *gorm.DB, table string) (physicalColumns, error) {
+	tables, err := db.Migrator().GetTables()
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect database tables: %w", err)
+	}
+	found := false
+	for _, name := range tables {
+		if name == table {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, nil
+	}
+	columnTypes, err := db.Migrator().ColumnTypes(table)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect %s columns: %w", table, err)
+	}
+	if len(columnTypes) == 0 {
+		return nil, fmt.Errorf("no column metadata for %s", table)
+	}
+	columns := make(physicalColumns, len(columnTypes))
+	for _, column := range columnTypes {
+		columns[column.Name()] = true
+	}
+	return columns, nil
+}
+
+// hasPhysicalColumn 供旧迁移的非破坏性分支检查使用；需要区分缺列和查询失败时使用 physicalTableColumns。
 func hasPhysicalColumn(db *gorm.DB, table, column string) bool {
 	columnTypes, err := db.Migrator().ColumnTypes(table)
 	if err != nil {
@@ -151,7 +187,11 @@ func hasPhysicalColumn(db *gorm.DB, table, column string) bool {
 
 // dropColumnIfExists 删除指定表中存在的列，兼容 SQLite、MySQL 和 PostgreSQL。
 func dropColumnIfExists(db *gorm.DB, model interface{}, table, column string) error {
-	if !hasPhysicalColumn(db, table, column) {
+	columns, err := physicalTableColumns(db, table)
+	if err != nil {
+		return err
+	}
+	if !columns[column] {
 		return nil
 	}
 	if db.Dialector.Name() == "sqlite" {

@@ -522,7 +522,7 @@
             }
         },
         "info": {
-            "manualUpgrade": "Automatic updates are disabled. Back up your database and install a release from Octopus Roam manually.",
+            "manualUpgrade": "Open the Octopus Roam Releases page for manual installation or container upgrades.",
             "title": "Version Info",
             "currentVersion": "Current Version",
             "latestVersion": "Latest Version",
@@ -535,8 +535,22 @@
             "newVersionAvailableHint": "Please backup your data first, then update the system",
             "updateNow": "Update Now",
             "updating": "Updating...",
+            "updatePending": "The update has been verified and the service is restarting. Reload this page after it starts.",
+            "updateCompleted": "The new version is running.",
+            "updateUnconfirmed": "The new version was not confirmed within 30 seconds. Refresh later or inspect the installation directory.",
             "updateSuccess": "Update successful, service will restart shortly",
-            "updateFailed": "Update failed"
+            "updateFailed": "Update failed",
+            "status": {
+                "available": "A verified update is available.",
+                "latest": "This installation is up to date.",
+                "no_release": "No independent release is available yet.",
+                "development": "This is a development or local build; automatic update is disabled.",
+                "request_failed": "The independent release source could not be checked.",
+                "unsupported_platform": "This platform cannot replace the running program online.",
+                "container": "Container deployments must be upgraded by replacing the image.",
+                "update_pending": "The update is being applied.",
+                "update_failed": "The previous update failed; inspect the install directory and upgrade manually."
+            }
         },
         "log": {
             "title": "Log Settings",

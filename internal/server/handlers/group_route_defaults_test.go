@@ -58,7 +58,24 @@ func defaultsPayload(config model.GroupRelayConfig, apply bool) any {
 func TestRouteDefaultsAPIContractResetAndEvents(t *testing.T) {
 	config := restoreHandlerDefaults(t)
 	_, group, itemID := newChannelRouteFixture(t)
-	stream := subscribeGroupEventForTest(t)
+	// 共享测试库包含其他用例留下的分组，一次应用会为全部分组发布事件。
+	// 此用例为整批事件预留容量；默认缓冲的拥塞关闭行为另有专门回归。
+	var groupCount int64
+	if err := db.GetDB().Model(&model.Group{}).Count(&groupCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	stream := make(chan groupEvent, int(groupCount)+1)
+	groupEventMu.Lock()
+	groupEventStreams[stream] = struct{}{}
+	groupEventMu.Unlock()
+	t.Cleanup(func() {
+		groupEventMu.Lock()
+		defer groupEventMu.Unlock()
+		if _, exists := groupEventStreams[stream]; exists {
+			delete(groupEventStreams, stream)
+			close(stream)
+		}
+	})
 	events := make(chan groupResponse, 4)
 	go func() {
 		for event := range stream {
@@ -165,5 +182,36 @@ func TestRouteDefaultsRejectInvalidAndGenericSettingsWrites(t *testing.T) {
 	}
 	if after, _ := op.GroupRouteDefaultsGet(); after != config {
 		t.Fatal("非法设置改变了默认策略")
+	}
+}
+
+func TestGroupEventsCloseCongestedSubscriber(t *testing.T) {
+	stream := subscribeGroupEventForTest(t)
+	for range groupEventBuffer + 1 {
+		publishGroupEvent(groupEvent{Name: "changed"})
+	}
+	for range groupEventBuffer {
+		select {
+		case _, open := <-stream:
+			if !open {
+				t.Fatal("拥塞关闭丢失了已经缓冲的事件")
+			}
+		default:
+			t.Fatal("未保留默认容量的缓冲事件")
+		}
+	}
+	select {
+	case _, open := <-stream:
+		if open {
+			t.Fatal("满缓冲后未关闭慢订阅者")
+		}
+	default:
+		t.Fatal("满缓冲后订阅者仍在等待")
+	}
+	groupEventMu.Lock()
+	_, subscribed := groupEventStreams[stream]
+	groupEventMu.Unlock()
+	if subscribed {
+		t.Fatal("拥塞订阅者未从发布列表移除")
 	}
 }

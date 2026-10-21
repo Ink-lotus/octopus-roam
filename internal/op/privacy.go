@@ -193,7 +193,7 @@ func PrivacyRulesMutate(ctx context.Context, mutation PrivacyMutation) (PrivacyR
 	}
 	raw, _ := json.Marshal(policy.Config())
 	result := db.GetDB().WithContext(ctx).Model(&model.Setting{}).
-		Where("key = ? AND value = ?", model.SettingKeyPrivacyProtectionRules, oldValue).Update("value", string(raw))
+		Where(map[string]any{"key": model.SettingKeyPrivacyProtectionRules, "value": oldValue}).Update("value", string(raw))
 	if result.Error != nil {
 		return PrivacyRules{}, fmt.Errorf("could not save privacy rules")
 	}
@@ -219,7 +219,7 @@ func setPrivacyEnabled(value string) error {
 	}
 	if previous != value {
 		result := db.GetDB().Model(&model.Setting{}).
-			Where("key = ? AND value = ?", model.SettingKeyPrivacyProtectionEnabled, previous).Update("value", value)
+			Where(map[string]any{"key": model.SettingKeyPrivacyProtectionEnabled, "value": previous}).Update("value", value)
 		if result.Error != nil {
 			return fmt.Errorf("could not save privacy setting")
 		}

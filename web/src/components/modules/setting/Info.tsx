@@ -1,7 +1,7 @@
 import { useTranslations } from 'use-intl';
-import { Info, Tag, AlertTriangle, Loader2 } from 'lucide-react';
+import { Info, Tag, AlertTriangle, Loader2, Download } from 'lucide-react';
 import Github from '@thesvg/react/github';
-import { useNowVersion } from '@/api/update';
+import { useLatestInfo, useNowVersion, useUpdateCore, useUpdateProgress } from '@/api/update';
 import { Button } from '@/components/ui/button';
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'unknown'; // 当前前端构建对应的应用版本。
@@ -11,8 +11,12 @@ const GITHUB_REPO = (import.meta.env.VITE_GITHUB_REPO || 'https://github.com/Ink
 export function SettingInfo() {
     const t = useTranslations('setting');
     const nowVersionQuery = useNowVersion();
+    const latestInfoQuery = useLatestInfo();
+    const updateCore = useUpdateCore();
+    const updatePhase = useUpdateProgress();
 
     const backendNowVersion = nowVersionQuery.data || '';
+    const latestInfo = latestInfoQuery.data;
 
     // 前端版本与后端当前版本不一致 → 浏览器缓存问题
     const isCacheMismatch = !!backendNowVersion && backendNowVersion !== APP_VERSION;
@@ -76,6 +80,68 @@ export function SettingInfo() {
                     )}
                 </div>
             </div>
+
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <Download className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{t('info.latestVersion')}</span>
+                </div>
+                <code className="text-sm font-mono text-muted-foreground">
+                    {latestInfoQuery.isLoading ? '…' : (latestInfo?.tag_name || t('info.unknown'))}
+                </code>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+                {latestInfoQuery.isError
+                    ? t('info.status.request_failed')
+                    : t(`info.status.${latestInfo?.status || 'request_failed'}`)}
+            </p>
+
+            {latestInfo?.can_update && (
+                <div className="p-3 bg-primary/10 border border-primary/20 rounded-xl space-y-2">
+                    <div className="flex items-start gap-3">
+                        <Download className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                        <p className="text-sm text-primary font-medium">
+                            {t('info.newVersionAvailable')}
+                        </p>
+                    </div>
+                    <div className="flex justify-end">
+                        <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => updateCore.mutate({
+                                targetVersion: latestInfo?.tag_name || '',
+                                previousVersion: backendNowVersion,
+                            })}
+                            disabled={updateCore.isPending || updatePhase === 'pending'}
+                            className="rounded-xl"
+                        >
+                            {updateCore.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <Download className="h-4 w-4" />
+                            )}
+                            {updateCore.isPending ? t('info.updating') : t('info.updateNow')}
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {updatePhase === 'pending' && (
+                <p className="text-sm text-primary">{t('info.updatePending')}</p>
+            )}
+            {updatePhase === 'completed' && (
+                <p className="text-sm text-primary">{t('info.updateCompleted')}</p>
+            )}
+            {updatePhase === 'unconfirmed' && (
+                <p className="text-sm text-muted-foreground">{t('info.updateUnconfirmed')}</p>
+            )}
+            {updatePhase === 'failed' || latestInfo?.status === 'update_failed' ? (
+                <p className="text-sm text-destructive">{t('info.status.update_failed')}</p>
+            ) : null}
+            {updateCore.isError && (
+                <p className="text-sm text-destructive">{t('info.updateFailed')}</p>
+            )}
 
             <a
                 href={`${GITHUB_REPO}/releases`}

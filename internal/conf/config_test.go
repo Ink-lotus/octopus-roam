@@ -25,6 +25,7 @@ func TestLoadRoamEnvironmentOverrides(t *testing.T) {
 	databasePath := filepath.Join(directory, "roam.db")
 	t.Setenv("OCTOPUS_ROAM_SERVER_PORT", "18081")
 	t.Setenv("OCTOPUS_ROAM_DATABASE_PATH", databasePath)
+	t.Setenv("OCTOPUS_ROAM_DATABASE_MYSQL_CA_FILE", "synthetic-ca.pem")
 	if err := Load(configPath); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +34,9 @@ func TestLoadRoamEnvironmentOverrides(t *testing.T) {
 	}
 	if AppConfig.Database.Path != databasePath {
 		t.Fatal("environment did not override configured database path")
+	}
+	if AppConfig.Database.MySQLCAFile != "synthetic-ca.pem" {
+		t.Fatal("environment did not override the optional MySQL CA file")
 	}
 	if AppConfig.Server.Host != "127.0.0.1" {
 		t.Fatal("file configuration was not retained for the host")

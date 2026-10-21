@@ -112,7 +112,7 @@ powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/windows/te
 - 自动刷新与渠道并发限制。
 - 当前版本加密备份导出、错误口令拒绝、在另一个空实例恢复。
 - 正常停止并重启后，配置、禁用状态和业务数据保留。
-- 设置页仓库和手动升级链接指向 `Ink-lotus/octopus-roam`；版本检查与一键更新仍停用。
+- 设置页仓库和版本检查指向 `Ink-lotus/octopus-roam`；本地模拟源可验证版本比较、归档校验和更新替换，真实 Release 在线升级仍待第二轮。
 
 旧版本升级兼容不作为首次独立发布的门槛。如首版声明支持 MySQL/PostgreSQL，其全新安装、读写及当前版本备份恢复仍需对应实例验证。
 

@@ -50,9 +50,37 @@ func migrateChannelGrants(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")
 	}
-	// type 列存在与否作为执行标记, 已迁移的库直接跳过。
-	if !db.Migrator().HasTable("channels") || !hasPhysicalColumn(db, "channels", "type") {
+	// type 列存在与否作为执行标记；查询失败不能当作已迁移。
+	columns, err := physicalTableColumns(db, "channels")
+	if err != nil {
+		return err
+	}
+	if columns == nil || !columns["type"] {
 		return nil
+	}
+	if !columns.has("id", "name", "base_url", "key") || columns["base_urls"] {
+		return fmt.Errorf("%w: migration 5 must finish before migration 11", errIncompleteChannelSchema)
+	}
+	keyColumns, err := physicalTableColumns(db, "channel_keys")
+	if err != nil {
+		return err
+	}
+	if keyColumns != nil && !currentChannelKeyColumns(keyColumns) {
+		return fmt.Errorf("%w: migration 11 cannot reset legacy or unknown channel_keys", errIncompleteChannelSchema)
+	}
+	grantColumns, err := physicalTableColumns(db, "channel_grants")
+	if err != nil {
+		return err
+	}
+	if grantColumns != nil && !grantColumns.has("id", "channel_model_id", "channel_key_id", "protocols") {
+		return fmt.Errorf("%w: unknown channel_grants layout", errIncompleteChannelSchema)
+	}
+	itemColumns, err := physicalTableColumns(db, "group_items")
+	if err != nil {
+		return err
+	}
+	if itemColumns != nil && (!itemColumns.has("id", "group_id", "channel_model_id", "priority") || itemColumns["channel_grant_id"]) {
+		return fmt.Errorf("%w: group_items source already replaced or incomplete", errIncompleteChannelSchema)
 	}
 
 	// 新增列在 AutoMigrate 之前不存在, 先补齐才能回填。
@@ -68,7 +96,7 @@ func migrateChannelGrants(db *gorm.DB) error {
 		{"anthropic_message_path", "AnthropicMessagePath"},
 	}
 	for _, column := range newColumns {
-		if hasPhysicalColumn(db, "channels", column.name) {
+		if columns[column.name] {
 			continue
 		}
 		if err := db.Migrator().AddColumn(&model.Channel{}, column.field); err != nil {
@@ -86,7 +114,7 @@ func migrateChannelGrants(db *gorm.DB) error {
 		}
 	}
 
-	// 中途失败重跑时清空上轮写入的凭据与授权, 这两张表只由本迁移写入, 清空是安全的。
+	// 仅在旧凭据列和分组项来源仍完整时重建上轮产物；来源已被替换的中间态在前置检查中拒绝。
 	if err := db.Where("1 = 1").Delete(&model.ChannelGrant{}).Error; err != nil {
 		return fmt.Errorf("failed to reset channel_grants: %w", err)
 	}
@@ -202,7 +230,11 @@ func migrateChannelGrants(db *gorm.DB) error {
 // 采用整表重建而非就地补列: 旧表的唯一索引与外键都建在 channel_model_id 上, 且 SQLite 的
 // AutoMigrate 在为新列补外键时会重建表, 重建时只复制它从建表语句中解析到的列, 就地补上的列会被丢弃。
 func migrateGroupItemsToGrants(db *gorm.DB, grantIDByModel map[int]int) error {
-	if !db.Migrator().HasTable("group_items") || !hasPhysicalColumn(db, "group_items", "channel_model_id") {
+	columns, err := physicalTableColumns(db, "group_items")
+	if err != nil {
+		return err
+	}
+	if !columns["channel_model_id"] {
 		return nil
 	}
 

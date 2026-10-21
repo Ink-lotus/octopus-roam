@@ -2,18 +2,33 @@ package migrate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"gorm.io/gorm"
 )
 
 func init() {
-	RegisterAfterAutoMigration(Migration{
+	// 必须在 migration 11 消费 channels.key / 创建新版 channel_keys 之前搬运旧数据。
+	RegisterBeforeAutoMigration(Migration{
 		Version: 5,
 		Up:      migrateChannelToSingleURLAndKey,
 	})
+}
+
+var errIncompleteChannelSchema = errors.New("incomplete channel migration schema")
+
+// migration 5 的单值目标快照，不能引用已经移除了 Key 的当前 Channel 模型。
+type channelSingleValuesV5 struct {
+	BaseURL string
+	Key     string
+}
+
+func (channelSingleValuesV5) TableName() string { return "channels" }
+
+func currentChannelKeyColumns(columns physicalColumns) bool {
+	return columns.has("id", "channel_id", "name", "key", "enabled") && !columns["channel_key"]
 }
 
 // migrateChannelToSingleURLAndKey 将多地址、多凭据渠道收敛为单地址、单凭据，并删除旧结构。
@@ -21,14 +36,45 @@ func migrateChannelToSingleURLAndKey(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")
 	}
-	if !db.Migrator().HasTable("channels") {
+	columns, err := physicalTableColumns(db, "channels")
+	if err != nil {
+		return err
+	}
+	keyColumns, err := physicalTableColumns(db, "channel_keys")
+	if err != nil {
+		return err
+	}
+	if columns == nil {
+		if keyColumns != nil {
+			return fmt.Errorf("%w: channel_keys exists without channels", errIncompleteChannelSchema)
+		}
 		return nil
 	}
-	if !db.Migrator().HasColumn("channels", "base_url") || !db.Migrator().HasColumn("channels", "key") {
-		return fmt.Errorf("channels.base_url or channels.key not found")
+	legacyKeys := keyColumns.has("id", "channel_id", "channel_key") && !keyColumns["key"]
+	currentKeys := currentChannelKeyColumns(keyColumns)
+	if !columns.has("id", "name") || (keyColumns != nil && !legacyKeys && !currentKeys) {
+		return fmt.Errorf("%w: missing channel identity or unknown channel_keys layout", errIncompleteChannelSchema)
+	}
+	if !columns["type"] {
+		if columns["key"] || columns["base_urls"] || !currentKeys ||
+			!columns.has("base_url", "dialect", "openai_chat_completion_path", "openai_response_path", "anthropic_message_path") {
+			return fmt.Errorf("%w: current channel layout required when channels.type is absent", errIncompleteChannelSchema)
+		}
+		return nil
+	}
+	// 完整旧来源才能补目标列；无来源的缺列及混合新旧凭据表均在写入前失败。
+	if currentKeys || (!columns["base_url"] && !columns["base_urls"]) || (!columns["key"] && !legacyKeys) {
+		return fmt.Errorf("%w: legacy address and credential sources required", errIncompleteChannelSchema)
+	}
+	for _, target := range []struct{ column, field string }{{"base_url", "BaseURL"}, {"key", "Key"}} {
+		if !columns[target.column] {
+			if err := db.Migrator().AddColumn(&channelSingleValuesV5{}, target.field); err != nil {
+				return fmt.Errorf("failed to add channels.%s: %w", target.column, err)
+			}
+		}
 	}
 
-	if db.Migrator().HasColumn("channels", "base_urls") {
+	if columns["base_urls"] {
 		type legacyBaseURL struct {
 			URL string `json:"url"` // 旧地址值。
 		}
@@ -58,7 +104,7 @@ func migrateChannelToSingleURLAndKey(db *gorm.DB) error {
 		}
 	}
 
-	if db.Migrator().HasTable("channel_keys") && hasPhysicalColumn(db, "channel_keys", "channel_key") {
+	if legacyKeys {
 		type legacyChannelKey struct {
 			ChannelID  int    `gorm:"column:channel_id"`  // 所属渠道主键。
 			ChannelKey string `gorm:"column:channel_key"` // 旧凭据值。
@@ -88,21 +134,14 @@ func migrateChannelToSingleURLAndKey(db *gorm.DB) error {
 		}
 	}
 
-	// Migration 11 重新引入了 channel_keys 表用于多凭据架构，只有在旧架构（channels.type 存在）时才删除该表。
-	// Migration 11 会删除 channels.type 列，若该列不存在说明 Migration 11 已执行，channel_keys 表不应删除。
-	if db.Migrator().HasTable("channel_keys") && hasPhysicalColumn(db, "channels", "type") {
+	// 仅删除已验证且已经搬运的旧凭据表，不能按 channels.type 猜测任意同名表。
+	if legacyKeys {
 		if err := db.Migrator().DropTable("channel_keys"); err != nil {
 			return fmt.Errorf("failed to drop channel_keys: %w", err)
 		}
 	}
-	if db.Migrator().HasColumn("channels", "base_urls") {
-		if db.Dialector.Name() == "sqlite" {
-			if err := db.Exec(`ALTER TABLE "channels" DROP COLUMN "base_urls"`).Error; err != nil {
-				return fmt.Errorf("failed to drop channels.base_urls: %w", err)
-			}
-		} else if err := db.Migrator().DropColumn(&model.Channel{}, "base_urls"); err != nil {
-			return fmt.Errorf("failed to drop channels.base_urls: %w", err)
-		}
+	if columns["base_urls"] {
+		return dropColumnIfExists(db, &channelSingleValuesV5{}, "channels", "base_urls")
 	}
 	return nil
 }

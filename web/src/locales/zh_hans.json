@@ -522,7 +522,7 @@
             }
         },
         "info": {
-            "manualUpgrade": "已停用自动升级。请先备份数据库，再从 Octopus Roam 独立版本发布页手动升级。",
+            "manualUpgrade": "可从 Octopus Roam 发布页手动安装，或按容器升级说明替换镜像。",
             "title": "版本信息",
             "currentVersion": "当前版本",
             "latestVersion": "最新版本",
@@ -535,8 +535,22 @@
             "newVersionAvailableHint": "请先备份数据，然后更新系统",
             "updateNow": "立即更新",
             "updating": "更新中...",
+            "updatePending": "更新已校验，服务正在重启。服务恢复后请重新加载页面。",
+            "updateCompleted": "新版本已运行。",
+            "updateUnconfirmed": "30 秒内未确认到新版本，请稍后刷新页面或检查安装目录。",
             "updateSuccess": "更新成功，服务即将重启",
-            "updateFailed": "更新失败"
+            "updateFailed": "更新失败",
+            "status": {
+                "available": "有已校验的更新可用。",
+                "latest": "当前安装已是最新版本。",
+                "no_release": "尚无可用的独立版本。",
+                "development": "当前是开发或本地构建，不执行自动更新。",
+                "request_failed": "无法检查独立发布源。",
+                "unsupported_platform": "当前平台不能在线替换运行中的程序。",
+                "container": "容器部署请替换镜像并重建容器。",
+                "update_pending": "更新正在应用。",
+                "update_failed": "上一次更新失败，请检查安装目录后手动升级。"
+            }
         },
         "log": {
             "title": "日志设置",

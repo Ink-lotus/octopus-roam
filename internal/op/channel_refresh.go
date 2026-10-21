@@ -421,9 +421,9 @@ func loadChannelRefreshGrantSnapshot(ctx context.Context, channelID int) (map[ch
 	}
 	var rows []grantRow
 	if err := db.GetDB().WithContext(ctx).Table("channel_grants AS grants").
-		Select("models.name AS model_name, keys.name AS key_name, grants.protocols AS protocols").
+		Select("models.name AS model_name, credentials.name AS key_name, grants.protocols AS protocols").
 		Joins("JOIN channel_models AS models ON models.id = grants.channel_model_id").
-		Joins("JOIN channel_keys AS keys ON keys.id = grants.channel_key_id").
+		Joins("JOIN channel_keys AS credentials ON credentials.id = grants.channel_key_id").
 		Where("models.channel_id = ?", channelID).Scan(&rows).Error; err != nil {
 		return nil, fmt.Errorf("failed to load existing channel grants: %w", err)
 	}
@@ -442,9 +442,9 @@ func verifyChannelRefreshGrantSnapshot(tx *gorm.DB, channelID int, expected map[
 	}
 	var rows []grantRow
 	if err := tx.Table("channel_grants AS grants").
-		Select("models.name AS model_name, keys.name AS key_name, grants.protocols AS protocols").
+		Select("models.name AS model_name, credentials.name AS key_name, grants.protocols AS protocols").
 		Joins("JOIN channel_models AS models ON models.id = grants.channel_model_id").
-		Joins("JOIN channel_keys AS keys ON keys.id = grants.channel_key_id").
+		Joins("JOIN channel_keys AS credentials ON credentials.id = grants.channel_key_id").
 		Where("models.channel_id = ?", channelID).Scan(&rows).Error; err != nil {
 		return fmt.Errorf("failed to verify existing channel grants: %w", err)
 	}

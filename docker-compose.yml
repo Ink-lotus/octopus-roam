@@ -1,6 +1,6 @@
 services:
   octopus-roam:
-    image: ghcr.io/ink-lotus/octopus-roam:${OCTOPUS_ROAM_VERSION:-latest}
+    image: "ghcr.io/ink-lotus/octopus-roam:${OCTOPUS_ROAM_VERSION:?Set OCTOPUS_ROAM_VERSION to a published Octopus Roam tag}"
     ports:
        - '8080:8080'
     volumes:      

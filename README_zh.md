@@ -10,7 +10,7 @@
 
 </div>
 
-Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；当前 R1 正在验收，尚未发布独立候选版或正式版。参见[变更日志](CHANGELOG.md)、[升级与备份说明](docs/upgrade-r1.md)和 [R1 验收记录](plan/r1-result.md)。
+Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；独立更新路径已完成本地验证，尚未发布独立候选版或正式版。参见[变更日志](CHANGELOG.md)、[升级与备份说明](docs/upgrade-r1.md)和[发布计划](plan/release-plan-v0.1.0.md)。
 
 
 ## ✨ 特性
@@ -21,7 +21,7 @@ Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.
 - 🔃 **模型同步** - 自动与渠道同步可用模型列表，省心省力
 - 🛡️ **自动故障转移** - 上游渠道发生故障时自动切换到可用渠道
 - 🔍 **请求全链路实时可视化** - 客户端发起请求后，即可在前端实时查看完整请求链路
-- 🚧 **上游错误拦截** - 拦截所有上游错误，避免中断 Agent 任务
+- 🛡️ **重试与健康保护** - 保护跨请求重试和渠道健康状态；流式响应已经发送数据后，上游故障仍可能结束本次响应
 - 📊 **数据统计** - 全面的请求统计、Token 消耗、费用追踪
 - 🎨 **优雅界面** - 简洁美观的 Web 管理面板
 - 📦 **轻量单文件部署** - 单个二进制文件即可运行，无需额外运行时依赖
@@ -38,7 +38,7 @@ Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.
 docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:<version>
 ```
 
-`docker-compose.yml` 使用同一独立镜像，默认标签为 `latest`；可通过 `OCTOPUS_ROAM_VERSION` 指定已发布标签，例如 `v0.1.0-rc.1`。候选版不会更新 `latest`，首个正式版发布前须指定候选版标签。当前镜像尚未发布。
+`docker-compose.yml` 使用同一独立镜像。首个正式版发布前须将 `OCTOPUS_ROAM_VERSION` 明确设置为已发布的 RC 标签，例如 `v0.1.0-rc.1`；候选版不会更新 `latest`，当前仓库尚未发布镜像。
 
 
 ### 📦 从 Release 下载
@@ -76,6 +76,8 @@ go run . start
 ```
 
 > 💡 **提示**：前端构建产物会被嵌入到 Go 二进制文件中，所以必须先构建前端再启动后端。
+
+离线准备本地发布候选版可使用 `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/build-local.ps1 -Version v0.1.0-local.<编号>`。脚本只写入新的 `build/release-local/` 目录，使用已有缓存；缺少第三方许可证报告时会在构建信息中明确标记。
 
 本地部署验收建议使用仓库外的独立运行目录，放置程序、配置、数据库及日志；见[本地部署说明](docs/local-deployment.md)。
 
@@ -138,7 +140,7 @@ http://localhost:5173
 |------|-----------------|---------------------|
 | SQLite | `sqlite` | `data/data.db` |
 | MySQL | `mysql` | `user:password@tcp(host:port)/dbname` |
-| PostgreSQL | `postgres` | `postgresql://user:password@host:port/dbname?sslmode=disable` |
+| PostgreSQL | `postgres` | `postgresql://user:password@host:port/dbname?sslmode=verify-full` |
 
 **MySQL 配置示例：**
 
@@ -157,7 +159,7 @@ http://localhost:5173
 {
   "database": {
     "type": "postgres",
-    "path": "postgresql://user:password@localhost:5432/octopus-roam?sslmode=disable"
+    "path": "postgresql://user:password@localhost:5432/octopus-roam?sslmode=verify-full"
   }
 }
 ```
@@ -175,7 +177,7 @@ http://localhost:5173
 | `OCTOPUS_ROAM_DATABASE_TYPE` | `database.type` |
 | `OCTOPUS_ROAM_DATABASE_PATH` | `database.path` |
 | `OCTOPUS_ROAM_LOG_LEVEL` | `log.level` |
-| `OCTOPUS_ROAM_GITHUB_PAT` | 用于获取最新版本时的速率限制(可选) |
+| `OCTOPUS_ROAM_GITHUB_PAT` | 固定 Octopus Roam 发布 API 的可选速率限制令牌（不会发送给归档主机） |
 
 
 ## 📸 界面预览
@@ -258,6 +260,8 @@ http://localhost:5173
 备份须设置至少 12 个字符的独立口令，下载为加密 JSON；口令无法找回，应单独保管。导出脚本改用已认证的 `POST /api/v1/setting/export`，在 JSON 请求体传入口令；旧 GET 返回 405。导入保留已审计的上游 0/5 格式，拒绝无标识预发布 6 号。升级前保存旧数据库和可执行文件，新备份不能交给旧程序恢复。
 
 完整默认值、增量导入规则、日志状态、回滚步骤和 Key 失败/模型为空/并发排队/Webhook 排障见[升级说明](docs/upgrade-r1.md)。
+
+设置页只检查 Octopus Roam 自己的发布源。稳定版只升级到更高稳定版；官方 RC 可升级到更高 RC 或对应稳定版。开发版和本地构建会显示状态，不会自行推断升级顺序。候选归档先下载到隔离目录，并校验同一版本的 `SHA256SUMS` 后才替换；程序、配置、数据库和备份目录保持分离。容器部署应替换镜像并重启容器，不能在容器内替换程序文件。
 
 ---
 
