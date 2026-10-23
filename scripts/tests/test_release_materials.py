@@ -1,6 +1,7 @@
 """Material handoff fixtures; no real HTTP, checkout mutation, product or DB."""
 import argparse
 from contextlib import contextmanager
+import gzip
 import io
 import json
 import os
@@ -132,6 +133,14 @@ class MaterialsTests(unittest.TestCase):
         (directory / 'index.html').write_bytes(b'<script src="app.js"></script>')
         (directory / 'app.js').write_bytes(f'const version = "{VERSION}";'.encode())
 
+    def generated_gzip_frontend(self, args):
+        self.assertEqual((args.version, args.commit), (VERSION, COMMIT))
+        directory = self.checkout / 'static/out'
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, content in {'index.html': b'<script src="app.js"></script>',
+                              'app.js': f'const version = "{VERSION}";'.encode()}.items():
+            (directory / (name + '.gz')).write_bytes(gzip.compress(content, mtime=0))
+
     def assemble(self):
         with self.production_environment(), patch.object(contract, 'frontend', side_effect=self.generated_frontend):
             materials.produce(self.args)
@@ -194,6 +203,39 @@ class MaterialsTests(unittest.TestCase):
         self.assertEqual(contract.tree(output), contract.tree(self.output))
         with self.production_environment():
             materials.audit(argparse.Namespace(**{**vars(self.produced_args()), 'materials': str(output)}))
+
+    def test_gzip_only_frontend_survives_produce_pack_unpack_and_audit(self):
+        with patch.object(self, 'generated_frontend', side_effect=self.generated_gzip_frontend):
+            bundle = self.bundle()
+        output = self.root / 'gzip-downloaded'
+        args = argparse.Namespace(version=VERSION, commit=COMMIT, bundle=str(bundle),
+                                  bundle_sha=contract.digest(bundle), materials_sha=self.produced_args().materials_sha,
+                                  output=str(output))
+        materials.unpack(args)
+        self.assertEqual(contract.tree(output), contract.tree(self.output))
+        source = output / materials.template_name(VERSION)
+        production = materials.source_production(source, VERSION, COMMIT, 1)
+        expected = {'static/out/' + name: checksum for name, checksum in
+                    contract.tree(self.checkout / 'static/out').items()}
+        self.assertEqual(set(expected), {'static/out/index.html.gz', 'static/out/app.js.gz'})
+        self.assertEqual(production['frontend'], expected)
+        with zipfile.ZipFile(source) as archive:
+            for name in expected:
+                self.assertEqual(archive.read('application/' + name), (self.checkout / name).read_bytes())
+        with self.production_environment():
+            materials.audit(argparse.Namespace(**{**vars(self.produced_args()), 'materials': str(output)}))
+
+    def test_gzip_recompression_requires_new_review_even_if_content_is_identical(self):
+        with patch.object(self, 'generated_frontend', side_effect=self.generated_gzip_frontend):
+            self.assemble()
+        script = self.checkout / 'static/out/app.js.gz'
+        original = script.read_bytes()
+        rewritten = gzip.compress(gzip.decompress(original), mtime=1)
+        self.assertNotEqual(original, rewritten)
+        self.assertEqual(gzip.decompress(original), gzip.decompress(rewritten))
+        script.write_bytes(rewritten)
+        with self.production_environment(), self.assertRaises(contract.Invalid):
+            materials.audit(self.produced_args())
 
     def test_production_replaces_old_frontend_and_binds_tools_and_scripts(self):
         self.assemble()

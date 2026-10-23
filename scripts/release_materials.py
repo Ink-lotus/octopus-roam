@@ -163,7 +163,9 @@ def observed_tools():
 
 def frontend_files(root):
     files = contract.tree(root / 'static/out')
-    contract.require('index.html' in files and any(name.endswith('.js') for name in files),
+    # Vite retains gzip assets when deleteOriginalAssets is enabled. Hash those exact bytes.
+    contract.require(any(name in files for name in ('index.html', 'index.html.gz'))
+                     and any(name.endswith(('.js', '.js.gz')) for name in files),
                      'Actual frontend output is missing')
     return {'static/out/' + name: value for name, value in files.items()}
 
@@ -199,8 +201,9 @@ def source_production(source, version, commit, epoch):
                          'Reviewed tool input hash differs')
         frontend = {name.removeprefix('application/'): contract.sha(archive.read(name))
                     for name in names if name.startswith('application/static/out/')}
-        contract.require(frontend == record['frontend'] and 'static/out/index.html' in frontend
-                         and any(name.endswith('.js') for name in frontend),
+        contract.require(frontend == record['frontend']
+                         and any(name in frontend for name in ('static/out/index.html', 'static/out/index.html.gz'))
+                         and any(name.endswith(('.js', '.js.gz')) for name in frontend),
                          'Material frontend evidence differs')
         scripts = {name: contract.sha(archive.read('application/' + name)) for name in
                    ('scripts/release_materials.py', 'scripts/release_contract.py')}
