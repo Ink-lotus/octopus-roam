@@ -113,6 +113,24 @@ def image_fixture(path, arch, files, extra_layers=()):
     path.write_bytes(tar_bytes(entries))
 
 
+def fixture_go(*args):
+    """Synthetic metadata at the subprocess boundary; never a real build claim."""
+    if args == ('env', 'GOVERSION'):
+        return contract.GO_VERSION
+    if args[:2] == ('version', '-m'):
+        binary = Path(args[2])
+        raw = binary.read_bytes().decode()
+        if not raw.startswith('synthetic '):
+            return f'{binary}: not a Go executable'
+        target = raw.removeprefix('synthetic ')
+        goos, goarch = target.split('-')
+        return (f'{binary}: {contract.GO_VERSION}\n\tpath\t{contract.MODULE}\n'
+                f'\tbuild\tGOOS={goos}\n\tbuild\tGOARCH={goarch}\n')
+    if args[:2] == ('tool', 'buildid'):
+        return f'{contract.APP}/{VERSION}/{COMMIT}'
+    raise AssertionError(f'Unexpected Go fixture invocation: {args}')
+
+
 def release_fixture(root):
     materials_sha, packages = material_fixture(root / 'materials')
     for name in ('archives', 'bin', 'docker-context/build/release-notices', 'docker-context/scripts/dockerfile'):
@@ -138,8 +156,9 @@ def release_fixture(root):
         contract.archive_write(root / 'archives' / f'{contract.APP}-{target}.zip', entries)
     (root / 'archives/SHA256SUMS').write_text(''.join(f'{contract.digest(p)}  {p.name}\n'
         for p in sorted((root / 'archives').glob('*.zip'))), encoding='utf-8')
-    contract.write_json(root / 'build.json', {'schema': 1, 'version': VERSION, 'commit': COMMIT,
-        'platforms': list(contract.TARGETS), 'binaries': binaries})
+    contract.write_json(root / 'build.json', {'schema': contract.BUILD_SCHEMA, 'version': VERSION, 'commit': COMMIT,
+        'platforms': list(contract.TARGETS), 'binaries': binaries,
+        'go_versions': {target: contract.GO_VERSION for target in contract.TARGETS}})
     for arch, (raw, os_files) in packages.items():
         platform = 'linux/arm/v7' if arch == 'arm' else f'linux/{arch}'
         alpine = root / 'docker-context/build/alpine' / platform
@@ -158,8 +177,11 @@ class ContractTests(unittest.TestCase):
         self.root = new_directory()
         self.env = patch.dict(os.environ, {'GITHUB_REPOSITORY': 'Ink-lotus/octopus-roam'})
         self.env.start()
+        self.go = patch.object(contract, 'go_run', side_effect=fixture_go)
+        self.go.start()
 
     def tearDown(self):
+        self.go.stop()
         self.env.stop()
 
     def test_identity_accepts_only_full_sha_and_first_release(self):

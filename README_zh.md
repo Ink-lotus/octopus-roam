@@ -63,7 +63,7 @@ docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.i
 ### 🛠️ 源码运行
 
 **环境要求：**
-- Go 1.26.4（以 `go.mod` 为准）
+- Go 1.27.3 或更高版本（以 `go.mod` 为准）
 - Node.js 22.12+
 - pnpm 11.10.0
 

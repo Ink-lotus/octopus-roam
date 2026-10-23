@@ -4,7 +4,7 @@
 
 版本合同目前仅覆盖首发的 `v0.1.0-rc.N` 和 `v0.1.0`，N 从 1 开始。输入 commit 必须是 main 历史中的完整 40 位 SHA；main.go 的版本注释和 Release Notes 标题必须精确匹配。当前上游版本注释、草稿说明或已经存在的 tag / Release / 版本镜像都会阻止发布。后续版本线需要单独审查更新合同。
 
-**2026-10-22 状态：**工作区的 Go 最低版本和两个 workflow 已调整为 Go 1.27.3，尚未提交；本机实际 Go 仍为 1.27.0。旧 `b949271` / Ubuntu run `39620815636` 只证明升级前基线通过。实际产物 Go 版本检查、材料生产入口和新工具链验收仍待完成，见文末补充计划；本次仅修订文档，不能据此认定新增门禁已实现或 RC 已就绪。
+**工作包 1 接续（2026-10-22）：**本轮基线为 `main / 1af3ec18aac751eac668ace4331ce8544dbf461f`；三份计划文档已提交，两个 workflow、两份 README 和 go.mod 的版本修改是保留的未提交输入。任务目录内的 Go 1.27.3 已核验；产物门禁补丁、实际本地检查与限制统一见 [工作包 1 结果](../plan/release-step-01-result-20261022-01.md)。旧 `b949271` / Ubuntu run `39620815636` 仅证明 Go 1.27.0 基线。提交推送、新 SHA Ubuntu CI 属于工作包 2；材料入口及完整矩阵真实构建仍待后续工作包，本地验收不表示 A0 整体完成或 RC 已就绪。
 
 ## 对应材料输入
 
@@ -64,15 +64,27 @@ alpine/386.zip
 
 测试使用 Go 全量/default/jsoniter、vet、关键 race、前端 lint/TypeScript/Vite、发布脚本测试及 actionlint。依赖在 setup 阶段按锁文件获取，测试和编译阶段使用 GOPROXY=off、GOTOOLCHAIN=local、-mod=readonly，保留校验。构建不运行联网价格脚本。
 
-版本显式注入 Go ldflags、可跨平台读取的 Go build ID 和 VITE_APP_VERSION。build.json 记录版本、SHA、平台和程序哈希。Vite 构建前缓存 static/out/README.md 原始字节并在结束时恢复，随后检查其他已跟踪源码/锁文件无变化。
+版本显式注入 Go ldflags、可跨平台读取的 Go build ID 和 VITE_APP_VERSION。build.json 使用 schema 2，记录版本、SHA、平台、程序哈希及逐目标实际 Go 编译版本；公开 BUILD.json 是其逐字节相同副本。Vite 构建前缓存 static/out/README.md 原始字节并在结束时恢复，随后检查其他已跟踪源码/锁文件无变化。
 
-当前 `package` 虽读取 `go version -m`，但未核对编译器版本；`build.json` 尚无实际 Go 版本记录，seal/verify 也未验证该项。下述补充计划要求在 RC 冻结前补齐，不能把已有版本/SHA/哈希检查表述为已经包含 Go 安全版本检查。
+`package`、`seal`、`verify` 均要求检查工具为精确的 Go 1.27.3，再以 `go version -m` 读取每个实际程序的构建元数据，要求版本为 `go1.27.3`，并检查 GOOS/GOARCH 和 `go tool buildid`。seal/verify 重新读取 bin 中的程序，检查程序哈希、ZIP 内程序逐字节相同及版本记录一致；verify 还比较公开 BUILD.json 和 11 个交付 ZIP 与已检查的内部副本，复核公开 SHA256SUMS。四份镜像继续逐字节比较对应 Linux 程序。清单自报的版本或重新计算的哈希不能替代实际元数据。
+
+构建记录字段固定如下；缺字段、未知字段、schema 1、缺少目标或版本不一致均拒绝，不自动迁移旧产物：
+
+| 字段 | schema 2 合同 |
+| --- | --- |
+| schema | 整数 2 |
+| version / commit | 本次准确版本 / 完整 SHA |
+| platforms | 固定 11 目标顺序；显式本地 standard-only 仅记录七目标且不能 seal/verify |
+| binaries | `{目标: 实际程序 SHA-256}`；沿用原值类型 |
+| go_versions | `{目标: 从该程序元数据读取的 Go 版本}`；每项必须为 `go1.27.3` |
+
+materials.json、release-source.json 和 artifact.json 保持各自 schema 1。build.sh 的 package 调用方及发布测试已同步，未增加产品依赖。旧 build-local.ps1 的 build-info.json 与 prepare-database-acceptance.ps1 的冻结 source 驱动属于另一种历史布局，不消费 build.json；后续材料/候选适配须显式处理，不能将 schema 2 artifact 直接传入旧驱动。
 
 发布矩阵是七个标准目标加四个 Android/NDK 目标，共 11 个 ZIP；`--standard-only` 只用于明确的本地子集验证，seal/verify 拒绝把它当作完整发布。ZIP 内文件名保留更新器白名单，补充声明和源码入口附入两份 README，程序模式 0100755、其他文件 0100644。
 
 build 创建明确的 docker-context，通过独立的 scripts/dockerfile/Release.Dockerfile 使用审查过的基础镜像 digest，构建四份 Docker tar，不登录发布仓库、不推送镜像。校验 tar 配置/层摘要、平台、标签、实际程序、CSV、声明、entrypoint 和实际 APK 数据库；整个流程不启动产品或数据库。将 build、context、images、materials、delivery 全部封装成含版本和完整 SHA 的单一 Actions artifact，另记录完整文件清单和哈希。
 
-publish 只下载本次 run 的确切 artifact，重新核对所有文件和对应源码/实际镜像映射，然后核实远端 tag、Release 和版本镜像均不存在。认证失败、网络错误或已有对象均停止。门禁通过后，才创建指向指定 SHA 的新 tag，加载并推送已验证的四份镜像 tar，组合 GHCR 多平台版本标签，并使用审核后的说明创建 Release。RC 只发布版本及架构标签；稳定版才更新 latest。唯一镜像渠道为 GHCR。
+publish 只下载本次 run 的确切 artifact，显式通过 setup-go 安装 Go 1.27.3（cache=false），保持 GOTOOLCHAIN=local、GOPROXY=off 和 -mod=readonly，重新核对所有文件、实际程序版本及对应源码/实际镜像映射，然后核实远端 tag、Release 和版本镜像均不存在。认证失败、网络错误或已有对象均停止。门禁通过后，才创建指向指定 SHA 的新 tag，加载并推送已验证的四份镜像 tar，组合 GHCR 多平台版本标签，并使用审核后的说明创建 Release。RC 只发布版本及架构标签；稳定版才更新 latest。唯一镜像渠道为 GHCR。
 
 `publish=true` 会重新执行 prepare/test/build，不会复用先前 `publish=false` run 的 artifact。先验证 `release` environment 的实际审批规则，再启动获准的发布 run；最终放行须对应该 run 的实际编译版本、版本/SHA、材料及产物哈希。演练通过不代替这次产物的审核。
 
@@ -90,11 +102,11 @@ checkout/setup-node/setup-go/setup-python/pnpm/setup-ndk/Docker actions 保留�
 
 ## Go 1.27.3 安全基线与 RC 前补充计划
 
-[官方漏洞记录 GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809)说明 CVE-2026-111943 涉及 `crypto/x509` 对特定不再受信任中间证书的拒绝检查，修复版本包括 Go 1.26.10、1.27.3。本项目选择 Go 1.27.3，必须重新编译程序才能包含标准库修复。当前配置固定版本与实际产物证明分开验收，以下新增要求截至 2026-10-22 **尚未实现或取得通过证据**：
+[官方漏洞记录 GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809)说明 CVE-2026-111943 涉及 `crypto/x509` 对特定不再受信任中间证书的拒绝检查，修复版本包括 Go 1.26.10、1.27.3。本项目选择 Go 1.27.3，必须重新编译程序才能包含标准库修复。当前配置固定版本与实际产物证明分开验收。工作包 1 实施了上述门禁，本地结果及精确输入见结果报告；以下要求中的新 SHA CI、材料、完整产物和产品实测继续分别验收：
 
 1. **R2 工具链与新 SHA 验收。**核对 Go 1.27.3 的官方来源、校验和及本地/runner 实际版本。工具获取、环境或 CI 调整按具体方案授权执行；保持 `GOTOOLCHAIN=local`、测试/构建阶段 `GOPROXY=off`、`-mod=readonly` 和既有校验。完成规定的完整测试与 workflow 检查，取得新 SHA 的普通 Ubuntu CI 结果；RC 版本提交后再绑定最终 SHA 的结果。
 2. **产物编译版本记录与拒绝检查。**在 `scripts/release_contract.py` 的 package、seal、verify 中，从全部 11 个程序的实际构建元数据校验本轮固定版本 `go1.27.3`；在 `build.json` 与公开 `BUILD.json` 增加实际 Go 版本记录，字段/schema 和调用方随补丁审查。下载后的 verify 重新核对实物，不能只相信清单自报版本。四份镜像继续核对其程序与对应 Linux 二进制逐字节一致。
-3. **核验工具和回归覆盖。**当前 publish job 未显式安装 Go；若新增 verify 使用 Go 读取元数据，需同时为 publish 和本地验证准备确定的工具。补充旧编译版本、缺失元数据、记录与实际程序不符的拒绝路径测试，保留已有矩阵、源码/依赖、归档、镜像、材料及哈希检查。
+3. **核验工具和回归覆盖。**publish 已显式安装 Go 1.27.3；本地 verify 也必须将已核验的该版本工具置于子进程 PATH，并设置 GOROOT、GOTOOLCHAIN=local、GOPROXY=off、GOFLAGS=-mod=readonly。新增发布回归覆盖三个阶段的旧/缺失/非精确元数据、错误检查工具、记录/实物/公开副本不符、11 目标和四镜像字节绑定；另用真实小型 PE/ELF/Mach-O 程序验证读取器。这些 fixture 不是完整产品矩阵构建证据。
 4. **R3 材料与完整重建。**材料生产入口和上述补丁完成后再冻结 RC；更新材料与复建/再链接证据。`publish=false` 用新工具链构建全部 11 个 ZIP、四架构镜像和 sealed artifact，回下载验证。基础镜像 digest 固定后仍核对实际 APK 数据库；未变的来源按差异复用，旧程序、旧镜像及旧哈希不能作为新 RC 产物证据。
 5. **TLS 及实际产品验收。**使用最终程序覆盖 MySQL/PostgreSQL TLS、更新元数据与资产下载路径：合法链/自定义 CA 正常，不受信证书及错误主机名拒绝。普通 TLS 正反例证明应用兼容性，不能单独证明此次特定中间证书拒绝机制已生效；保留官方修复说明、工具来源和实际产物版本证据，引用上游回归时另记来源与范围。继续完成 C1 真实 MySQL 启动、C2 页面/进程升级、最终包及容器测试，历史业务结果按受影响范围复用。
 

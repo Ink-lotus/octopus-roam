@@ -63,7 +63,7 @@ The first start creates the configuration and data directories automatically. Th
 ### 🛠️ Build from Source
 
 **Requirements:**
-- Go 1.26.4 (see `go.mod`)
+- Go 1.27.3 or later (see `go.mod`)
 - Node.js 22.12+
 - pnpm 11.10.0
 

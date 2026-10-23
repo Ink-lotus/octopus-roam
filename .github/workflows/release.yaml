@@ -112,12 +112,16 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.27.0'
+          go-version: '1.27.3'
           cache: true
       - uses: nttld/setup-ndk@v1
         id: ndk
         with:
           ndk-version: r28c
+      - name: Record and check actual Go toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.27.3
       - name: Acquire locked dependencies
         run: |
           pnpm --dir web install --frozen-lockfile
@@ -165,6 +169,9 @@ jobs:
       PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
       ARTIFACT_ROOT: ${{ github.workspace }}/build/release-artifact
       GH_TOKEN: ${{ github.token }}
+      GOTOOLCHAIN: local
+      GOPROXY: 'off'
+      GOFLAGS: -mod=readonly
     steps:
       - uses: actions/checkout@v7
         with:
@@ -179,8 +186,13 @@ jobs:
         with:
           name: ${{ needs.prepare.outputs.artifact }}
           path: ${{ env.ARTIFACT_ROOT }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
       - name: Recheck complete downloaded artifact before any publication
         run: |
+          go version
           python3 -B scripts/release_contract.py verify --version "$VERSION" --commit "$COMMIT" --output "$ARTIFACT_ROOT" --materials-sha "$MATERIALS_SHA"
       - uses: docker/setup-buildx-action@v4
       - name: Refuse existing tag, Release or version images

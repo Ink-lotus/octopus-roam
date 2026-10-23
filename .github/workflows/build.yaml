@@ -40,11 +40,15 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.27.0'
+          go-version: '1.27.3'
           cache: true
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14.6'
+      - name: Record and check actual Go toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.27.3
       - name: Acquire locked dependencies and fixed actionlint
         run: |
           pnpm --dir web install --frozen-lockfile

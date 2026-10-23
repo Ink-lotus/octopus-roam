@@ -67,6 +67,10 @@ else
     command -v go-licenses >/dev/null 2>&1 || fail "缺少 go-licenses；请提供 --license-report 或在发布环境准备固定版本的许可证工具"
 fi
 command -v "${PYTHON}" >/dev/null 2>&1 || fail "Python 工具不可用"
+# Dependencies must already be acquired and verified by the setup phase.
+export GOTOOLCHAIN=local GOPROXY=off GOFLAGS=-mod=readonly
+go version
+[[ "$(go env GOVERSION)" == go1.27.3 ]] || fail "Go 1.27.3 is required"
 if [[ -n "${MATERIALS_DIR}" ]]; then
     "${PYTHON}" scripts/release_contract.py materials --version "${VERSION}" --commit "${COMMIT}" \
         --materials "${MATERIALS_DIR}" --materials-sha "${MATERIALS_SHA}"
@@ -144,7 +148,7 @@ mkdir -p "${OUTPUT_DIR}/bin" "${OUTPUT_DIR}/archives" \
 if [[ -n "${LICENSE_REPORT}" ]]; then
     cp "${LICENSE_REPORT}" "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
 else
-    GOFLAGS="-tags=jsoniter" go-licenses report . --ignore "${MODULE_PATH}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
+    GOFLAGS="-mod=readonly -tags=jsoniter" go-licenses report . --ignore "${MODULE_PATH}" >"${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv"
 fi
 [[ -s "${OUTPUT_DIR}/THIRD_PARTY_LICENSES.csv" ]] || fail "许可证报告为空"
 

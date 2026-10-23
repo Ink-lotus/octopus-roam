@@ -19,6 +19,8 @@ import zipfile
 
 APP = 'octopus-roam'
 MODULE = 'github.com/Ink-lotus/octopus-roam'
+GO_VERSION = 'go1.27.3'
+BUILD_SCHEMA = 2
 TARGETS = ('linux-amd64', 'linux-arm64', 'linux-arm', 'linux-386',
            'windows-amd64', 'darwin-arm64', 'darwin-amd64',
            'android-amd64', 'android-arm64', 'android-arm', 'android-386')
@@ -70,6 +72,40 @@ def write_json(path, data):
 
 def run(*args):
     return subprocess.check_output(args, text=True).strip()
+
+
+def go_run(*args):
+    # Metadata inspection must not select/download a different toolchain.
+    return subprocess.check_output(['go', *args], text=True,
+        env={**os.environ, 'GOTOOLCHAIN': 'local', 'GOPROXY': 'off', 'GOFLAGS': '-mod=readonly'}).strip()
+
+
+def require_go_toolchain():
+    require(go_run('env', 'GOVERSION') == GO_VERSION, f'Go inspection tool must be {GO_VERSION}')
+
+
+def binary_metadata(binary, target, version, commit):
+    binary = Path(binary).resolve()
+    info = go_run('version', '-m', str(binary))
+    lines = info.splitlines()
+    header = re.fullmatch(re.escape(str(binary)) + r': (\S+)', lines[0]) if lines else None
+    require(header, f'Missing Go build metadata for {target}')
+    actual_go = header.group(1)
+    require(actual_go == GO_VERSION, f'Binary Go version differs for {target}; expected {GO_VERSION}')
+    settings = {}
+    for line in lines[1:]:
+        fields = line.split('\t')
+        if fields[:2] == ['', 'build']:
+            require(len(fields) == 3, 'Malformed Go build setting')
+            key, separator, value = fields[2].partition('=')
+            require(separator and key not in settings, 'Missing/duplicate Go build setting')
+            settings[key] = value
+    goos, goarch = target.split('-')
+    require(settings.get('GOOS') == goos and settings.get('GOARCH') == goarch, 'Binary target differs')
+    # -trimpath omits ldflags; the explicit build ID survives all target formats.
+    require(go_run('tool', 'buildid', str(binary)) == f'{APP}/{version}/{commit}',
+            'Binary build identity differs')
+    return info, actual_go
 
 
 def identity(version, commit):
@@ -322,6 +358,7 @@ def dependency_sources(info, source_path, cache):
 
 
 def package(args):
+    require_go_toolchain()
     root, out = Path.cwd(), Path(args.output).resolve()
     delivery = out / 'archives'
     require(not any(delivery.iterdir()), 'Archive output must be empty')
@@ -334,17 +371,12 @@ def package(args):
         source_matches(root, Path(args.materials) / f'{APP}-source-{args.version}.zip')
     targets = TARGETS[:7] if args.standard_only else TARGETS
     binaries = {}
+    go_versions = {}
     module_cache = {}
     for target in targets:
         suffix = '.exe' if target.startswith('windows-') else ''
         binary = out / 'bin' / f'{APP}-{target}{suffix}'
-        info = run('go', 'version', '-m', str(binary))
-        # -trimpath omits ldflags from Go build metadata. Use an explicit build ID,
-        # and keep the native runtime version check in the build-contract fixture.
-        require(run('go', 'tool', 'buildid', str(binary)) == f'{APP}/{args.version}/{args.commit}',
-                'Binary build identity differs')
-        os_name, goarch = target.split('-')
-        require(f'GOOS={os_name}' in info and f'GOARCH={goarch}' in info, 'Binary target differs')
+        info, go_versions[target] = binary_metadata(binary, target, args.version, args.commit)
         if data:
             require(f'vcs.revision={args.commit}' in info and 'vcs.modified=false' in info,
                     'Binary source revision differs or checkout was dirty')
@@ -365,8 +397,8 @@ def package(args):
         binaries[target] = digest(binary)
     sums = ''.join(f'{digest(path)}  {path.name}\n' for path in sorted(delivery.glob('*.zip')))
     (delivery / 'SHA256SUMS').write_text(sums, encoding='utf-8')
-    write_json(out / 'build.json', {'schema': 1, 'version': args.version, 'commit': args.commit,
-                                  'platforms': list(targets), 'binaries': binaries})
+    write_json(out / 'build.json', {'schema': BUILD_SCHEMA, 'version': args.version, 'commit': args.commit,
+                                  'platforms': list(targets), 'binaries': binaries, 'go_versions': go_versions})
     if data:
         context = out / 'docker-context'
         context.mkdir()
@@ -474,24 +506,34 @@ def verify_images(root, material_root, version, commit):
 
 
 def verify_archives(root, version, commit):
+    require_go_toolchain()
     build = read_json(root / 'build.json')
-    require(build['schema'] == 1 and build['version'] == version and build['commit'] == commit,
-            'Artifact version/commit differs')
-    require(build['platforms'] == list(TARGETS) and set(build['binaries']) == set(TARGETS), 'Incomplete release matrix')
+    require(isinstance(build, dict) and set(build) ==
+            {'schema', 'version', 'commit', 'platforms', 'binaries', 'go_versions'}, 'Build record fields differ')
+    require(build['schema'] == BUILD_SCHEMA and build['version'] == version and build['commit'] == commit,
+            'Artifact schema/version/commit differs')
+    require(build['platforms'] == list(TARGETS) and isinstance(build['binaries'], dict)
+            and isinstance(build['go_versions'], dict) and set(build['binaries']) == set(TARGETS)
+            and set(build['go_versions']) == set(TARGETS), 'Incomplete release matrix')
     archives = root / 'archives'
     require({p.name for p in archives.iterdir()} == {f'{APP}-{t}.zip' for t in TARGETS} | {'SHA256SUMS'},
             'Archive allowlist differs')
     sums = ''.join(f'{digest(p)}  {p.name}\n' for p in sorted(archives.glob('*.zip')))
     require((archives / 'SHA256SUMS').read_text() == sums, 'Archive checksums differ')
     for target in TARGETS:
-        executable = APP + ('.exe' if target.startswith('windows-') else '')
+        suffix = '.exe' if target.startswith('windows-') else ''
+        executable = APP + suffix
+        binary = root / 'bin' / f'{APP}-{target}{suffix}'
+        require(digest(binary) == build['binaries'][target], 'Actual binary hash differs')
+        _, actual_go = binary_metadata(binary, target, version, commit)
+        require(build['go_versions'][target] == actual_go, 'Recorded Go version differs from actual binary')
         expected = {executable, 'README.md', 'README_zh.md', 'LICENSE', 'THIRD_PARTY_LICENSES.csv'}
         if target.startswith('windows-'):
             expected |= {f'{APP}.cmd', *(f'windows/{n}' for n in
                          (f'{APP}-menu.ps1', f'{APP}-start.ps1', f'{APP}-autostart.ps1', 'send-stop-signal.ps1'))}
         with zipfile.ZipFile(archives / f'{APP}-{target}.zip') as archive:
             require(set(zip_files(archive)) == expected, 'Updater archive allowlist differs')
-            require(sha(archive.read(executable)) == build['binaries'][target], 'Archive binary differs')
+            require(archive.read(executable) == binary.read_bytes(), 'Archive binary differs')
             require(archive.read('THIRD_PARTY_LICENSES.csv') == (root / 'THIRD_PARTY_LICENSES.csv').read_bytes(),
                     'Archive license report differs')
             for info in archive.infolist():
@@ -533,6 +575,16 @@ def seal_or_verify(args):
         require((root / 'delivery/RELEASE-NOTES.md').read_bytes() == Path('plan/release-notes-v0.1.0.md').read_bytes(),
                 'Reviewed Release Notes differ')
         require(read_json(root / 'delivery/IMAGE-MANIFEST.json') == images, 'Published image/source mapping differs')
+    # Public copies are what users download; a self-consistent file manifest is
+    # not enough to bind them to the binaries whose metadata was inspected.
+    delivery = root / 'delivery'
+    require((delivery / 'BUILD.json').read_bytes() == (root / 'build.json').read_bytes(),
+            'Published build record differs')
+    for target in TARGETS:
+        name = f'{APP}-{target}.zip'
+        require(digest(delivery / name) == digest(root / 'archives' / name), 'Published program archive differs')
+    sums = ''.join(f'{digest(p)}  {p.name}\n' for p in sorted(delivery.iterdir()) if p.name != 'SHA256SUMS')
+    require((delivery / 'SHA256SUMS').read_text(encoding='utf-8') == sums, 'Published checksums differ')
 
 
 def remote_check(args):
