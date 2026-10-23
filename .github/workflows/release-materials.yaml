@@ -1,0 +1,173 @@
+name: release-materials
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact reviewed RC or stable version'
+        required: true
+        type: string
+      commit:
+        description: 'Reviewed full commit SHA on main'
+        required: true
+        type: string
+      source_release_id:
+        description: 'Same-repository draft materials inbox Release ID'
+        required: true
+        type: string
+      source_asset_id:
+        description: 'Reviewed immutable bundle asset ID in that inbox'
+        required: true
+        type: string
+      bundle_sha256:
+        description: 'Reviewed SHA-256 of the complete materials bundle ZIP'
+        required: true
+        type: string
+      materials_sha256:
+        description: 'Reviewed SHA-256 of materials.json inside the bundle'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-materials-${{ inputs.version }}-${{ inputs.commit }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'Ink-lotus/octopus-roam' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.6'
+      - name: Resolve reviewed materials inputs on main
+        id: resolve
+        env:
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ inputs.commit }}
+          SOURCE_RELEASE_ID: ${{ inputs.source_release_id }}
+          SOURCE_ASSET_ID: ${{ inputs.source_asset_id }}
+          BUNDLE_SHA: ${{ inputs.bundle_sha256 }}
+          MATERIALS_SHA: ${{ inputs.materials_sha256 }}
+        run: |
+          python3 -B scripts/release_materials.py resolve --version "$VERSION" --commit "$COMMIT" --release-id "$SOURCE_RELEASE_ID" --asset-id "$SOURCE_ASSET_ID" --bundle-sha "$BUNDLE_SHA" --materials-sha "$MATERIALS_SHA"
+
+  download:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      # Draft Release reads require push access; no API write runs in this job.
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      BUNDLE_SHA: ${{ inputs.bundle_sha256 }}
+      BUNDLE: ${{ github.workspace }}/build/release-materials-input.zip
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Check reviewed checkout
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.6'
+      - name: Download the exact reviewed draft asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RELEASE_ID: ${{ inputs.source_release_id }}
+          SOURCE_ASSET_ID: ${{ inputs.source_asset_id }}
+        run: |
+          python3 -B scripts/release_materials.py download --version "$VERSION" --commit "$COMMIT" --release-id "$SOURCE_RELEASE_ID" --asset-id "$SOURCE_ASSET_ID" --bundle-sha "$BUNDLE_SHA" --output "$BUNDLE"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: release-materials-input-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.commit }}
+          path: ${{ env.BUNDLE }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  materials:
+    needs: [prepare, download]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      GOTOOLCHAIN: local
+      VERSION: ${{ needs.prepare.outputs.version }}
+      COMMIT: ${{ needs.prepare.outputs.commit }}
+      MATERIALS_SHA: ${{ inputs.materials_sha256 }}
+      BUNDLE_SHA: ${{ inputs.bundle_sha256 }}
+      BUNDLE: ${{ github.workspace }}/build/input/release-materials-input.zip
+      MATERIALS_ROOT: ${{ github.workspace }}/build/release-materials
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Check reviewed checkout
+        run: test "$(git rev-parse HEAD)" = "$COMMIT"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.6'
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: release-materials-input-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.commit }}
+          path: ${{ github.workspace }}/build/input
+      - name: Unpack and verify all material files
+        run: |
+          python3 -B scripts/release_materials.py unpack --version "$VERSION" --commit "$COMMIT" --bundle "$BUNDLE" --bundle-sha "$BUNDLE_SHA" --materials-sha "$MATERIALS_SHA" --output "$MATERIALS_ROOT"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '11.15.1'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.18.0'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: true
+      - name: Record and check actual material toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.27.3
+          node --version
+          pnpm --version
+          python3 --version
+      - name: Acquire locked frontend dependencies
+        run: pnpm --dir web install --frozen-lockfile
+      - name: Rebuild frontend and audit exact source binding
+        env:
+          GOPROXY: 'off'
+          GOFLAGS: -mod=readonly
+        run: |
+          python3 -B scripts/release_contract.py frontend --version "$VERSION" --commit "$COMMIT"
+          python3 -B scripts/release_materials.py audit --version "$VERSION" --commit "$COMMIT" --materials "$MATERIALS_ROOT" --materials-sha "$MATERIALS_SHA"
+          git diff --exit-code
+      - name: Record material identity for review
+        run: |
+          python3 -c 'import os; print("version=" + os.environ["VERSION"]); print("commit=" + os.environ["COMMIT"]); print("materials_sha256=" + os.environ["MATERIALS_SHA"]); print("bundle_sha256=" + os.environ["BUNDLE_SHA"])' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: release-materials
+          path: ${{ env.MATERIALS_ROOT }}
+          if-no-files-found: error
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 14

@@ -32,18 +32,25 @@ Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.
 
 ### 🐳 Docker 运行
 
-独立版本发布后使用其镜像和明确版本号，替换下方 `<version>`：
+本次准备的候选版本为 **v0.1.0-rc.1**。候选公开后，使用以下准确标签：
 
 ```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:<version>
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0-rc.1
 ```
 
-`docker-compose.yml` 使用同一独立镜像。首个正式版发布前须将 `OCTOPUS_ROAM_VERSION` 明确设置为已发布的 RC 标签，例如 `v0.1.0-rc.1`；候选版不会更新 `latest`，当前仓库尚未发布镜像。
+`docker-compose.yml` 要求显式版本。候选镜像公开后，在 PowerShell 7 中运行：
+
+```powershell
+$env:OCTOPUS_ROAM_VERSION = 'v0.1.0-rc.1'
+docker compose up -d
+```
+
+候选版不更新 `latest`。上述命令在 RC 公开后才可使用；发布和真实下载/拉取验收按后续步骤执行。
 
 
 ### 📦 从 Release 下载
 
-独立版本发布后，从 [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases) 下载对应平台的压缩包，并将整个压缩包解压到固定目录。
+候选公开后，从 [v0.1.0-rc.1](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0-rc.1) 下载对应平台 ZIP 和 `SHA256SUMS`，核对哈希后完整解压到固定目录。同一 Release 提供对应源码、原始声明和重建说明。
 
 **Windows：**双击 `octopus-roam.cmd`，输入序号即可操作，无需输入命令：
 

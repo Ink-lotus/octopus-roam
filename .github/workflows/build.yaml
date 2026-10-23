@@ -55,7 +55,7 @@ jobs:
           go mod download
           GOBIN="$RUNNER_TEMP/ci-tools" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - name: Check workflows
-        run: '"$RUNNER_TEMP/ci-tools/actionlint" .github/workflows/build.yaml .github/workflows/release.yaml'
+        run: '"$RUNNER_TEMP/ci-tools/actionlint" .github/workflows/build.yaml .github/workflows/release.yaml .github/workflows/release-materials.yaml'
       - name: Test committed inputs
         run: bash scripts/ci-test.sh
       - name: Check source and lock files stayed unchanged

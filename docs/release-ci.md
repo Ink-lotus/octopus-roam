@@ -4,13 +4,13 @@
 
 版本合同目前仅覆盖首发的 `v0.1.0-rc.N` 和 `v0.1.0`，N 从 1 开始。输入 commit 必须是 main 历史中的完整 40 位 SHA；main.go 的版本注释和 Release Notes 标题必须精确匹配。当前上游版本注释、草稿说明或已经存在的 tag / Release / 版本镜像都会阻止发布。后续版本线需要单独审查更新合同。
 
-**工作包 1 接续（2026-10-22）：**本轮基线为 `main / 1af3ec18aac751eac668ace4331ce8544dbf461f`；三份计划文档已提交，两个 workflow、两份 README 和 go.mod 的版本修改是保留的未提交输入。任务目录内的 Go 1.27.3 已核验；产物门禁补丁、实际本地检查与限制统一见 [工作包 1 结果](../plan/release-step-01-result-20261022-01.md)。旧 `b949271` / Ubuntu run `39620815636` 仅证明 Go 1.27.0 基线。提交推送、新 SHA Ubuntu CI 属于工作包 2；材料入口及完整矩阵真实构建仍待后续工作包，本地验收不表示 A0 整体完成或 RC 已就绪。
+**工作包 3 接续（2026-10-23）：**[工作包 1](../plan/release-step-01-result-20261022-01.md) 的 Go 1.27.3 与产物门禁已进入 main；[工作包 2](../plan/release-step-02-result-20261023-01.md) 记录 `f857486093a185669fa0996451949563ade37e9e` 的 Ubuntu run `39917087653` 成功，以及 main 必需检查和 release 审批配置。最终 RC 提交仍需自身普通 CI。本次新增材料生产/上传与验收布局入口；用法及真实执行边界见 [材料与验收入口](release-materials.md)。真实材料在工作包 4 生产/上传，完整矩阵及最终产品另行演练。
 
 ## 对应材料输入
 
 build 从本仓库指定的 Actions run 下载唯一名为 `release-materials` 的 artifact。手动触发同时填写审核后的 `materials.json` SHA-256；材料中的版本、commit、完整平台矩阵和所有文件哈希必须一致。材料准备和上传是独立的 R3 工作：这份 workflow 不会将旧候选材料改名后继续发布，也不会自动执行材料包内的脚本。
 
-RC 冻结前需完成材料生产/上传入口及补充产物门禁，再按最终 SHA 准备材料。本次工具链变化要求更新 Go 1.27.3 的来源、校验和、原始声明核对及 `REBUILD.md`，补应用复建和 LGPL 再链接验证。锁定且未变的 Go/npm 来源与声明可经差异审查复用；应用源码、`release-source.json`、`materials.json` 及相关哈希须重新绑定最终版本/commit。
+`scripts/release_materials.py produce` 以审核后的输入清单生产材料，重建实际前端并绑定工具/源码/版本；`audit` / `pack` 核验后打包。`release-materials.yaml` 从本仓库准确 draft 暂存附件取得已审核字节，在 Ubuntu 再建前端并核验后上传唯一 `release-materials`。输入、工具、权限和命令见 [入口说明](release-materials.md)。最终 SHA 冻结后，更新 Go 1.27.3 的来源、校验和、原始声明及 `REBUILD.md`，补应用复建和 LGPL 再链接验证。未变的 Go/npm 来源与声明可经差异审查复用；源码、`release-source.json`、`materials.json` 及相关哈希须重新绑定最终版本/commit。
 
 材料目录只允许下列文件：
 
@@ -54,7 +54,7 @@ alpine/386.zip
 
 `source_date_epoch` 的实际值必须是目标 commit 的 Unix 时间戳，并大于 0。基础镜像可用同一多平台 index digest，也可分别指定对应平台 digest；不允许浮动标签。apk 安装后的实际包版本仍由镜像检查覆盖，发生漂移时构建失败，需重新准备准确材料，不得关闭检查。
 
-应用源码 ZIP 延续 R0 对应源码包布局：`application/`、`go-cache/cache/download/`、`npm-packages/`、`licenses/`、重建/安装/源码获取说明及 `SHA256SUMS`。另加 `release-source.json`，内容必须精确为 `schema`、`version`、`commit`、`platforms` 四项，分别对应以上值。SHA256SUMS 必须覆盖除自身外的全部常规文件。保留完整原始声明，包括 AGPLv3、LGPLv3、GPLv3、MPL-2.0 原文；顶层五份说明及 `licenses/THIRD_PARTY_LICENSES.csv` 必须与材料目录的副本逐字节一致。
+应用源码 ZIP 延续 R0 对应源码包布局：`application/`、`go-cache/cache/download/`、`npm-packages/`、`licenses/`、重建/安装/源码获取说明及 `SHA256SUMS`。另加 `release-source.json`，内容必须精确为 `schema`、`version`、`commit`、`platforms` 四项，分别对应以上值。生产入口还加入 `tool-inputs.json` 和 `material-production.json`，绑定输入哈希、实际工具/生产脚本及实际前端。SHA256SUMS 必须覆盖除自身外的全部常规文件。保留完整原始声明，包括 AGPLv3、LGPLv3、GPLv3、MPL-2.0 原文；顶层五份说明及 `licenses/THIRD_PARTY_LICENSES.csv` 必须与材料目录的副本逐字节一致。
 
 `application/` 必须包含目标 commit 中 `.github`、cmd、internal、scripts、static、web 下的已跟踪文件，以及 main.go、go.mod、go.sum、LICENSE、两份 README、Compose 和 .dockerignore；static/out 以本次实际生成内容为准。不得包含 node_modules、测试 profile、私钥、数据库、日志或工具缓存。新编译程序的实际依赖（含 replace 后的模块）必须有对应模块 ZIP，模块内容 h1 同时匹配实际二进制元数据和对应源码中的 go.sum。源码包内仍需准确的前端来源记录、原始声明和重建工具材料；自动哈希检查不代替材料审核或 LGPL 重新链接演练。
 
@@ -78,7 +78,7 @@ alpine/386.zip
 | binaries | `{目标: 实际程序 SHA-256}`；沿用原值类型 |
 | go_versions | `{目标: 从该程序元数据读取的 Go 版本}`；每项必须为 `go1.27.3` |
 
-materials.json、release-source.json 和 artifact.json 保持各自 schema 1。build.sh 的 package 调用方及发布测试已同步，未增加产品依赖。旧 build-local.ps1 的 build-info.json 与 prepare-database-acceptance.ps1 的冻结 source 驱动属于另一种历史布局，不消费 build.json；后续材料/候选适配须显式处理，不能将 schema 2 artifact 直接传入旧驱动。
+materials.json、release-source.json 和 artifact.json 保持各自 schema 1。build.sh 的 package 调用方及发布测试已同步，未增加产品依赖。`release_acceptance.py prepare` 对外部审核哈希绑定的完整 artifact 执行 verify 后，提取对应源码及原程序，生成明确标为 `derived-acceptance-layout` 的 schema 2 build-info.json。数据库和产品/更新入口均先重新验证此绑定；数据库驱动从冻结源码构建，并可仅验证输入或跳过程序演练。旧 build-local.ps1 布局继续作为历史入口，新旧验收结论分别记录；不把原 artifact 直接传给旧布局驱动。
 
 发布矩阵是七个标准目标加四个 Android/NDK 目标，共 11 个 ZIP；`--standard-only` 只用于明确的本地子集验证，seal/verify 拒绝把它当作完整发布。ZIP 内文件名保留更新器白名单，补充声明和源码入口附入两份 README，程序模式 0100755、其他文件 0100644。
 
@@ -96,7 +96,7 @@ Release 附件是 delivery/ 的全部文件：11 个程序 ZIP、准确应用源
 
 runner 为 ubuntu-24.04；Go 1.27.3、Node.js 24.18.0、pnpm 11.15.1、Python 3.14.6、NDK r28c。Go 固定在包含 CVE-2026-111943 修复的版本；Node 与 pnpm 沿用当前已验收本地工具，Python 采用本地实际版本。actionlint 固定 v1.7.7，安装在 runner 临时目录；不修改产品依赖。材料 CSV 在独立材料阶段使用固定 go-licenses v2.0.1 和锁定 pnpm 生成，并按实际目标审查，不以一份非空 CSV 代替源码/声明。
 
-checkout/setup-node/setup-go/setup-python/pnpm/setup-ndk/Docker actions 保留现有 major 引用；新增 upload-artifact v4.6.2、download-artifact v4.3.0。major 引用不是不可变 SHA。标签可用性、仓库实际权限和 environment 保护规则仍需 R1 远端只读核实；如要改为审查后的 action commit SHA，需补齐来源证据后再修改，不猜测 SHA。
+checkout/setup-node/setup-go/setup-python/pnpm/setup-ndk/Docker actions 保留现有 major 引用；upload-artifact v4.6.2、download-artifact v4.3.0。major 引用不是不可变 SHA。仓库权限和 environment 规则已有工作包 2 证据，实际执行前继续回读；如要改为审查后的 action commit SHA，需补齐来源证据后再修改，不猜测 SHA。
 
 本地 YAML 解析与结构/门禁测试不等于 actionlint 或 GitHub Actions 通过。NDK 构建、多架构镜像、artifact 上传/下载、GHCR 首次认证/权限都需要各自环境证据；失败时补齐实际问题，不降低门禁。
 

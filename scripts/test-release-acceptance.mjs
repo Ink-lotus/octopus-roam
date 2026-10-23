@@ -4,7 +4,7 @@
 // shutdown, restart and SQLite are the production implementations.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createWriteStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
@@ -14,15 +14,33 @@ import { fileURLToPath } from 'node:url';
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const candidate = path.resolve(process.argv[2] || '');
 const output = path.resolve(process.argv[3] || '');
-assert(process.argv[2] && process.argv[3], 'Usage: node scripts/test-release-acceptance.mjs <frozen-candidate> <new-output-directory>');
+assert(process.argv[2] && process.argv[3], 'Usage: node scripts/test-release-acceptance.mjs <candidate-layout> <new-output-directory> [<version> <commit> <artifact-sha256> <materials-sha256>]');
 assert(output.startsWith(path.join(repository, 'build', 'release-local') + path.sep), 'Output must be below build/release-local.');
+const candidateMetadata = JSON.parse(await fs.readFile(path.join(candidate, 'build-info.json')));
+const derived = candidateMetadata.role === 'derived-acceptance-layout';
+let artifactBinding = null;
+if (derived) {
+    const [version, commit, artifactSha, materialsSha] = process.argv.slice(4);
+    assert(process.argv.length === 8 && /^v0\.1\.0(?:-rc\.[1-9][0-9]*)?$/.test(version)
+        && /^[0-9a-f]{40}$/.test(commit) && /^[0-9a-f]{64}$/.test(artifactSha)
+        && /^[0-9a-f]{64}$/.test(materialsSha), 'Derived artifacts require four explicit reviewed identity arguments.');
+    const result = spawnSync(process.env.PYTHON || 'python', ['-B', path.join(repository, 'scripts', 'release_acceptance.py'),
+        'verify-layout', '--candidate', candidate, '--version', version, '--commit', commit,
+        '--artifact-sha', artifactSha, '--materials-sha', materialsSha],
+    { cwd: repository, windowsHide: true, encoding: 'utf8', env: process.env });
+    assert.equal(result.status, 0, 'Artifact layout verification failed before runtime startup.');
+    artifactBinding = JSON.parse(result.stdout);
+    assert.equal(artifactBinding.status, 'layout_verified');
+} else {
+    assert.equal(process.argv.length, 4, 'A legacy local candidate cannot satisfy the artifact identity contract.');
+}
 const runRoot = path.join(output, 'runtime-acceptance');
 await fs.mkdir(runRoot); // Refuse to reuse a run.
 await fs.mkdir(path.join(runRoot, 'logs'));
 await fs.mkdir(path.join(runRoot, 'stage'));
 const archive = path.join(candidate, 'archives', 'octopus-roam-windows-amd64.zip');
 const source = path.join(candidate, 'source');
-const operationScript = path.join(repository, 'scripts', 'acceptance', 'runtime.ps1');
+const operationScript = path.join(derived ? source : repository, 'scripts', 'acceptance', 'runtime.ps1');
 const checks = [];
 const runtimes = [];
 const sourceCalls = [];
@@ -33,7 +51,7 @@ for (const name of Object.keys(baseEnv)) {
     if (/^OCTOPUS_ROAM_/i.test(name) || /^(HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|GOFLAGS|GOARM|GOOS|GOARCH|CGO_ENABLED)$/i.test(name)) delete baseEnv[name];
 }
 Object.assign(baseEnv, {
-    OCTOPUS_ROAM_SKIP_STARTUP_PRICE_UPDATE: '1', GOTOOLCHAIN: 'local', GOPROXY: 'off',
+    OCTOPUS_ROAM_SKIP_STARTUP_PRICE_UPDATE: '1', GOTOOLCHAIN: 'local', GOPROXY: 'off', GOFLAGS: '-mod=readonly',
     GOCACHE: path.join(repository, '.tmp-go-cache'), GOMODCACHE: path.join(repository, '.tmp-go-mod'),
     GOOS: 'windows', GOARCH: 'amd64', CGO_ENABLED: '0',
     TEMP: path.join(runRoot, 'stage'), TMP: path.join(runRoot, 'stage'),
@@ -173,7 +191,7 @@ let logFailure;
 try {
     const fixtureURL = await listen(fixture);
     await check('frozen_archive_hash_and_extract', async () => {
-        const metadata = JSON.parse(await fs.readFile(path.join(candidate, 'build-info.json')));
+        const metadata = candidateMetadata;
         assert.equal(sha(await fs.readFile(archive)), metadata.archives.find(item => item.name === path.basename(archive)).sha256);
         await operation('Extract', path.join(runRoot, 'frozen-package'), ['-Archive', archive], 'extract-frozen');
         assert.equal(sha(await fs.readFile(path.join(runRoot, 'frozen-package', 'octopus-roam.exe'))), metadata.binaries.find(item => item.target === 'windows/amd64').sha256);
@@ -300,7 +318,7 @@ func init() {
         });
     }
     await jsonFile('release-source-requests.json', sourceCalls);
-    await jsonFile('summary.json', { status: 'passed', checks: checks.length, frozen_candidate: path.relative(repository, candidate), browser_evidence: 'browser-done.json', boundaries: ['Loopback HTTP only', 'Synthetic SQLite only', 'Frozen A2 artifacts unchanged', 'Acceptance update binaries inject release transport and RC version only', 'No license installation, CI or remote repository changes'] });
+    await jsonFile('summary.json', { status: 'passed', checks: checks.length, frozen_candidate: path.relative(repository, candidate), artifact_binding: artifactBinding, browser_evidence: 'browser-done.json', boundaries: ['Loopback HTTP only', 'Synthetic SQLite only', 'Frozen candidate artifacts unchanged', 'Business runtime uses the original artifact; update scenarios compile separate source overlays', 'Acceptance update binaries inject release transport and RC version only', 'No license installation, CI or remote repository changes'] });
 } catch (error) {
     console.error(error.message);
     await jsonFile('failure-observations.json', { upstream_calls: upstreamCalls, source_calls: sourceCalls, requests: [...logs.values()].map(({ id, model, status, target_channel, error_count, sending }) => ({ id, model, status, target_channel, error_count, sending })) });

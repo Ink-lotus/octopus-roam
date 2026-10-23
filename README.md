@@ -32,18 +32,25 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 
 ### 🐳 Docker
 
-After the independent release is published, use its image and explicit version tag (replace `<version>`):
+The candidate prepared here is **v0.1.0-rc.1**. After it is published, use this exact tag:
 
 ```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:<version>
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0-rc.1
 ```
 
-`docker-compose.yml` uses the same independent image. Before the first stable release, set `OCTOPUS_ROAM_VERSION` to an explicitly published RC tag such as `v0.1.0-rc.1`; candidate releases do not update `latest`, and this repository has not published an image yet.
+`docker-compose.yml` requires an explicit version. After the candidate image is published, run in PowerShell 7:
+
+```powershell
+$env:OCTOPUS_ROAM_VERSION = 'v0.1.0-rc.1'
+docker compose up -d
+```
+
+The candidate does not update `latest`. These commands become usable when the RC is published; publication and remote download/pull verification are separate release steps.
 
 
 ### 📦 Download from Release
 
-When available, download the archive for your platform from [Octopus Roam Releases](https://github.com/Ink-lotus/octopus-roam/releases) and extract the entire archive into a permanent folder.
+After publication, download your platform ZIP and `SHA256SUMS` from [v0.1.0-rc.1](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0-rc.1), verify the checksum, and extract the entire archive into a permanent folder. The same release includes corresponding source, original notices and rebuild instructions.
 
 **Windows:** double-click `octopus-roam.cmd` and choose a numbered option:
 
