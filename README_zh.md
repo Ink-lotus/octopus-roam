@@ -10,7 +10,7 @@
 
 </div>
 
-Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；独立更新路径已完成本地验证，尚未发布独立候选版或正式版。参见[变更日志](CHANGELOG.md)、[升级与备份说明](docs/upgrade-r1.md)和[发布计划](plan/release-plan-v0.1.0.md)。
+Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；首个正式版本为 **v0.1.0**；已验收范围和已知限制见[发布说明](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0)。参见[变更日志](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/CHANGELOG.md)、[升级与备份说明](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md)和[发布计划](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/plan/release-plan-v0.1.0.md)。
 
 
 ## ✨ 特性
@@ -25,32 +25,50 @@ Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.
 - 📊 **数据统计** - 全面的请求统计、Token 消耗、费用追踪
 - 🎨 **优雅界面** - 简洁美观的 Web 管理面板
 - 📦 **轻量单文件部署** - 单个二进制文件即可运行，无需额外运行时依赖
-- 🗄️ **多数据库支持** - 支持 SQLite、MySQL、PostgreSQL
+- 🗄️ **数据库驱动** - 提供 SQLite、MySQL、PostgreSQL；首发正式支持组合使用 SQLite
 
+
+## 首发支持范围
+
+`v0.1.0` 正式支持 Windows amd64 原生程序 + SQLite，以及 Windows 主机上的 WSL Containers 3.0.3.0 / Linux amd64 镜像 + SQLite。
+
+其余 Linux 原生程序、macOS、Android、其他架构镜像及 Docker Engine/Compose 示例为实验性构建或参考部署，不在首发正式支持范围。11 个程序 ZIP、四架构镜像及对应源码继续完整交付。MySQL/PostgreSQL 功能与已有验证记录保留，首发正式支持的数据库组合限定为 SQLite。完整矩阵见[首发支持范围](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/support-v0.1.0.md)。
 
 ## 🚀 快速开始
 
-### 🐳 Docker 运行
+### WSL Containers 3.0.3.0 / Linux amd64
 
-本次准备的候选版本为 **v0.1.0-rc.2**。候选公开后，使用以下准确标签：
-
-```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0-rc.2
-```
-
-`docker-compose.yml` 要求显式版本。候选镜像公开后，在 PowerShell 7 中运行：
+使用已安装的 WSLc，在管理员 PowerShell 7 中为全新实例选择数据目录：
 
 ```powershell
-$env:OCTOPUS_ROAM_VERSION = 'v0.1.0-rc.2'
+$dataPath = 'C:\octopus-roam\data'
+New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
+& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.0-amd64
+```
+
+数据保存在宿主机目录。首次登录后修改默认密码；版本更新和恢复按[WSLc 升级步骤](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md)执行。其他 WSLc 版本和外部数据库组合需另行验收。
+
+### 🐳 Docker Engine / Compose（参考部署）
+
+以下示例不在首发正式支持范围。正式版本为 **v0.1.0**，使用准确标签：
+
+```bash
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0
+```
+
+`docker-compose.yml` 要求显式版本。在 PowerShell 7 中运行：
+
+```powershell
+$env:OCTOPUS_ROAM_VERSION = 'v0.1.0'
 docker compose up -d
 ```
 
-候选镜像不更新 `latest`。使用已公开的准确标签；替换已有容器时按[升级与备份说明](docs/upgrade-r1.md)操作。
+正式版本更新 `latest`，RC 不更新该标签。使用已公开的准确标签；替换已有容器时按[升级与备份说明](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md)操作。
 
 
 ### 📦 从 Release 下载
 
-候选公开后，从 [v0.1.0-rc.2](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0-rc.2) 下载对应平台 ZIP 和 `SHA256SUMS`，核对哈希后完整解压到固定目录。同一 Release 提供对应源码、原始声明和重建说明。
+从 [v0.1.0](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0) 下载 [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-windows-amd64.zip)（其他平台 ZIP 为实验性）和 [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/SHA256SUMS)，核对哈希后完整解压到固定目录。同一 Release 提供[对应源码](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-source-v0.1.0.zip)、原始声明和重建说明。
 
 **Windows：**双击 `octopus-roam.cmd`，输入序号即可操作，无需输入命令：
 
@@ -61,7 +79,7 @@ docker compose up -d
 
 首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。开机自启在当前 Windows 用户登录后生效。菜单会显示运行及自启状态，关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。请保留压缩包中的 `windows` 文件夹，里面是菜单所需的支持文件。
 
-**Linux / macOS 等平台：**在解压目录运行：
+**Linux / macOS 等原生实验性构建：**在解压目录运行；原生进程升级与恢复尚未完成正式验收：
 
 ```bash
 ./octopus-roam start
@@ -70,9 +88,11 @@ docker compose up -d
 ### 🛠️ 源码运行
 
 **环境要求：**
-- Go 1.27.3 或更高版本（以 `go.mod` 为准）
-- Node.js 22.12+
-- pnpm 11.10.0
+- Go 1.27.3
+- Node.js 24.18.0
+- pnpm 11.15.1
+
+以上为已审查的发布工具版本。源码校验和离线复建方法见同一 Release 的 `REBUILD.md`。
 
 ```bash
 # 在本仓库根目录构建前端
@@ -86,7 +106,7 @@ go run . start
 
 离线准备本地发布候选版可使用 `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/build-local.ps1 -Version v0.1.0-local.<编号>`。脚本只写入新的 `build/release-local/` 目录，使用已有缓存；缺少第三方许可证报告时会在构建信息中明确标记。
 
-本地部署验收建议使用仓库外的独立运行目录，放置程序、配置、数据库及日志；见[本地部署说明](docs/local-deployment.md)。
+本地部署验收建议使用仓库外的独立运行目录，放置程序、配置、数据库及日志；见[本地部署说明](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/local-deployment.md)。
 
 **开发模式**
 
@@ -141,7 +161,7 @@ http://localhost:5173
 
 **数据库配置：**
 
-支持三种数据库：
+程序提供三种数据库驱动；首发正式支持的部署组合使用 SQLite，MySQL/PostgreSQL 为范围外配置：
 
 | 类型 | `database.type` | `database.path` 格式 |
 |------|-----------------|---------------------|
@@ -266,7 +286,7 @@ http://localhost:5173
 
 备份须设置至少 12 个字符的独立口令，下载为加密 JSON；口令无法找回，应单独保管。导出脚本改用已认证的 `POST /api/v1/setting/export`，在 JSON 请求体传入口令；旧 GET 返回 405。导入保留已审计的上游 0/5 格式，拒绝无标识预发布 6 号。升级前保存旧数据库和可执行文件，新备份不能交给旧程序恢复。
 
-完整默认值、增量导入规则、日志状态、回滚步骤和 Key 失败/模型为空/并发排队/Webhook 排障见[升级说明](docs/upgrade-r1.md)。
+完整默认值、增量导入规则、日志状态、回滚步骤和 Key 失败/模型为空/并发排队/Webhook 排障见[升级说明](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md)。
 
 设置页只检查 Octopus Roam 自己的发布源。稳定版只升级到更高稳定版；官方 RC 可升级到更高 RC 或对应稳定版。开发版和本地构建会显示状态，不会自行推断升级顺序。候选归档先下载到隔离目录，并校验同一版本的 `SHA256SUMS` 后才替换；程序、配置、数据库和备份目录保持分离。容器部署应替换镜像并重启容器，不能在容器内替换程序文件。
 

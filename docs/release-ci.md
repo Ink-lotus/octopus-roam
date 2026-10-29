@@ -6,6 +6,8 @@
 
 **工作包 3 接续（2026-10-23）：**[工作包 1](../plan/release-step-01-result-20261022-01.md) 的 Go 1.27.3 与产物门禁已进入 main；[工作包 2](../plan/release-step-02-result-20261023-01.md) 记录 `f857486093a185669fa0996451949563ade37e9e` 的 Ubuntu run `39917087653` 成功，以及 main 必需检查和 release 审批配置。最终 RC 提交仍需自身普通 CI。本次新增材料生产/上传与验收布局入口；用法及真实执行边界见 [材料与验收入口](release-materials.md)。真实材料在工作包 4 生产/上传，完整矩阵及最终产品另行演练。
 
+首发采用[方案 A 支持矩阵](support-v0.1.0.md)：正式支持 Windows amd64/SQLite 与 WSLc 3.0.3.0/Linux amd64 镜像/SQLite，其他构建按实验性交付。产物合同仍要求全部 11 ZIP、四架构镜像、对应源码、编译版本和完整哈希；不因支持范围缩减放宽任何构建/材料检查。正式版 `INSTALL.md`、源码包 README、Release Notes 须从最终获准源码使用一致范围重新生成并绑定准确 SHA，不能直接改写已封存或公开的 RC 附件。
+
 ## 对应材料输入
 
 build 从本仓库指定的 Actions run 下载唯一名为 `release-materials` 的 artifact。手动触发同时填写审核后的 `materials.json` SHA-256；材料中的版本、commit、完整平台矩阵和所有文件哈希必须一致。材料准备和上传是独立的 R3 工作：这份 workflow 不会将旧候选材料改名后继续发布，也不会自动执行材料包内的脚本。

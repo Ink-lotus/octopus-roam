@@ -10,7 +10,7 @@
 
 </div>
 
-Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. The independent update path is prepared and locally tested; no independent release has been published yet. See the [changelog](CHANGELOG.md), [upgrade and backup guide](docs/upgrade-r1.md), and [release plan](plan/release-plan-v0.1.0.md).
+Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. The first stable release is **v0.1.0**; its [release notes](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0) describe the validated scope and known limitations. See the [changelog](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/CHANGELOG.md), [upgrade and backup guide](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md), and [release plan](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/plan/release-plan-v0.1.0.md).
 
 
 ## ✨ Features
@@ -25,32 +25,50 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 - 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
-- 🗄️ **Multi-Database Support** - Support for SQLite, MySQL, PostgreSQL
+- 🗄️ **Database Drivers** - SQLite, MySQL and PostgreSQL; supported first-release deployments use SQLite
 
+
+## First-release support scope
+
+The `v0.1.0` support scope covers the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on Windows using WSL Containers 3.0.3.0.
+
+Other native Linux, macOS and Android builds, other image architectures, and Docker Engine/Compose examples are experimental or reference deployments outside this scope. All 11 program ZIPs, four image architectures and corresponding source remain available. MySQL/PostgreSQL functionality and its existing test records are retained; the supported first-release database combinations use SQLite. See the [support matrix](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/support-v0.1.0.md).
 
 ## 🚀 Quick Start
 
-### 🐳 Docker
+### WSL Containers 3.0.3.0 / Linux amd64
 
-The candidate prepared here is **v0.1.0-rc.2**. After it is published, use this exact tag:
-
-```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0-rc.2
-```
-
-`docker-compose.yml` requires an explicit version. After the candidate image is published, run in PowerShell 7:
+With WSLc already installed, choose a data directory for a new instance and run in an administrator PowerShell 7:
 
 ```powershell
-$env:OCTOPUS_ROAM_VERSION = 'v0.1.0-rc.2'
+$dataPath = 'C:\octopus-roam\data'
+New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
+& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.0-amd64
+```
+
+Data persists in the host directory. Change the default password after first login; follow the [WSLc upgrade and recovery steps](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md). Other WSLc versions and external database combinations require separate acceptance.
+
+### 🐳 Docker Engine / Compose (reference deployment)
+
+These examples are outside the first-release support scope. Use the exact stable **v0.1.0** tag:
+
+```bash
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0
+```
+
+`docker-compose.yml` requires an explicit version. Run in PowerShell 7:
+
+```powershell
+$env:OCTOPUS_ROAM_VERSION = 'v0.1.0'
 docker compose up -d
 ```
 
-RC images do not update `latest`. Use the exact published tag and follow the [upgrade and backup instructions](docs/upgrade-r1.md) when replacing an existing container.
+The stable release updates `latest`; RC releases do not. Use the exact version tag or a verified digest and follow the [upgrade and backup instructions](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md) when replacing an existing container.
 
 
 ### 📦 Download from Release
 
-After publication, download your platform ZIP and `SHA256SUMS` from [v0.1.0-rc.2](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0-rc.2), verify the checksum, and extract the entire archive into a permanent folder. The same release includes corresponding source, original notices and rebuild instructions.
+Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-windows-amd64.zip), or an experimental ZIP for another platform, and [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/SHA256SUMS) from [v0.1.0](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0), verify the checksum, and extract the entire archive into a permanent folder. The same release includes [corresponding source](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-source-v0.1.0.zip), original notices and rebuild instructions.
 
 **Windows:** double-click `octopus-roam.cmd` and choose a numbered option:
 
@@ -61,7 +79,7 @@ After publication, download your platform ZIP and `SHA256SUMS` from [v0.1.0-rc.2
 
 The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Automatic startup runs when the current Windows user signs in. The menu shows service and startup status. Closing the menu leaves the service running; choose `3` or `4` to stop it. Keep the included `windows` folder, which contains the menu's support files.
 
-**Linux / macOS and other platforms:** run from the extracted folder:
+**Experimental native Linux / macOS and other builds:** run in the extracted directory; native process upgrade and recovery remain unvalidated:
 
 ```bash
 ./octopus-roam start
@@ -70,9 +88,11 @@ The first start creates the configuration and data directories automatically. Th
 ### 🛠️ Build from Source
 
 **Requirements:**
-- Go 1.27.3 or later (see `go.mod`)
-- Node.js 22.12+
-- pnpm 11.10.0
+- Go 1.27.3
+- Node.js 24.18.0
+- pnpm 11.15.1
+
+These are the reviewed release tool versions. See the release's `REBUILD.md` for source verification and offline reproduction.
 
 ```bash
 # From this repository's root, build the frontend
@@ -86,7 +106,7 @@ go run . start
 
 For an offline local release candidate, use `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/build-local.ps1 -Version v0.1.0-local.<id>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable.
 
-For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](docs/local-deployment.md).
+For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/local-deployment.md).
 
 **Development Mode**
 
@@ -141,7 +161,7 @@ The configuration file is located at `data/config.json` by default and is automa
 
 **Database Configuration:**
 
-Three database types are supported:
+Three database drivers are available. The supported first-release deployments use SQLite; MySQL/PostgreSQL configurations are outside that scope:
 
 | Type | `database.type` | `database.path` Format |
 |------|-----------------|-----------------------|
@@ -265,7 +285,7 @@ All keys must refresh successfully before model changes commit. A successful emp
 
 Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts must use authenticated `POST /api/v1/setting/export` with a password in the JSON body; the former GET returns 405. Import supports encrypted backups and audited upstream formats 0/5; unmarked pre-release format 6 is rejected. Save the old database and executable before upgrading—new backups cannot be restored by old builds.
 
-The [upgrade guide](docs/upgrade-r1.md) lists defaults, incremental import rules, status definitions, rollback steps, and troubleshooting for failed keys, empty models, queued requests, and Webhooks.
+The [upgrade guide](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md) lists defaults, incremental import rules, status definitions, rollback steps, and troubleshooting for failed keys, empty models, queued requests, and Webhooks.
 
 The Settings page checks only the Octopus Roam release source. Stable builds update only to a higher stable version; an official RC may update to a later RC or the corresponding stable version. Development and local builds show their status without inferring an upgrade order. A candidate is downloaded into an isolated directory and must match the same release's `SHA256SUMS` before replacement. The running program, configuration, database, and backup directories are kept separate. Container deployments are upgraded by replacing the image and restarting the container; the program is not replaced from inside the container.
 
