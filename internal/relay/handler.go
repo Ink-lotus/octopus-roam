@@ -282,7 +282,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			roundStartedAt := time.Now() // 本轮上游调用的开始时间, 用于统计首个有效响应耗时。
 
-			// 请求上游并等待首个有效响应: 非流式等待完整响应, 流式等待首个事件。
+			// 请求上游并等待可提交响应: 同协议流式包含整个无输出启动阶段。
 			// 同协议渠道原样直通, 跨协议渠道经转换后请求; 此时尚未写给客户端, 失败仍可换目标重试。
 			var result *upstreamResponse
 			// 本轮是否真的向上游发出了请求, 决定这次失败是否消耗该成员的尝试次数。
@@ -359,7 +359,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				_ = op.ChannelModelStatsUpdate(channelModel.ID, metrics)
 				_ = op.ChannelKeyStatsUpdate(channelKey.ID, metrics)
 
-				cancelRound()
 				// 未真正发出上游请求的失败(如出站转换无法构造)不消耗成员的尝试次数, 它不是该成员的上游失败。
 				// 但故障转移模式仍须让它让出路由: 该失败由渠道配置决定, 重试同一成员不会改变结果,
 				// 不让出路由会让请求永久停在这个成员上而永不切换到后续成员。手动模式没有路由可让, 只会重试当前成员。
@@ -421,7 +420,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				request.markCanceled(ctx.Err(), "", result.usage)
 				return
 			}
-			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 流式响应只统计等待首帧的时间。
+			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 同协议流式计入等待可提交输出的全部时间。
 			// 同协议透传时原样返回上游响应头; 跨协议响应没有需要透传的响应头。
 			for key, values := range result.header {
 				c.Writer.Header()[key] = values
@@ -470,10 +469,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			var encoded bytes.Buffer
 			var chunks []*httpclient.StreamEvent
 			event := result.first
+			result.first = nil
 			last := result.last // 已转发的最后一个事件是否已按客户端协议结束整个响应流。
 			committed := false
 			var upstreamErr error
-			upstreamComplete := last
+			upstreamComplete := last || result.sourceComplete
 			for {
 				if event != nil {
 					chunks = append(chunks, event)
@@ -506,7 +506,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				if last {
 					break
 				}
-				if !result.events.Next() {
+				if len(result.buffered) > 0 {
+					event = result.buffered[0]
+					result.buffered[0] = nil
+					result.buffered = result.buffered[1:]
+				} else if !result.events.Next() {
 					err = result.events.Err()
 					if result.terminal != nil && result.terminal.complete {
 						upstreamComplete = true
@@ -520,12 +524,13 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 						upstreamErr = err
 					}
 					break
+				} else {
+					event = result.events.Current()
 				}
-				event = result.events.Current()
 				// 已提交的响应不能再换目标重试; 错误事件先脱敏, 转发后作为本请求终态。
 				last, err = inspectStreamEvent(format, event)
 				upstreamErr = err
-				upstreamComplete = last && err == nil
+				upstreamComplete = result.sourceComplete || (last && err == nil)
 				if err != nil && event != nil {
 					safeEvent := *event
 					safeEvent.Data = []byte(redactor.Body(string(event.Data)))
@@ -559,6 +564,15 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				settleHealth(group, selection, activeHealth, upstreamComplete, failure, request.retryCount())
 			}
 			request.finishStream()
+			// Empty success can be fully read before its first buffered frame is
+			// written. Preserve observed usage even if that client write fails;
+			// unforwarded frames still stay out of the client's response/log body.
+			var sourceChunks []*httpclient.StreamEvent
+			if result.sourceComplete && len(result.buffered) > 0 {
+				sourceChunks = append(slices.Clone(chunks), result.buffered...)
+			}
+			clear(result.buffered)
+			result.buffered = nil
 			result.events.Close()
 			// 事件流已读完, 渠道专用代理的独占连接池到此归还。
 			if result.closeIdle != nil {
@@ -574,6 +588,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			responseBody, meta, aggregateErr := inbound.AggregateStreamChunks(context.WithoutCancel(ctx), chunks)
 			if aggregateErr == nil {
 				result.usage = meta.Usage
+			}
+			if len(sourceChunks) > 0 {
+				if _, sourceMeta, sourceErr := inbound.AggregateStreamChunks(context.WithoutCancel(ctx), sourceChunks); sourceErr == nil {
+					result.usage = sourceMeta.Usage
+				}
 			}
 			// 流式响应结束并聚合出用量后, 按最终结果完成本轮渠道和成员统计。
 			metrics := usageMetrics(channelModel.Name, result.usage)

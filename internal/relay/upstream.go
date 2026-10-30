@@ -25,12 +25,14 @@ import (
 // upstreamResponse 是已验证但尚未写给客户端的上游成功响应; events 为 nil 表示非流式响应。
 // 透传响应保留上游响应头; 跨协议响应由客户端协议决定响应头。失败一律以 error 返回。
 type upstreamResponse struct {
-	body   []byte                                  // 非流式响应的完整正文。
-	header http.Header                             // 同协议透传时需要原样返回的上游响应头。
-	events streams.Stream[*httpclient.StreamEvent] // 流式响应中首个事件之后的剩余事件。
-	first  *httpclient.StreamEvent                 // 已预读并验证的首个事件。
-	last   bool                                    // 首个事件已经终止整个响应流。
-	usage  *llm.Usage                              // 上游本次可确认的用量。
+	body           []byte                                  // 非流式响应的完整正文。
+	header         http.Header                             // 同协议透传时需要原样返回的上游响应头。
+	events         streams.Stream[*httpclient.StreamEvent] // 原始流及其可选能力; 先重放 buffered 再继续读取。
+	first          *httpclient.StreamEvent                 // 已预读并验证的首个事件。
+	last           bool                                    // 首个事件已经终止整个响应流。
+	usage          *llm.Usage                              // 上游本次可确认的用量。
+	buffered       []*httpclient.StreamEvent               // first 之后已预读的事件, 写出时逐项释放引用。
+	sourceComplete bool                                    // 同协议预读已确认源成功终态, 独立于客户端是否交付。
 	// closeIdle 非 nil 时为渠道专用代理独占客户端的空闲连接归还入口, 消费方读完事件流后必须调用。
 	// 仅流式响应会带上它: 非流式响应返回时连接已经用完, 由发起方就地归还。
 	closeIdle func()
@@ -140,7 +142,7 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 	return &upstreamResponse{body: slices.Clone(response.Body), header: response.Headers.Clone(), usage: parsed.Usage}, sent.Load(), nil
 }
 
-// sendPassthroughStream 发起同协议流式请求并预读首个有效事件, 首个事件通过验证才算本轮取得可提交响应。
+// sendPassthroughStream 暂存无输出启动事件, 直到可提交输出或合法成功终态; 此前失败仍可重试。
 func sendPassthroughStream(ctx context.Context, format llm.APIFormat, request *httpclient.Request, client *http.Client) (*upstreamResponse, error) {
 	rawRequest, err := httpclient.BuildHttpRequest(ctx, request)
 	if err != nil {
@@ -163,25 +165,12 @@ func sendPassthroughStream(ctx context.Context, format llm.APIFormat, request *h
 	}
 
 	events := httpclient.NewDefaultSSEDecoder(ctx, response.Body)
-	for events.Next() {
-		event := events.Current()
-		if event == nil || len(event.Data) == 0 {
-			continue
-		}
-		last, err := inspectStreamEvent(format, event)
-		if err != nil {
-			events.Close()
-			return nil, fmt.Errorf("%w: %s", err, event.Data)
-		}
-		return &upstreamResponse{header: response.Header.Clone(), events: events, first: event, last: last}, nil
+	result, err := readStreamStartup(ctx, format, events)
+	if err != nil {
+		return nil, err
 	}
-
-	err = events.Err()
-	events.Close()
-	if err == nil {
-		err = errors.New("upstream stream ended before first event")
-	}
-	return nil, err
+	result.header = response.Header.Clone()
+	return result, nil
 }
 
 // conversionMiddleware 保存跨协议 pipeline 单次调用需要应用和取得的状态。

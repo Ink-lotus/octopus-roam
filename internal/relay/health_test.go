@@ -220,7 +220,9 @@ func TestIdenticalErrorsInDifferentRoundsCountSeparately(t *testing.T) {
 		io.WriteString(w, responseFailure)
 	}))
 	defer upstream.Close()
-	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, testRelayConfig(3))
+	config := testRelayConfig(3)
+	config.ManualMaxAttempts = 2 // Both errors now occur before startup commitment.
+	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, config)
 	engine := gin.New()
 	engine.POST("/v1/responses", Forward(llm.APIFormatOpenAIResponse))
 	serveWithTimeout(t, engine, httptest.NewRecorder(), responseHealthRequest(t, group))
@@ -257,7 +259,9 @@ func TestHealthSingleProbeHoldsThroughFirstFrame(t *testing.T) {
 		io.WriteString(w, responseFailure)
 	}))
 	defer upstream.Close()
-	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, testRelayConfig(2))
+	config := testRelayConfig(2)
+	config.ManualMaxAttempts = 1 // Seed one failed request before competing recovery probes.
+	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, config)
 	engine := gin.New()
 	engine.POST("/v1/responses", Forward(llm.APIFormatOpenAIResponse))
 	serveWithTimeout(t, engine, httptest.NewRecorder(), responseHealthRequest(t, group))
@@ -436,7 +440,9 @@ func TestHTTPResultsCannotCrossRecoveryEpoch(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, testRelayConfig(2))
+	config := testRelayConfig(2)
+	config.ManualMaxAttempts = 1 // Each barrier represents a separate request's result.
+	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, config)
 	engine := gin.New()
 	engine.POST("/v1/responses", Forward(llm.APIFormatOpenAIResponse))
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
@@ -501,7 +507,9 @@ func TestCapacityQueuedRequestRechecksSharedDeadline(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, testRelayConfig(2))
+	config := testRelayConfig(2)
+	config.ManualMaxAttempts = 1 // The queued request, rather than a local retry, resumes.
+	group := protocolHealthGroup(t, upstream.URL, model.ProtocolOpenAIResponse, config)
 	id := group.Items[0].ChannelID
 	setConcurrency(t, id, 1)
 	engine := gin.New()
