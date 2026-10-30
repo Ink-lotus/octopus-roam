@@ -7,5 +7,7 @@ static/out/*
 .pnpm-store/
 .tmp-go-cache/
 .tmp-go-mod/
+# 根目录临时文件
+/.tmp-*
 # 本地规划记录
 /plan/
