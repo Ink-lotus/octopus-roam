@@ -25,8 +25,8 @@ Windows 使用 [v0.1.0 Release](https://github.com/Ink-lotus/octopus-roam/releas
 
 实验性产物仍执行同样的版本、完整 SHA、实际 Go 编译版本、哈希、对应源码及原始声明检查。新正式版材料须由最终冻结源码重新生成，并在 `INSTALL.md`、源码包 README 和 Release Notes 使用本页范围；已公开 RC 资产保持原样。
 
-- [rc.2 发布与公开回读结果](../plan/release-step-08-result-20261029-01.md)
-- [工作包 8 升级、恢复及收口结果](../plan/release-step-08-result-20261029-02.md)
+- [rc.2 发布与公开回读结果](../plan/archive/2026-10-30-main-83667b1/release-step-08-result-20261029-01.md)
+- [工作包 8 升级、恢复及收口结果](../plan/archive/2026-10-30-main-83667b1/release-step-08-result-20261029-02.md)
 - [发布 CI 合同](release-ci.md)、[材料入口](release-materials.md)
 
 增加正式支持组合时，应明确宿主、运行时、架构及数据库版本，补齐其安装、运行、升级、持久化与恢复证据后更新本页。
