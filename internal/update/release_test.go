@@ -7,14 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -128,267 +125,6 @@ func TestFailedUpdateStateIsReportedWithoutNetwork(t *testing.T) {
 	}
 }
 
-func TestWindowsUpdateHelperParses(t *testing.T) {
-	powershell, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		t.Skip("Windows PowerShell is unavailable")
-	}
-	path := filepath.Join(t.TempDir(), "update-helper.ps1")
-	if err := os.WriteFile(path, []byte(windowsUpdateHelper), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	quoted := strings.ReplaceAll(path, "'", "''")
-	command := "$ErrorActionPreference='Stop'; [scriptblock]::Create((Get-Content -LiteralPath '" + quoted + "' -Raw)) | Out-Null"
-	if output, err := exec.Command(powershell, "-NoProfile", "-NonInteractive", "-Command", command).CombinedOutput(); err != nil {
-		t.Fatalf("helper parse failed: %v: %s", err, output)
-	}
-}
-
-func TestWindowsUpdateHelperReplacesAndRecoversRealProcesses(t *testing.T) {
-	powershell, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		t.Skip("Windows PowerShell is unavailable")
-	}
-	fixtureRoot := t.TempDir()
-	oldExecutable := buildUpdateFixture(t, fixtureRoot, "old", "30s")
-	newExecutable := buildUpdateFixture(t, fixtureRoot, "new", "30s")
-	parentExecutable := buildUpdateFixture(t, fixtureRoot, "parent", "1s")
-
-	t.Run("successful replacement preserves restart arguments", func(t *testing.T) {
-		runWindowsHelperCase(t, powershell, oldExecutable, newExecutable, parentExecutable, true)
-	})
-	t.Run("failed restart rolls back and restarts old process", func(t *testing.T) {
-		failedExecutable := buildUpdateFixture(t, fixtureRoot, "failed", "0s")
-		runWindowsHelperCase(t, powershell, oldExecutable, failedExecutable, parentExecutable, false)
-	})
-}
-
-func buildUpdateFixture(t *testing.T, root, marker, sleep string) string {
-	t.Helper()
-	source := fmt.Sprintf(`package main
-
-import (
-    "encoding/json"
-    "os"
-    "strings"
-    "time"
-)
-
-func main() {
-    if path := os.Getenv("OCTO_FIXTURE_RESULT"); path != "" {
-        result := map[string]any{"marker": %q, "cwd": must(os.Getwd()), "args": os.Args[1:], "pid": os.Getpid()}
-        if data, err := json.Marshal(result); err == nil { _ = os.WriteFile(path, data, 0600) }
-    }
-    sleep := %s
-    for _, arg := range os.Args[1:] {
-        if strings.HasPrefix(arg, "--sleep=") {
-            if parsed, err := time.ParseDuration(strings.TrimPrefix(arg, "--sleep=")); err == nil { sleep = parsed }
-        }
-    }
-    time.Sleep(sleep)
-}
-
-func must(value string, err error) string {
-    if err != nil { return "" }
-    return value
-}
-`, marker, durationExpression(sleep))
-	sourcePath := filepath.Join(root, marker+".go")
-	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	output := filepath.Join(root, marker+".exe")
-	command := exec.Command("go", "build", "-trimpath", "-o", output, sourcePath)
-	command.Env = append(os.Environ(), "GO111MODULE=off", "GOTOOLCHAIN=local")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("build %s fixture: %v: %s", marker, err, output)
-	}
-	return output
-}
-
-func durationExpression(value string) string {
-	switch value {
-	case "0s":
-		return "time.Duration(0)"
-	case "1s":
-		return "time.Second"
-	default:
-		return "30 * time.Second"
-	}
-}
-
-func runWindowsHelperCase(t *testing.T, powershell, oldExecutable, newExecutable, parentExecutable string, wantSuccess bool) {
-	t.Helper()
-	root := filepath.Join(t.TempDir(), "运行目录 with spaces")
-	prepared := filepath.Join(t.TempDir(), "准备目录 with spaces")
-	workdir := filepath.Join(root, "工作 目录")
-	if err := os.MkdirAll(workdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(prepared, "windows"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "windows"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyFileForTest(oldExecutable, filepath.Join(root, "octopus-roam.exe")); err != nil {
-		t.Fatal(err)
-	}
-	for _, relative := range []string{"octopus-roam.cmd", "windows/octopus-roam-menu.ps1", "windows/octopus-roam-start.ps1", "windows/octopus-roam-autostart.ps1", "windows/send-stop-signal.ps1"} {
-		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(relative)), []byte("old-"+relative), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := copyFileForTest(newExecutable, filepath.Join(prepared, "octopus-roam.exe")); err != nil {
-		t.Fatal(err)
-	}
-	for _, relative := range []string{"octopus-roam.cmd", "windows/octopus-roam-menu.ps1", "windows/octopus-roam-start.ps1", "windows/octopus-roam-autostart.ps1", "windows/send-stop-signal.ps1"} {
-		if err := os.WriteFile(filepath.Join(prepared, filepath.FromSlash(relative)), []byte("new-"+relative), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	argumentsPath := filepath.Join(prepared, ".update-arguments.json")
-	readyPath := filepath.Join(prepared, ".update-ready.json")
-	resultPath := filepath.Join(root, "restart result.json")
-	arguments := struct {
-		Arguments []string `json:"arguments"`
-		Directory string   `json:"directory"`
-	}{
-		Arguments: []string{"--config", filepath.Join(workdir, "配置 文件.json"), `quote"tail\`},
-		Directory: workdir,
-	}
-	data, err := json.Marshal(arguments)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(argumentsPath, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	parent := exec.Command(parentExecutable)
-	parent.Env = append(os.Environ(), "OCTO_FIXTURE_RESULT=")
-	if err := parent.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if parent.Process != nil {
-			_ = parent.Process.Kill()
-		}
-	}()
-	command := exec.Command(powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", filepath.Join(prepared, ".update-helper.ps1"),
-		"-ParentPid", strconv.Itoa(parent.Process.Pid), "-RuntimeDirectory", root, "-PreparedDirectory", prepared,
-		"-ExecutableName", "octopus-roam.exe", "-ArgumentsFile", argumentsPath, "-ReadyFile", readyPath)
-	if err := os.WriteFile(filepath.Join(prepared, ".update-helper.ps1"), []byte(windowsUpdateHelper), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	command.Env = append(os.Environ(), "OCTO_FIXTURE_RESULT="+resultPath)
-	if err := command.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if command.Process != nil {
-			_ = command.Process.Kill()
-		}
-	}()
-	waitForTestFile(t, readyPath, 10*time.Second)
-	err = command.Wait()
-	if wantSuccess && err != nil {
-		t.Fatalf("helper failed: %v", err)
-	}
-	if !wantSuccess && err == nil {
-		t.Fatal("helper unexpectedly succeeded")
-	}
-	if err := parent.Wait(); err != nil && !strings.Contains(err.Error(), "exit status") {
-		t.Logf("parent process wait: %v", err)
-	}
-	if wantSuccess {
-		result := waitForRestartResult(t, resultPath)
-		if result.Marker != "new" || result.Cwd != workdir || len(result.Args) != len(arguments.Arguments) {
-			t.Fatalf("restart result=%+v, want marker/cwd/args", result)
-		}
-		for i := range arguments.Arguments {
-			if result.Args[i] != arguments.Arguments[i] {
-				t.Fatalf("argument %d=%q, want %q", i, result.Args[i], arguments.Arguments[i])
-			}
-		}
-		if _, err := os.Stat(prepared); !os.IsNotExist(err) {
-			t.Fatalf("prepared directory still exists after success: %v", err)
-		}
-		state, err := os.ReadFile(filepath.Join(root, ".octopus-roam-update.json"))
-		var stateValue struct {
-			Failed bool `json:"failed"`
-		}
-		if err != nil || json.Unmarshal(bytes.TrimPrefix(state, []byte{0xef, 0xbb, 0xbf}), &stateValue) != nil || stateValue.Failed {
-			t.Fatalf("success state=%q err=%v", state, err)
-		}
-	} else {
-		if updated, err := os.ReadFile(filepath.Join(root, "octopus-roam.exe")); err != nil || !bytes.Equal(updated, mustReadFile(t, oldExecutable)) {
-			t.Fatalf("old executable was not restored: err=%v", err)
-		}
-		result := waitForRestartResult(t, resultPath)
-		if result.Marker != "old" || result.Cwd != workdir || len(result.Args) != len(arguments.Arguments) {
-			t.Fatalf("recovery result=%+v", result)
-		}
-		for i := range arguments.Arguments {
-			if result.Args[i] != arguments.Arguments[i] {
-				t.Fatalf("recovery argument %d=%q, want %q", i, result.Args[i], arguments.Arguments[i])
-			}
-		}
-		state, err := os.ReadFile(filepath.Join(root, ".octopus-roam-update.json"))
-		var stateValue struct {
-			Failed bool `json:"failed"`
-		}
-		if err != nil || json.Unmarshal(bytes.TrimPrefix(state, []byte{0xef, 0xbb, 0xbf}), &stateValue) != nil || !stateValue.Failed {
-			t.Fatalf("failure state=%q err=%v", state, err)
-		}
-	}
-	wantSupport := "old-octopus-roam.cmd"
-	if wantSuccess {
-		wantSupport = "new-octopus-roam.cmd"
-	}
-	if result, err := os.ReadFile(filepath.Join(root, "octopus-roam.cmd")); err != nil || string(result) != wantSupport {
-		t.Fatalf("support file rollback/backup mismatch: %q err=%v", result, err)
-	}
-}
-
-type updateFixtureResult struct {
-	Marker string   `json:"marker"`
-	Cwd    string   `json:"cwd"`
-	Args   []string `json:"args"`
-	PID    int      `json:"pid"`
-}
-
-func waitForRestartResult(t *testing.T, path string) updateFixtureResult {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		data, err := os.ReadFile(path)
-		if err == nil {
-			var result updateFixtureResult
-			if json.Unmarshal(data, &result) == nil {
-				if process, err := os.FindProcess(result.PID); err == nil {
-					_ = process.Kill()
-				}
-				return result
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("restart result did not appear: %s", path)
-	return updateFixtureResult{}
-}
-
-func waitForTestFile(t *testing.T, path string, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("file did not appear: %s", path)
-}
-
 func copyFileForTest(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -404,6 +140,46 @@ func mustReadFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestWindowsPackageLayouts(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		extra []string
+		menu  string
+		valid bool
+	}{
+		{"native", nil, "file", true},
+		{"legacy", legacyWindowsFiles, "file", true},
+		{"partial legacy", legacyWindowsFiles[:1], "file", false},
+		{"missing menu", nil, "", false},
+		{"menu directory", nil, "directory", false},
+		{"unexpected script", []string{"windows/extra.ps1"}, "file", false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			stage := t.TempDir()
+			files := append([]string{"octopus-roam.exe"}, testCase.extra...)
+			if testCase.menu == "file" {
+				files = append(files, "octopus-roam.cmd")
+			} else if testCase.menu == "directory" {
+				if err := os.Mkdir(filepath.Join(stage, "octopus-roam.cmd"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, name := range files {
+				path := filepath.Join(stage, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("fixture"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := validateExtractedPackage(stage, "windows"); (err == nil) != testCase.valid {
+				t.Fatalf("valid=%v err=%v", testCase.valid, err)
+			}
+		})
+	}
 }
 
 func TestReleaseCheckAndVerifiedLocalUpdate(t *testing.T) {

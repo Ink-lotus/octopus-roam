@@ -27,10 +27,6 @@ try {
             throw "Missing runtime file: $relativePath"
         }
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $runtimePath 'octopus-roam-start.ps1') -PathType Leaf) `
-        -and -not (Test-Path -LiteralPath (Join-Path $runtimePath 'windows\octopus-roam-start.ps1') -PathType Leaf)) {
-        throw 'Missing runtime launcher: windows\octopus-roam-start.ps1'
-    }
     if ([string]::Equals($sourceDirectory, $runtimePath, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'Source and runtime directories must be different.'
     }
@@ -79,12 +75,7 @@ try {
             sha256 = (Get-FileHash -LiteralPath $binaryPath -Algorithm SHA256).Hash
         }
         $buildInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PreparedDirectory 'build-info.json') -Encoding UTF8
-        $preparedWindows = Join-Path $PreparedDirectory 'windows'
-        [IO.Directory]::CreateDirectory($preparedWindows) | Out-Null
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'octopus-roam.cmd') -Destination $PreparedDirectory
-        foreach ($scriptName in @('octopus-roam-menu.ps1', 'octopus-roam-start.ps1', 'octopus-roam-autostart.ps1', 'send-stop-signal.ps1')) {
-            Copy-Item -LiteralPath (Join-Path $PSScriptRoot $scriptName) -Destination $preparedWindows
-        }
     }
 
     $PreparedDirectory = [IO.Path]::GetFullPath($PreparedDirectory)
@@ -94,7 +85,10 @@ try {
     if ((Get-FileHash -LiteralPath $newExecutable -Algorithm SHA256).Hash -ne $manifest.sha256) {
         throw 'Prepared executable does not match build-info.json.'
     }
-    $launcherFiles = @('octopus-roam.cmd', 'windows\octopus-roam-menu.ps1', 'windows\octopus-roam-start.ps1', 'windows\octopus-roam-autostart.ps1', 'windows\send-stop-signal.ps1')
+    $launcherFiles = @('octopus-roam.cmd')
+    $legacyLauncherFiles = @('windows\octopus-roam-menu.ps1', 'windows\octopus-roam-start.ps1', 'windows\octopus-roam-autostart.ps1', 'windows\send-stop-signal.ps1')
+    $hasLegacyLaunchers = @($legacyLauncherFiles | Where-Object { Test-Path -LiteralPath (Join-Path $PreparedDirectory $_) }).Count -gt 0
+    if ($hasLegacyLaunchers) { $launcherFiles += $legacyLauncherFiles }
     $hasLauncherPackage = @( $launcherFiles | Where-Object { Test-Path -LiteralPath (Join-Path $PreparedDirectory $_) } ).Count -gt 0
     if ($hasLauncherPackage) {
         foreach ($relativePath in $launcherFiles) {
@@ -124,16 +118,22 @@ try {
         if ($running.Count -gt 1) { throw 'Multiple instances are using this runtime. Resolve them before updating.' }
         if ($running.Count -eq 1) {
             Write-Host 'Requesting graceful shutdown...'
-            $signalLog = Join-Path $PreparedDirectory ('stop-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
-            $helperPath = Join-Path $PSScriptRoot 'send-stop-signal.ps1'
-            $helperArguments = '-NoProfile -ExecutionPolicy RemoteSigned -File "{0}" -TargetProcessId {1} -ExpectedExecutable "{2}" -ResultPath "{3}"' -f $helperPath, $running[0].Id, $runtimeExecutable, "$signalLog.json"
-            $helper = Start-Process -FilePath $powerShellPath -ArgumentList $helperArguments -WindowStyle Hidden -PassThru `
-                -RedirectStandardOutput "$signalLog.out.log" -RedirectStandardError "$signalLog.err.log"
-            $null = $helper.Handle
-            if (-not $helper.WaitForExit(15000)) { throw "Signal helper timed out. See $signalLog.err.log" }
-            if (-not (Test-Path -LiteralPath "$signalLog.json")) { throw "Signal helper did not report completion (exit $($helper.ExitCode)). See $signalLog.err.log" }
-            $signalResult = Get-Content -LiteralPath "$signalLog.json" -Raw | ConvertFrom-Json
-            if (-not $signalResult.success) { throw $signalResult.error }
+            # Stop through the installed controller, independently of the new package layout.
+            if (Test-Path -LiteralPath (Join-Path $runtimePath '.octopus-roam-process.json')) {
+                & $runtimeExecutable desktop request-stop --runtime $runtimePath
+                if ($LASTEXITCODE -ne 0) { throw 'Native shutdown request failed. No files were replaced.' }
+            } else {
+                $signalLog = Join-Path $PreparedDirectory ('stop-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+                $helperPath = Join-Path $PSScriptRoot 'send-stop-signal.ps1'
+                $helperArguments = '-NoProfile -ExecutionPolicy RemoteSigned -File "{0}" -TargetProcessId {1} -ExpectedExecutable "{2}" -ResultPath "{3}"' -f $helperPath, $running[0].Id, $runtimeExecutable, "$signalLog.json"
+                $helper = Start-Process -FilePath $powerShellPath -ArgumentList $helperArguments -WindowStyle Hidden -PassThru `
+                    -RedirectStandardOutput "$signalLog.out.log" -RedirectStandardError "$signalLog.err.log"
+                $null = $helper.Handle
+                if (-not $helper.WaitForExit(15000)) { throw "Signal helper timed out. See $signalLog.err.log" }
+                if (-not (Test-Path -LiteralPath "$signalLog.json")) { throw "Signal helper did not report completion (exit $($helper.ExitCode)). See $signalLog.err.log" }
+                $signalResult = Get-Content -LiteralPath "$signalLog.json" -Raw | ConvertFrom-Json
+                if (-not $signalResult.success) { throw $signalResult.error }
+            }
             if (-not $running[0].WaitForExit(60000)) { throw 'Octopus Roam did not exit within 60 seconds. No files were replaced.' }
         }
         if (@(Get-RuntimeProcess).Count -ne 0) { throw 'Octopus Roam is still running. No files were replaced.' }
@@ -152,7 +152,7 @@ try {
         Copy-Item -LiteralPath $newExecutable -Destination $runtimeExecutable -Force
         Copy-Item -LiteralPath $manifestPath -Destination $oldManifest -Force
         if ($hasLauncherPackage) {
-            [IO.Directory]::CreateDirectory((Join-Path $runtimePath 'windows')) | Out-Null
+            if ($hasLegacyLaunchers) { [IO.Directory]::CreateDirectory((Join-Path $runtimePath 'windows')) | Out-Null }
             foreach ($relativePath in $launcherFiles) {
                 Copy-Item -LiteralPath (Join-Path $PreparedDirectory $relativePath) -Destination (Join-Path $runtimePath $relativePath) -Force
             }
@@ -168,7 +168,9 @@ try {
         $mutex.Dispose()
     }
     $packagedLauncher = Join-Path $runtimePath 'windows\octopus-roam-start.ps1'
-    if (Test-Path -LiteralPath $packagedLauncher -PathType Leaf) {
+    if (-not $hasLegacyLaunchers -and $hasLauncherPackage) {
+        & $runtimeExecutable desktop start --runtime $runtimePath
+    } elseif (Test-Path -LiteralPath $packagedLauncher -PathType Leaf) {
         & $powerShellPath -NoProfile -ExecutionPolicy RemoteSigned -File $packagedLauncher -RuntimeDirectory $runtimePath
     } else {
         & $powerShellPath -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $runtimePath 'octopus-roam-start.ps1')

@@ -256,10 +256,6 @@ try {
         }
         if ($goos -eq 'windows') {
             Copy-Item -LiteralPath (Join-Path $sourceCopy 'scripts\windows\octopus-roam.cmd') -Destination $package
-            New-Item -ItemType Directory -Force -Path (Join-Path $package 'windows') | Out-Null
-            foreach ($file in @('octopus-roam-menu.ps1', 'octopus-roam-start.ps1', 'octopus-roam-autostart.ps1', 'send-stop-signal.ps1')) {
-                Copy-Item -LiteralPath (Join-Path $sourceCopy "scripts\windows\$file") -Destination (Join-Path $package 'windows')
-            }
         }
         $archivePath = Join-Path $archiveRoot "$binaryName.zip"
         New-ZipArchiveWithModes $package $archivePath ($goos -eq 'windows')

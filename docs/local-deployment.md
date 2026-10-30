@@ -8,11 +8,6 @@
 D:\tool\AI\octopus-roam-runtime\
   octopus-roam.exe       # 嵌入前端的 Windows 生产构建
   octopus-roam.cmd       # 双击打开管理菜单
-  windows\              # 菜单和启停、自启支持文件
-    octopus-roam-menu.ps1
-    octopus-roam-start.ps1
-    octopus-roam-autostart.ps1
-    send-stop-signal.ps1
   data\
     config.json     # 本地实例配置
     data.db         # SQLite 数据库及运行中可能产生的 WAL/SHM 文件
@@ -30,7 +25,7 @@ D:\tool\AI\octopus-roam-runtime\
 powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\windows\update-local.ps1
 ```
 
-脚本使用当前工作区的代码（包含未提交改动），在 `build/local-update-时间戳/` 生成 `octopus-roam.exe`、`build-info.json`、`octopus-roam.cmd` 和 `windows` 支持文件。前后端使用相同版本号；构建不修改运行目录。现有 Go、Node.js 和 `web/node_modules` 必须可用。
+脚本使用当前工作区的代码（包含未提交改动），在 `build/local-update-时间戳/` 生成 `octopus-roam.exe`、`build-info.json` 和 `octopus-roam.cmd`。前后端使用相同版本号；构建不修改运行目录。现有 Go、Node.js 和 `web/node_modules` 必须可用。PowerShell 构建脚本只在开发机使用，菜单、启停和在线更新均由原生程序实现。
 
 退出使用此服务的 AI 终端，等待请求结束后，在普通 PowerShell 中执行下面的命令，将示例目录换成构建输出中的 `Prepared update` 路径：
 
@@ -41,9 +36,9 @@ powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\windows\
 
 也可以退出终端后直接加 `-Apply`，让脚本依次完成构建与更新。默认运行目录为 `D:\tool\AI\octopus-roam-runtime`，可用 `-RuntimeDirectory` 指定另一份部署。
 
-更新会验证构建文件的 SHA-256，向运行目录对应的进程发送正常退出信号并等待退出，将完整 `data` 目录、旧程序、旧构建信息及已有菜单文件备份到 `backups/before-update-时间戳/`，然后替换程序、更新菜单与构建信息并启动服务。新菜单安装完成后，会清理旧的两个自启 `.cmd` 入口，原文件保存在更新备份中。渠道、密钥、分组和配置继续使用运行目录的原有数据。旧目录中平铺的 PowerShell 启动脚本仍兼容，日常操作使用新的 `octopus-roam.cmd`。
+开发机的 `update-local.ps1 -Apply` 会验证构建文件的 SHA-256，正常停止运行目录对应的进程，将完整 `data` 目录、旧程序、旧构建信息及已有菜单文件备份到 `backups/before-update-时间戳/`，然后替换程序、菜单与构建信息并启动服务。旧的两个自启 `.cmd` 入口先备份再清理；已有 PowerShell 支持文件保留为历史文件，新菜单不使用它们。渠道、密钥、分组和配置继续使用原有数据。
 
-后台启动器继承的 Windows 标志可能忽略 Ctrl+C，因此停止辅助脚本使用 Ctrl+Break；Go 将其作为 SIGINT 交给现有退出流程。辅助脚本只接受独立控制台（目标程序、辅助进程以及最多一个 cmd 启动器）。若目标与其他应用共享控制台，会停止更新并提示在原终端按 Ctrl+C；不会强制结束进程。构建失败或进程未能退出时，不替换程序。
+原生后台进程通过 Windows 命名事件接收正常退出请求，停止前会检查进程路径、PID 和创建时间。开发机更新工具使用当前安装的 exe 请求原生实例退出，不根据待安装包是否带有旧脚本决定停机方式；遇到旧版实例时仍可使用仓库内的 Ctrl+Break 兼容助手，该助手不随新运行包分发。构建失败或进程未能退出时，不替换程序。
 
 更新完成后重新打开管理页面；若仍显示旧界面或版本不一致，使用设置页的强制刷新。脚本测试命令为 `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/windows/test-update-local.ps1`，仅操作 `build/` 下的模拟部署。
 
@@ -74,7 +69,7 @@ Set-Location -LiteralPath 'D:\tool\AI\octopus-roam-runtime'
 
 ## Windows 双击管理菜单
 
-Windows 发布压缩包根目录提供一个 `octopus-roam.cmd` 操作入口，支持文件位于 `windows` 文件夹。完整解压后双击入口，输入序号并按 Enter：
+当前源码构建的 Windows 压缩包提供一个 `octopus-roam.cmd` 操作入口，调用同目录 exe 的原生控制命令，不需要外置 PowerShell 脚本。完整解压后双击入口，按数字键选择：
 
 | 选项 | 操作 |
 | --- | --- |
@@ -84,26 +79,30 @@ Windows 发布压缩包根目录提供一个 `octopus-roam.cmd` 操作入口，�
 | `4` | 关闭自启，并正常关闭本目录的服务。 |
 | `0` | 退出菜单。 |
 
-菜单显示服务及自启状态，启动成功后显示管理页面地址。关闭菜单窗口后，服务会继续在后台运行；需要停止服务时选择 `3` 或 `4`。停止操作只匹配当前目录的可执行文件，并等待程序保存数据、正常退出。等待超过 60 秒会显示错误，保留进程供检查，不强制结束；若程序在与其他应用共用的终端中启动，按提示回到原终端使用 `Ctrl+C`。
+菜单显示服务及自启状态，启动成功后显示管理页面地址。关闭菜单窗口后，服务会继续在后台运行；需要停止服务时选择 `3` 或 `4`。停止操作会核对运行记录的进程路径、PID 和创建时间，并等待程序保存数据、正常退出。超过 60 秒会显示错误，保留进程供检查。旧版或未托管实例须在其原终端正常关闭。
 
-这是个人电脑的登录自启，无需管理员权限；登录前不会启动。启用时只在当前用户的 Startup 文件夹创建 `Octopus Roam.lnk`，关闭时只移除指向本运行目录的该快捷方式。重复操作可安全执行；发现同名快捷方式属于其他部署时会报错，避免覆盖或删除其他部署的启动项。Windows 任务管理器的“启动应用”中也应允许此启动项；如果手动将其禁用，应在同处恢复启用。
+登录自启通过 Windows 任务计划程序实现：任务以当前用户的交互登录令牌和普通权限运行，不保存密码。名称由规范化运行目录和用户标识派生，不同部署不会共用固定名称。启用、停用前核对执行路径、参数、工作目录、用户和触发器；被改动的任务会报错。创建任务需 Windows 允许当前用户注册任务，权限或组织策略限制会直接显示错误。可在“任务计划程序”中检查 `Octopus Roam-…` 任务；登录前不会启动。
 
-启动器固定工作目录、隐藏程序窗口、将输出写入 `logs/startup-*.out.log` 和 `logs/startup-*.err.log`；登录自启失败记录在 `logs/autostart-errors.log`。关闭服务的结果写入 `logs/shutdown-*.json`。同一目录中的启停、组合选项和更新通过同一个锁串行处理。
+启动器固定工作目录，使用无控制台的后台进程，将输出写入 `logs/startup-*.out.log` 和对应的 `.err.log`；登录自启失败记录在 `logs/autostart-errors.log`。`.octopus-roam-process.json` 记录 PID、创建时间和就绪状态；过期记录不会被当成仍在运行的进程。同一目录的菜单操作和更新使用同一个锁，程序生命周期还持有独立锁，避免重复启动和替换运行中的 exe。
 
-脚本仅为自身 PowerShell 进程使用 `RemoteSigned`，不修改系统执行策略，组织策略仍然生效。若下载的脚本因来源标记或组织策略被阻止，应按 Windows 提示和本机策略处理。
+Windows 在线更新会复制当前可信 exe，在暂存目录以隐藏的辅助模式运行。助手核对父进程创建时间和待安装文件的 SHA-256，报告就绪后等待旧进程退出，再备份、替换并启动新版本。每个文件先写入同目录临时文件并核对实际写入内容的 SHA-256，完成后才替换目标；菜单文件被占用等安装失败或新程序启动失败时，尝试恢复已替换的文件并重启旧程序。重启输出位于 `logs/update-restart-*.log`，结果写入 `.octopus-roam-update.json`。暂存目录会保留辅助 exe 和诊断材料；更新完成且助手退出后可手动清理。程序文件恢复不代替升级前的数据库备份。
+
+### 从旧脚本布局迁移
+
+本变更尚未改变已发布的 v0.1.0 压缩包。旧版在线更新器要求包内有四个 PowerShell 支持文件，不能直接接受新的原生布局；首次切换应正常停止旧服务、备份完整数据目录，再同时手动替换 exe 和 `octopus-roam.cmd`。保留现有 `data` 目录。核对当前用户 Startup 文件夹的旧 `Octopus Roam.lnk`，只移除属于这份部署的旧快捷方式，然后在新菜单选择 `2` 创建登录计划任务。新菜单不会自动删除旧快捷方式。不要仅替换 cmd，因为旧 exe 没有 `desktop` 命令。
 
 移动或清理运行目录前选择 `4`，在新目录需要自启时再选择 `2`。菜单管理普通后台进程，不安装 Windows 服务，也不提供崩溃重启。Docker 镜像使用容器工具管理启停和重启策略，不包含 Windows 菜单。
 
 维护脚本时，在仓库中执行：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/windows/test-menu.ps1
-powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/windows/test-autostart.ps1
+go test ./internal/desktop ./internal/update ./cmd ./internal/server/...
 powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/windows/test-update-local.ps1
 powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/windows/test-update-local.ps1 -Layout Flat
+powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/windows/test-update-local.ps1 -NativeRuntime
 ```
 
-这些检查使用隔离目录、测试自启目录和合成程序，覆盖四个菜单选项、首次配置、端口冲突、特殊字符路径、正常关闭、进程归属、自启兼容及更新备份，不操作当前用户的实际启动项；测试脚本无需复制到部署目录。
+原生检查使用隔离目录、计划任务替身和合成程序，覆盖菜单全部选项、首次配置、端口冲突、特殊字符路径、正常关闭、进程归属、任务归属、更新备份、目标文件占用及暂存文件变化后的失败恢复，不注册本机真实任务。`test-update-local.ps1` 额外验证旧目录布局以及原生进程安装旧布局包时的正常停机；测试和构建脚本无需复制到部署目录。
 
 ## 验收范围
 

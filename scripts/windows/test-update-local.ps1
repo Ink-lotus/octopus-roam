@@ -1,5 +1,8 @@
 # Isolated console fixtures only; never points the updater at the real runtime.
-param([ValidateSet('Flat', 'Packaged')][string]$Layout = 'Packaged')
+param(
+    [ValidateSet('Flat', 'Packaged')][string]$Layout = 'Packaged',
+    [switch]$NativeRuntime
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -13,12 +16,30 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
+function Wait-FixtureVersion([string]$Version) {
+    $path = Join-Path $fixtureRuntime 'started-version.txt'
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        try {
+            if ((Test-Path -LiteralPath $path) -and [IO.File]::ReadAllText($path) -eq $Version) { return }
+        } catch [IO.IOException] {
+            # The fixture may still be publishing its version marker.
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    throw "Fixture version $Version did not become ready."
+}
+
 $fakeSource = @'
 using System;
 using System.IO;
 using System.Threading;
 public static class UPDATE_CLASS {
-    public static void Main() {
+    public static void Main(string[] args) {
+        if (args.Length == 4 && args[0] == "desktop" && args[1] == "request-stop" && args[2] == "--runtime") {
+            File.WriteAllText(Path.Combine(args[3], "native-stop-request"), "requested");
+            return;
+        }
         var done = new ManualResetEvent(false);
         Console.CancelKeyPress += (sender, e) => {
             e.Cancel = true;
@@ -26,15 +47,27 @@ public static class UPDATE_CLASS {
             done.Set();
         };
         File.WriteAllText("started-version.txt", "UPDATE_VERSION");
+        if (Boolean.Parse("NATIVE_RUNTIME")) {
+            File.WriteAllText(".octopus-roam-process.json", "{\"fixture\":true}");
+        }
         Console.WriteLine("Update test fixture ready.");
-        done.WaitOne(90000);
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (DateTime.UtcNow < deadline && !done.WaitOne(50)) {
+            if (File.Exists("native-stop-request")) {
+                try { File.Delete("native-stop-request"); }
+                catch (IOException) { continue; }
+                File.WriteAllText("native-stop-used.txt", "graceful");
+                File.WriteAllText("data/last-shutdown.txt", "graceful");
+                done.Set();
+            }
+        }
     }
 }
 '@
 $oldFixture = Join-Path $fixtureRoot 'old.exe'
 $newFixture = Join-Path $fixtureRoot 'new.exe'
-Add-Type -TypeDefinition $fakeSource.Replace('UPDATE_CLASS', 'OldUpdateFixture').Replace('UPDATE_VERSION', 'old') -OutputAssembly $oldFixture -OutputType ConsoleApplication
-Add-Type -TypeDefinition $fakeSource.Replace('UPDATE_CLASS', 'NewUpdateFixture').Replace('UPDATE_VERSION', 'new') -OutputAssembly $newFixture -OutputType ConsoleApplication
+Add-Type -TypeDefinition $fakeSource.Replace('UPDATE_CLASS', 'OldUpdateFixture').Replace('UPDATE_VERSION', 'old').Replace('NATIVE_RUNTIME', $NativeRuntime.IsPresent.ToString().ToLowerInvariant()) -OutputAssembly $oldFixture -OutputType ConsoleApplication
+Add-Type -TypeDefinition $fakeSource.Replace('UPDATE_CLASS', 'NewUpdateFixture').Replace('UPDATE_VERSION', 'new').Replace('NATIVE_RUNTIME', 'false') -OutputAssembly $newFixture -OutputType ConsoleApplication
 Copy-Item -LiteralPath $oldFixture -Destination (Join-Path $fixtureRuntime 'octopus-roam.exe')
 Copy-Item -LiteralPath $newFixture -Destination (Join-Path $fixturePrepared 'octopus-roam.exe')
 $launcherFiles = @('octopus-roam-menu.ps1', 'octopus-roam-start.ps1', 'octopus-roam-autostart.ps1', 'send-stop-signal.ps1')
@@ -75,10 +108,33 @@ foreach ($entry in $legacyEntries) {
     Assert-True ([IO.File]::ReadAllText((Join-Path $fixtureRuntime $entry)) -eq $legacyContent) 'Build-only mode changed an existing launcher.'
 }
 
-& $shellPath -NoProfile -ExecutionPolicy RemoteSigned -File $initialLauncher -RuntimeDirectory $fixtureRuntime
-Assert-True ($LASTEXITCODE -eq 0) 'Fixture launch failed.'
+if ($NativeRuntime) {
+    # Model a native server without a console: a Ctrl+Break helper cannot stop it.
+    $startInfo = New-Object Diagnostics.ProcessStartInfo
+    $startInfo.FileName = Join-Path $fixtureRuntime 'octopus-roam.exe'
+    $startInfo.WorkingDirectory = $fixtureRuntime
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $nativeProcess = [Diagnostics.Process]::Start($startInfo)
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not (Test-Path -LiteralPath (Join-Path $fixtureRuntime '.octopus-roam-process.json'))) {
+        if ($nativeProcess.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw 'Native fixture launch failed.' }
+        Start-Sleep -Milliseconds 50
+    }
+} else {
+    & $shellPath -NoProfile -ExecutionPolicy RemoteSigned -File $initialLauncher -RuntimeDirectory $fixtureRuntime
+    Assert-True ($LASTEXITCODE -eq 0) 'Fixture launch failed.'
+}
+# The legacy launcher only waits for its shell; wait for the fixture itself
+# before exercising an update of a running instance.
+Wait-FixtureVersion 'old'
 & $shellPath -NoProfile -ExecutionPolicy RemoteSigned -File $updaterPath -RuntimeDirectory $fixtureRuntime -PreparedDirectory $fixturePrepared -Apply
 Assert-True ($LASTEXITCODE -eq 0) 'Fixture update failed.'
+Wait-FixtureVersion 'new'
+if ($NativeRuntime) {
+    Assert-True ((Get-Content -LiteralPath (Join-Path $fixtureRuntime 'native-stop-used.txt') -Raw) -eq 'graceful') 'Updater did not use the installed native stop command.'
+    $nativeProcess.Dispose()
+}
 Assert-True ((Get-FileHash -LiteralPath (Join-Path $fixtureRuntime 'octopus-roam.exe')).Hash -eq $newHash) 'Executable was not replaced.'
 Assert-True ((Get-Content -LiteralPath (Join-Path $fixtureRuntime 'started-version.txt') -Raw) -eq 'new') 'New executable was not started.'
 $backup = @(Get-ChildItem -LiteralPath (Join-Path $fixtureRuntime 'backups') -Directory)
@@ -108,4 +164,4 @@ $stopArguments = '-NoProfile -ExecutionPolicy RemoteSigned -File "{0}" -TargetPr
 $stopper = Start-Process -FilePath $shellPath -ArgumentList $stopArguments -WindowStyle Hidden -PassThru
 Assert-True ($stopper.WaitForExit(15000)) 'Fixture stop helper timed out.'
 Assert-True ($fixtureProcess[0].WaitForExit(10000)) 'Fixture did not stop gracefully.'
-Write-Host "PASS: $Layout layout, build-only mode, graceful shutdown, complete data backup, executable and launcher replacement, legacy entry cleanup, restart. Fixture: $fixtureRoot"
+Write-Host "PASS: $Layout layout, native runtime=$NativeRuntime, build-only mode, graceful shutdown, complete data backup, executable and launcher replacement, legacy entry cleanup, restart. Fixture: $fixtureRoot"

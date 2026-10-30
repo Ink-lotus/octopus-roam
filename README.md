@@ -77,7 +77,7 @@ Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/relea
 3. Stop the service.
 4. Stop the service and disable automatic startup.
 
-The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Automatic startup runs when the current Windows user signs in. The menu shows service and startup status. Closing the menu leaves the service running; choose `3` or `4` to stop it. Keep the included `windows` folder, which contains the menu's support files.
+The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Closing the menu leaves the service running; choose `3` or `4` to stop it. Current source builds use one cmd entry and native executable commands, with a per-user scheduled logon task. Published v0.1.0 packages still require their `windows` support folder. The first migration to the native layout requires manually updating both the executable and cmd entry; see the [migration instructions](docs/local-deployment.md#从旧脚本布局迁移).
 
 **Experimental native Linux / macOS and other builds:** run in the extracted directory; native process upgrade and recovery remain unvalidated:
 

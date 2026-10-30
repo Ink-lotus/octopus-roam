@@ -151,8 +151,6 @@ def release_fixture(root):
                    'THIRD_PARTY_LICENSES.csv': (report, 0o644)}
         if target.startswith('windows-'):
             entries[contract.APP + '.cmd'] = (b'synthetic helper', 0o644)
-            for n in (f'{contract.APP}-menu.ps1', f'{contract.APP}-start.ps1', f'{contract.APP}-autostart.ps1', 'send-stop-signal.ps1'):
-                entries['windows/' + n] = (b'synthetic helper', 0o644)
         contract.archive_write(root / 'archives' / f'{contract.APP}-{target}.zip', entries)
     (root / 'archives/SHA256SUMS').write_text(''.join(f'{contract.digest(p)}  {p.name}\n'
         for p in sorted((root / 'archives').glob('*.zip'))), encoding='utf-8')

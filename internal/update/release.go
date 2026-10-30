@@ -573,14 +573,39 @@ func archiveExecutableName(goos string) string {
 	return "octopus-roam"
 }
 
+var legacyWindowsFiles = []string{"windows/octopus-roam-menu.ps1", "windows/octopus-roam-start.ps1", "windows/octopus-roam-autostart.ps1", "windows/send-stop-signal.ps1"}
+
+// Keep package validation and the native install plan on the same file list.
+// New packages contain exe + cmd; a legacy launcher set must be complete.
+func windowsInstallFiles(stage string) ([]string, error) {
+	files := []string{"octopus-roam.exe", "octopus-roam.cmd"}
+	for _, name := range legacyWindowsFiles {
+		if _, err := os.Lstat(filepath.Join(stage, filepath.FromSlash(name))); err == nil {
+			files = append(files, name)
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	if len(files) != 2 && len(files) != 2+len(legacyWindowsFiles) {
+		return nil, fmt.Errorf("release archive has an incomplete legacy Windows launcher package")
+	}
+	for _, name := range files {
+		info, err := os.Lstat(filepath.Join(stage, filepath.FromSlash(name)))
+		if err != nil || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("release archive has an incomplete Windows launcher package")
+		}
+	}
+	return files, nil
+}
+
 func allowedPackagePaths(goos string) map[string]struct{} {
 	paths := map[string]struct{}{
 		"README.md": {}, "README_zh.md": {}, "LICENSE": {}, checksumFilename: {}, "THIRD_PARTY_LICENSES.csv": {},
 	}
 	if goos == "windows" {
 		paths["octopus-roam.cmd"] = struct{}{}
-		for _, name := range []string{"octopus-roam-menu.ps1", "octopus-roam-start.ps1", "octopus-roam-autostart.ps1", "send-stop-signal.ps1"} {
-			paths[filepath.Join("windows", name)] = struct{}{}
+		for _, name := range legacyWindowsFiles {
+			paths[filepath.FromSlash(name)] = struct{}{}
 		}
 	}
 	return paths
@@ -624,13 +649,8 @@ func validateExtractedPackage(stage, goos string) (string, error) {
 		return "", fmt.Errorf("release package is empty")
 	}
 	if goos == "windows" {
-		for required := range allowedPackagePaths(goos) {
-			if required != "octopus-roam.cmd" && !strings.HasPrefix(required, "windows"+string(filepath.Separator)) {
-				continue
-			}
-			if entry, err := os.Stat(filepath.Join(stage, required)); err != nil || !entry.Mode().IsRegular() {
-				return "", fmt.Errorf("release archive has an incomplete Windows launcher package")
-			}
+		if _, err := windowsInstallFiles(stage); err != nil {
+			return "", err
 		}
 	}
 	return executable, nil

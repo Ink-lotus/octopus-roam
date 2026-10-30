@@ -391,8 +391,6 @@ def package(args):
         entries['THIRD_PARTY_LICENSES.csv'] = ((out / 'THIRD_PARTY_LICENSES.csv').read_bytes(), 0o644)
         if suffix:
             entries[f'{APP}.cmd'] = ((root / 'scripts/windows' / f'{APP}.cmd').read_bytes(), 0o644)
-            for name in (f'{APP}-menu.ps1', f'{APP}-start.ps1', f'{APP}-autostart.ps1', 'send-stop-signal.ps1'):
-                entries['windows/' + name] = ((root / 'scripts/windows' / name).read_bytes(), 0o644)
         archive_write(delivery / f'{APP}-{target}.zip', entries)
         binaries[target] = digest(binary)
     sums = ''.join(f'{digest(path)}  {path.name}\n' for path in sorted(delivery.glob('*.zip')))
@@ -529,8 +527,7 @@ def verify_archives(root, version, commit):
         require(build['go_versions'][target] == actual_go, 'Recorded Go version differs from actual binary')
         expected = {executable, 'README.md', 'README_zh.md', 'LICENSE', 'THIRD_PARTY_LICENSES.csv'}
         if target.startswith('windows-'):
-            expected |= {f'{APP}.cmd', *(f'windows/{n}' for n in
-                         (f'{APP}-menu.ps1', f'{APP}-start.ps1', f'{APP}-autostart.ps1', 'send-stop-signal.ps1'))}
+            expected.add(f'{APP}.cmd')
         with zipfile.ZipFile(archives / f'{APP}-{target}.zip') as archive:
             require(set(zip_files(archive)) == expected, 'Updater archive allowlist differs')
             require(archive.read(executable) == binary.read_bytes(), 'Archive binary differs')

@@ -37,6 +37,13 @@ switch ($Action) {
             # Retain the process handle before it exits so Get-Process can
             # report the real exit code after WaitForExit.
             $null = $process.Handle
+            if (Test-Path -LiteralPath (Join-Path $Directory '.octopus-roam-process.json')) {
+                & $executable desktop request-stop --runtime $Directory
+                if ($LASTEXITCODE -ne 0) { throw 'Native normal stop request failed.' }
+                if (-not $process.WaitForExit(15000)) { throw 'Native normal stop timed out.' }
+                if ($null -eq $process.ExitCode -or $process.ExitCode -ne 0) { throw 'Native normal stop failed.' }
+                continue
+            }
             $resultPath = Join-Path $Directory ('stop-' + $process.Id + '.json')
             & pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\windows\send-stop-signal.ps1') -TargetProcessId $process.Id -ExpectedExecutable $executable -ResultPath $resultPath
             if ($LASTEXITCODE -ne 0) { throw 'Normal stop signal failed.' }
