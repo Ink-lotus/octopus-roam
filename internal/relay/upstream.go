@@ -193,6 +193,8 @@ type conversionMiddleware struct {
 	rawBody                  []byte        // 上游非流式响应或错误的原始正文。
 	usage                    *llm.Usage    // 非流式统一响应中确认的用量。
 	terminal                 *validatedStream
+	rawStream                streams.Stream[*httpclient.StreamEvent]
+	llmStream                streams.Stream[*llm.Response]
 }
 
 // Observe the provider protocol before conversion can consume or synthesize its
@@ -225,7 +227,17 @@ func (s *validatedStream) Err() error { return s.err }
 
 func (m *conversionMiddleware) OnOutboundRawStream(_ context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
 	m.terminal = &validatedStream{Stream: stream, format: m.format}
-	return m.terminal, nil
+	m.rawStream = preserveDeliveryCapabilities(stream, m.terminal)
+	return m.rawStream, nil
+}
+
+func (m *conversionMiddleware) OnOutboundLlmStream(_ context.Context, stream streams.Stream[*llm.Response]) (streams.Stream[*llm.Response], error) {
+	m.llmStream = preserveDeliveryCapabilities(m.rawStream, stream)
+	return m.llmStream, nil
+}
+
+func (m *conversionMiddleware) OnInboundRawStream(_ context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	return preserveDeliveryCapabilities(m.llmStream, stream), nil
 }
 
 // OnOutboundRawRequest 在转换后的上游请求上应用渠道参数和自定义 Header。

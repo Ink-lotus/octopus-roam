@@ -488,27 +488,37 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 						request.markCommitted(true)
 						committed = true
 					}
-					n, writeErr := c.Writer.Write(encoded.Bytes())
-					if writeErr == nil && n != encoded.Len() {
-						writeErr = io.ErrShortWrite
-					}
+					writeErr := deliverStreamEvent(ctx, result.events, last && err == nil, func() error {
+						n, writeErr := c.Writer.Write(encoded.Bytes())
+						if writeErr == nil && n != encoded.Len() {
+							writeErr = io.ErrShortWrite
+						}
+						if writeErr == nil {
+							c.Writer.Flush()
+						}
+						return writeErr
+					})
 					if writeErr != nil {
 						err = writeErr
 						break
 					}
-					c.Writer.Flush()
 				}
 				if last {
 					break
 				}
 				if !result.events.Next() {
 					err = result.events.Err()
-					if err == nil && result.terminal != nil && result.terminal.complete {
+					if result.terminal != nil && result.terminal.complete {
 						upstreamComplete = true
-					} else if err == nil {
-						err = io.ErrUnexpectedEOF
+						if err == nil {
+							err = errors.New("converted stream ended before client terminal event")
+						}
+					} else {
+						if err == nil {
+							err = io.ErrUnexpectedEOF
+						}
+						upstreamErr = err
 					}
-					upstreamErr = err
 					break
 				}
 				event = result.events.Current()
@@ -522,10 +532,12 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					event = &safeEvent
 				}
 			}
-			if upstreamComplete && result.terminal != nil {
+			if upstreamComplete && err == nil && result.terminal != nil {
 				// A converter may synthesize a client terminator before the provider's
 				// final marker. Finish observing the provider before confirming health.
-				for !result.terminal.complete && result.terminal.Err() == nil && result.events.Next() {
+				// The client converter can stop iterating after its own terminal.
+				// Advance the validated provider stream directly in that case.
+				for !result.terminal.complete && result.terminal.Err() == nil && result.terminal.Next() {
 				}
 				upstreamComplete = result.terminal.complete
 				if !upstreamComplete {
@@ -536,7 +548,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					err = upstreamErr
 				}
 			}
-			if ctx.Err() == nil && context.Cause(roundCtx) != context.Canceled {
+			if result.terminal != nil {
+				upstreamComplete = result.terminal.complete
+			}
+			if upstreamComplete || (ctx.Err() == nil && context.Cause(roundCtx) != context.Canceled) {
 				failure := ""
 				if upstreamErr != nil {
 					failure = redactor.Text(upstreamErr.Error())
@@ -555,6 +570,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				releaseCapacity()
 				releaseCapacity = nil
 			}
+			waitForStreamFinalization(result.events)
 			responseBody, meta, aggregateErr := inbound.AggregateStreamChunks(context.WithoutCancel(ctx), chunks)
 			if aggregateErr == nil {
 				result.usage = meta.Usage
