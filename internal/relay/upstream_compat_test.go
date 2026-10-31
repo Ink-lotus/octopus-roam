@@ -469,6 +469,56 @@ func TestUpstreamCompatTOOL1AndTOOL2(t *testing.T) {
 	}
 }
 
+func TestUpstreamCompatAnthropicChatToolIdentity(t *testing.T) {
+	for _, multiple := range []bool{false, true} {
+		t.Run(fmt.Sprintf("multiple=%t", multiple), func(t *testing.T) {
+			events := []string{
+				`{"type":"message_start","message":{"id":"msg-tool-identity","type":"message","role":"assistant","model":"upstream-model","content":[],"usage":{"input_tokens":3,"output_tokens":0}}}`,
+				`{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call-a","name":"lookup","input":{}}}`,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":"}}`,
+				`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"Paris\"}"}}`,
+				`{"type":"content_block_stop","index":0}`,
+			}
+			want := []compatTool{{"call-a", "function", "lookup", `{"city":"Paris"}`}}
+			if multiple {
+				events = append(events,
+					`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"call-b","name":"forecast","input":{}}}`,
+					`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"days\":"}}`,
+					`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"2}"}}`,
+					`{"type":"content_block_stop","index":1}`,
+				)
+				want = append(want, compatTool{"call-b", "function", "forecast", `{"days":2}`})
+			}
+			events = append(events,
+				`{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}`,
+				`{"type":"message_stop"}`,
+			)
+			var calls atomic.Int32
+			engine, group := compatRelay(t, model.ProtocolAnthropicMessage, llm.APIFormatOpenAIChatCompletion, func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if r.URL.Path != "/v1/messages" {
+					t.Errorf("wrong endpoint: %s", r.URL.Path)
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, compatSSE(events...))
+			})
+			recorder := httptest.NewRecorder()
+			serveWithTimeout(t, engine, recorder, compatRequest(t, group, llm.APIFormatOpenAIChatCompletion, true, nil))
+			state := compatState(t, group)
+			if state.Status != StatusSuccess || calls.Load() != 1 || state.Usage.PromptTokens != 3 || state.Usage.CompletionTokens != 5 {
+				t.Fatalf("tool stream failed or usage changed: %+v, calls=%d", state, calls.Load())
+			}
+			joined := compatChatTools(t, recorder.Body.String())
+			got := make([]compatTool, len(joined))
+			for index := range got {
+				got[index] = joined[index]
+			}
+			assertCompatTools(t, got, want)
+			assertCompatTools(t, compatToolList(t, llm.APIFormatOpenAIChatCompletion, state.responseBody), want)
+		})
+	}
+}
+
 func TestUpstreamCompatINDEX1AndINDEX2(t *testing.T) {
 	for _, format := range []llm.APIFormat{llm.APIFormatAnthropicMessage, llm.APIFormatOpenAIResponse, llm.APIFormatOpenAIChatCompletion} {
 		for _, mixed := range []bool{false, true} {

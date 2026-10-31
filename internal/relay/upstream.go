@@ -273,6 +273,16 @@ func (m *conversionMiddleware) OnOutboundLlmStream(_ context.Context, stream str
 				sourceRefusal = source.Type == "response.refusal.delta"
 			}
 		}
+		var sourceToolArguments bool
+		if m.format == llm.APIFormatAnthropicMessage && m.clientFormat == llm.APIFormatOpenAIChatCompletion && m.terminal != nil && m.terminal.Current() != nil {
+			var source struct {
+				Type  string
+				Delta struct{ Type string }
+			}
+			if json.Unmarshal(m.terminal.Current().Data, &source) == nil {
+				sourceToolArguments = source.Type == "content_block_delta" && source.Delta.Type == "input_json_delta"
+			}
+		}
 		for index, choice := range response.Choices {
 			if choice.Delta == nil {
 				continue
@@ -294,6 +304,21 @@ func (m *conversionMiddleware) OnOutboundLlmStream(_ context.Context, stream str
 						text = *delta.Content.Content + text
 					}
 					delta.Content.Content, delta.Refusal = &text, ""
+				}
+				adapted.Choices[index].Delta = &delta
+				response = &adapted
+			}
+			if sourceToolArguments && len(choice.Delta.ToolCalls) > 0 {
+				// Anthropic's converter repeats full identity fields on argument
+				// deltas. Chat clients concatenate those fields by tool index;
+				// the preceding tool-use start already supplied their identity.
+				adapted := *response
+				adapted.Choices = slices.Clone(response.Choices)
+				delta := *adapted.Choices[index].Delta
+				delta.ToolCalls = slices.Clone(delta.ToolCalls)
+				for toolIndex := range delta.ToolCalls {
+					delta.ToolCalls[toolIndex].ID = ""
+					delta.ToolCalls[toolIndex].Type = ""
 				}
 				adapted.Choices[index].Delta = &delta
 				response = &adapted
