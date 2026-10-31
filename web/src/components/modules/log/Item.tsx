@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Brain, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Square, Timer } from 'lucide-react';
+import { AlertCircle, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Brain, Clock, Cpu, Database, DollarSign, Gauge, KeyRound, Loader2, Percent, Square, Zap } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import JsonView from '@uiw/react-json-view';
 import { githubDarkTheme } from '@uiw/react-json-view/githubDark';
@@ -11,6 +11,7 @@ import { Protocol } from '@/api/channel';
 import { getModelIcon } from '@/lib/model-icons';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { CopyIconButton } from '@/components/common/CopyButton';
 import { toast } from 'sonner';
@@ -65,8 +66,37 @@ const PROTOCOL_LABELS: Record<number, string> = {
     [Protocol.AnthropicMessage]: 'Message',
 };
 
-// LogMetrics 渲染时间、API Key、耗时、费用和 Token 指标; card 变体用于卡片栅格, footer 变体用于弹窗底部。
+function formatTargetChannel(channel: string, keyName?: string) {
+    return keyName ? `${channel || '-'} · ${keyName}` : channel || '-';
+}
+
+// TargetChannel 在卡片、详情和历史轮次中展示同一名称格式；完整值可悬停或在详情中聚焦查看。
+function TargetChannel({ channel, keyName, brandColor, focusable = true }: { channel: string; keyName?: string; brandColor?: string; focusable?: boolean }) {
+    const t = useTranslations('log.card');
+    const target = formatTargetChannel(channel, keyName);
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <span
+                    tabIndex={focusable ? 0 : undefined}
+                    title={target}
+                    aria-label={t('targetChannelKey', { target })}
+                    className="inline-flex min-w-0 max-w-full shrink items-center rounded-md px-1.5 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    style={brandColor ? { backgroundColor: `${brandColor}15`, color: brandColor } : undefined}
+                >
+                    <span className="truncate">{target}</span>
+                </span>
+            </TooltipTrigger>
+            <TooltipContent className="z-[110] max-w-[min(28rem,calc(100vw-2rem))] wrap-anywhere">
+                {target}
+            </TooltipContent>
+        </Tooltip>
+    );
+}
+
+// 卡片和详情共用指标顺序；按实际容器宽度切换 11 列或 4/5/2 分组。
 function LogMetrics({ log, now, brandColor, variant }: { log: RelayLogOverview; now: number; brandColor: string; variant: 'card' | 'footer' }) {
+    const t = useTranslations('log.card.metrics');
     const cachedTokens = log.usage.prompt_tokens_details?.cached_tokens ?? 0;
     // 缓存率取输入缓存占全部输入 Token 的比例, 无输入时为零。
     const cacheRate = log.usage.prompt_tokens > 0 ? Math.round((cachedTokens / log.usage.prompt_tokens) * 100) : 0;
@@ -84,34 +114,50 @@ function LogMetrics({ log, now, brandColor, variant }: { log: RelayLogOverview; 
     const outputSpeed = responseMs > 0 ? outputCount / (responseMs / 1000) : 0;
     const outputSpeedUnit = requestActive ? 'c/s' : 't/s';
     const metrics = [
-        { key: 'time', Icon: Clock, iconClassName: 'size-3.5 shrink-0', iconStyle: { color: brandColor } as CSSProperties, value: formatTime(log.started_at), cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'apiKey', Icon: KeyRound, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: log.api_key_name || '-', cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'firstToken', Icon: Timer, iconClassName: 'size-3.5 shrink-0 text-amber-500', value: firstToken, cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'duration', Icon: Cpu, iconClassName: 'size-3.5 shrink-0 text-blue-500', value: duration, cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'cost', Icon: DollarSign, iconClassName: 'size-3.5 shrink-0 text-emerald-500', value: log.cost.toFixed(6), cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'prompt', Icon: ArrowDownToLine, iconClassName: 'size-3.5 shrink-0 text-green-500', value: (log.usage.prompt_tokens - cachedTokens).toLocaleString(), cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'cached', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-cyan-500', value: `${cachedTokens.toLocaleString()} (${cacheRate}%)`, cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'completion', Icon: ArrowUpFromLine, iconClassName: 'size-3.5 shrink-0 text-purple-500', value: (requestActive ? log.output_chars.toLocaleString() : log.usage.completion_tokens.toLocaleString()), cellClassName: 'col-span-4 md:col-span-1' },
-        { key: 'cacheWrite', Icon: Database, iconClassName: 'size-3.5 shrink-0 text-orange-500', value: (log.usage.prompt_tokens_details?.write_cached_tokens ?? 0).toLocaleString(), cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
-        { key: 'speed', Icon: Gauge, iconClassName: 'size-3.5 shrink-0 text-sky-500', value: outputSpeed > 0 ? `${outputSpeed.toFixed(0)}${outputSpeedUnit}` : '-', cellClassName: 'whitespace-nowrap col-span-4 md:col-span-1' },
+        { key: 'time', label: t('time'), Icon: Clock, iconClassName: 'text-inherit', iconStyle: { color: brandColor } as CSSProperties, value: formatTime(log.started_at), cellClassName: 'col-span-5' },
+        { key: 'apiKey', label: t('apiKey'), Icon: KeyRound, iconClassName: 'text-orange-500', value: log.api_key_name || '-', cellClassName: 'col-span-5' },
+        { key: 'firstToken', label: t('firstToken'), Icon: Zap, iconClassName: 'text-amber-500', value: firstToken, cellClassName: 'col-span-5' },
+        { key: 'duration', label: t('duration'), Icon: Cpu, iconClassName: 'text-blue-500', value: duration, cellClassName: 'col-span-5' },
+        { key: 'prompt', label: t('prompt'), Icon: ArrowDownToLine, iconClassName: 'text-green-500', value: (log.usage.prompt_tokens - cachedTokens).toLocaleString(), cellClassName: 'col-span-4' },
+        { key: 'cached', label: t('cached'), Icon: Database, iconClassName: 'text-cyan-500', value: cachedTokens.toLocaleString(), cellClassName: 'col-span-4' },
+        { key: 'cacheRate', label: t('cacheRate'), Icon: Percent, iconClassName: 'text-teal-500', value: `${cacheRate}%`, cellClassName: 'col-span-4' },
+        { key: 'completion', label: t(requestActive ? 'outputEstimate' : 'completion'), Icon: ArrowUpFromLine, iconClassName: 'text-purple-500', value: outputCount.toLocaleString(), cellClassName: 'col-span-4' },
+        { key: 'cacheWrite', label: t('cacheWrite'), Icon: Database, iconClassName: 'text-orange-500', value: (log.usage.prompt_tokens_details?.write_cached_tokens ?? 0).toLocaleString(), cellClassName: 'col-span-4' },
+        { key: 'speed', label: t('speed'), Icon: Gauge, iconClassName: 'text-sky-500', value: outputSpeed > 0 ? `${outputSpeed.toFixed(0)}${outputSpeedUnit}` : '-', cellClassName: 'col-span-10' },
+        { key: 'cost', label: t('cost'), Icon: DollarSign, iconClassName: 'text-emerald-500', value: log.cost.toFixed(6), cellClassName: 'col-span-10' },
     ];
 
-    return metrics.map((metric) => (
-        <div
-            key={metric.key}
-            title={metric.key === 'apiKey' ? log.api_key_name : undefined}
-            className={cn('flex min-w-0 items-center gap-1.5', variant === 'card' && metric.cellClassName)}
-        >
-            <metric.Icon className={metric.iconClassName} style={metric.iconStyle} />
-            <span>{metric.value}</span>
+    return (
+        <div className="@container/log-metrics w-full min-w-0">
+            <div className="grid grid-cols-20 gap-x-2 gap-y-2 text-xs tabular-nums text-muted-foreground @min-[880px]/log-metrics:grid-cols-11">
+                {metrics.map((metric) => (
+                    <Tooltip key={metric.key}>
+                        <TooltipTrigger asChild>
+                            <div
+                                tabIndex={variant === 'footer' ? 0 : undefined}
+                                title={`${metric.label}: ${metric.value}`}
+                                aria-label={`${metric.label}: ${metric.value}`}
+                                className={cn('flex min-w-0 items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring @min-[880px]/log-metrics:col-span-1', metric.cellClassName)}
+                            >
+                                <metric.Icon aria-hidden="true" className={cn('size-3.5 shrink-0', metric.iconClassName)} style={metric.iconStyle} />
+                                <span className="min-w-0 truncate">{metric.value}</span>
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="z-[110] max-w-[min(28rem,calc(100vw-2rem))] wrap-anywhere">
+                            {metric.label}: {metric.value}
+                        </TooltipContent>
+                    </Tooltip>
+                ))}
+            </div>
         </div>
-    ));
+    );
 }
 
 // ObservedRound 保存弹窗打开期间观察到的一轮上游请求状态。
 interface ObservedRound {
     round: number; // 当前请求内递增的轮次序号。
     channel: string; // 本轮实际请求的渠道名称。
+    channelKeyName?: string; // 本轮开始时的 Key 名称快照, 不从当前分组配置反推。
     error: string; // 本轮最近一次上游错误。
     sending: boolean; // 本轮是否仍在等待上游响应。
     startedAt: string; // 服务端记录的本轮开始时间。
@@ -203,18 +249,22 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
 
     // 按轮次记录本次打开期间观察到的上游请求状态, 最新一轮排在最前。
     // 轮次来自逐次推送的日志, 需在渲染期比对已记录的快照累积, 不能仅由当前 log 推导。
-    const roundKey = log.round === 0 ? '' : `${log.round}:${log.target_channel}:${log.sending}:${errorText}`;
+    const roundKey = log.round === 0 ? '' : JSON.stringify([log.round, log.target_channel, log.target_channel_key_name, log.target_protocol, log.sending, errorText]);
     if (roundKey !== '' && roundKey !== observedRoundKey) {
         setObservedRoundKey(roundKey);
         setRounds((current) => {
-            if (!log.sending && current.every((item) => item.round !== log.round)) return current;
             const previous = current.find((item) => item.round === log.round);
+            const selectedNext = !log.sending && log.target_protocol === 0;
+            if (!previous && (selectedNext || (!log.sending && !errorText))) return current;
             const startedAt = previous?.startedAt ?? log.round_started_at;
+            // selectMember 会先更换目标、清空 Key/错误, 下一次 startRound 才递增轮次。
+            // 在这个间隙即使请求取消或失败, 已观察的轮次仍保留名称和失败快照。
             return [
                 {
                     round: log.round,
-                    channel: log.target_channel,
-                    error: errorText,
+                    channel: previous?.channel ?? log.target_channel,
+                    channelKeyName: selectedNext && previous ? previous.channelKeyName : log.target_channel_key_name,
+                    error: selectedNext && previous ? previous.error : errorText || previous?.error || '',
                     sending: log.sending,
                     startedAt,
                 },
@@ -224,33 +274,27 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
     }
 
     return (
-        <MorphingDialogContent className="relative w-[calc(100vw-2rem)] md:w-[80vw] bg-card text-card-foreground px-6 py-4 rounded-3xl h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+        <MorphingDialogContent className="relative w-[calc(100vw-2rem)] md:w-[80vw] bg-card text-card-foreground px-4 sm:px-6 py-4 rounded-3xl h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
             <MorphingDialogClose className="top-4 right-5 text-muted-foreground hover:text-foreground transition-colors" />
-            <MorphingDialogTitle className="flex flex-wrap items-center gap-2 mb-3 text-sm">
-                <span className="flex items-center gap-2 w-full md:w-auto">
-                    <Icon aria-hidden="true" className={iconClassName} width={28} height={28} />
-                    <span className="text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span>
-                    <span className="font-semibold text-card-foreground">{log.model || t('unknownModel')}</span>
+            <MorphingDialogTitle className="flex shrink-0 flex-wrap items-center gap-2 mb-3 pr-8 text-sm">
+                <span className="flex min-w-0 max-w-full items-center gap-2 w-full md:w-auto">
+                    <Icon aria-hidden="true" className={cn('hidden shrink-0 md:block', iconClassName)} width={28} height={28} />
+                    <span className="shrink-0 text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span>
+                    <span className="min-w-0 truncate font-semibold text-card-foreground" title={log.model}>{log.model || t('unknownModel')}</span>
                     {log.reasoning_effort && (
-                        <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/70" title={log.reasoning_effort}>
-                            <Brain className="size-3.5" />
-                            {log.reasoning_effort}
+                        <span className="flex min-w-0 max-w-24 shrink-0 items-center gap-1 text-xs text-muted-foreground/70" title={log.reasoning_effort}>
+                            <Brain aria-hidden="true" className="size-3.5 shrink-0" />
+                            <span className="truncate">{log.reasoning_effort}</span>
                         </span>
                     )}
                     {log.status === 'running' || responseCommitted
                         ? <Loader2 className={cn('size-3.5 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />
                         : <ArrowRight className="size-3.5 text-muted-foreground/50" />}
                 </span>
-                <span className="flex items-center gap-2 w-full md:w-auto">
-                    <span className="text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.target_protocol] ?? '-'}</span>
-                    <Badge
-                        variant="secondary"
-                        className="text-xs px-1.5 py-0"
-                        style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-                    >
-                        {log.target_channel || '-'}
-                    </Badge>
-                    <span className="text-muted-foreground">{actualModel}</span>
+                <span className="flex min-w-0 max-w-full items-center gap-2 w-full md:w-auto">
+                    <span className="shrink-0 text-xs text-muted-foreground/70">{PROTOCOL_LABELS[log.target_protocol] ?? '-'}</span>
+                    <TargetChannel channel={log.target_channel} keyName={log.target_channel_key_name} brandColor={brandColor} />
+                    <span className="min-w-0 truncate text-muted-foreground" title={actualModel}>{actualModel}</span>
                 </span>
             </MorphingDialogTitle>
 
@@ -346,11 +390,11 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                     </div>
 
                     <div className="flex flex-col rounded-2xl border border-border bg-muted/30 overflow-hidden min-h-0">
-                        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-muted/50 px-3 md:px-4">
+                        <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/50 px-3 py-2 md:px-4">
                             <span className="text-sm font-medium text-card-foreground">
                                 {isWaitingForSelection ? t('waitingChannelSelection') : showRounds ? t('retryDetails') : requestFailed ? t('errorInfo') : t('responseContent')}
                             </span>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
                                 {log.status === 'running' && log.sending && activeGroup?.mode === 'manual' && (
                                     <button
                                         type="button"
@@ -425,12 +469,14 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                                     <div className="divide-y divide-border">
                                         {rounds.map((round) => (
                                             <div key={round.round} className="flex flex-col gap-1.5 px-3 py-2.5 text-xs">
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex min-w-0 flex-wrap items-center gap-2">
                                                     <span className="shrink-0 tabular-nums text-muted-foreground">{formatRoundStartedAt(round.startedAt)}</span>
                                                     <span className="shrink-0 text-muted-foreground">{t('retryIndex', { index: round.round })}</span>
-                                                    <span className="shrink-0 font-semibold text-foreground">{round.channel || '-'}</span>
+                                                    <span className="min-w-0 flex-1 text-foreground">
+                                                        <TargetChannel channel={round.channel} keyName={round.channelKeyName} />
+                                                    </span>
                                                     {round.sending ? (
-                                                        <Loader2 className="ml-auto size-3.5 animate-spin text-muted-foreground" />
+                                                        <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-muted-foreground" />
                                                     ) : round.error ? (
                                                         <CopyIconButton
                                                             text={round.error}
@@ -478,7 +524,7 @@ function LogDetail({ log, now }: { log: RelayLogOverview; now: number }) {
                 </div>
             </MorphingDialogDescription>
 
-            <div className="flex w-full shrink-0 flex-wrap items-center gap-3 pt-4 mt-auto text-xs text-muted-foreground md:gap-4">
+            <div className="w-full shrink-0 pt-4 mt-auto">
                 <LogMetrics log={log} now={now} brandColor={brandColor} variant="footer" />
             </div>
         </MorphingDialogContent>
@@ -525,6 +571,7 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
     return (
         <>
             <MorphingDialogTrigger
+                aria-label={t('openDetails', { model: log.model || t('unknownModel') })}
                 className={cn(
                     "rounded-3xl border bg-card w-full text-left",
                     requestFailed ? "border-destructive/40" : "border-border",
@@ -533,35 +580,31 @@ function LogCardBody({ log }: { log: RelayLogOverview }) {
                 <div className={cn("p-4 grid grid-cols-[auto_1fr] gap-4", requestFailed ? "items-start" : "items-center")}>
                     <Icon aria-hidden="true" className={cn('hidden md:block', iconClassName)} width={40} height={40} />
                     <div className="min-w-0 flex flex-col gap-3 col-span-2 md:col-span-1">
-                        <div className="flex items-center gap-2 min-w-0 text-sm">
-                            <span className="shrink-0 text-xs text-muted-foreground/70"><span className="md:hidden">{PROTOCOL_LABELS[log.protocol]?.charAt(0) ?? '-'}</span><span className="hidden md:inline">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span></span>
-                            <span className="font-semibold text-card-foreground truncate">
-                                {log.model || t('unknownModel')}
-                            </span>
-                            {log.reasoning_effort && (
-                                <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground/70" title={log.reasoning_effort}>
-                                    <Brain className="size-3.5" />
-                                    {log.reasoning_effort}
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 text-sm">
+                            <span className="flex w-full min-w-0 max-w-full items-center gap-2 md:w-auto">
+                                <span className="shrink-0 text-xs text-muted-foreground/70"><span className="md:hidden">{PROTOCOL_LABELS[log.protocol]?.charAt(0) ?? '-'}</span><span className="hidden md:inline">{PROTOCOL_LABELS[log.protocol] ?? '-'}</span></span>
+                                <span className="font-semibold text-card-foreground truncate">
+                                    {log.model || t('unknownModel')}
                                 </span>
-                            )}
-                            {requestRunning
-                                ? <Loader2 className={cn('size-3.5 shrink-0 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />
-                                : <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />}
-                            <span className="shrink-0 text-xs text-muted-foreground/70"><span className="md:hidden">{PROTOCOL_LABELS[log.target_protocol]?.charAt(0) ?? '-'}</span><span className="hidden md:inline">{PROTOCOL_LABELS[log.target_protocol] ?? '-'}</span></span>
-                            <Badge
-                                variant="secondary"
-                                className="shrink-0 text-xs px-1.5 py-0"
-                                style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
-                            >
-                                {log.target_channel || '-'}
-                            </Badge>
-                            <span className="text-muted-foreground truncate">
-                                {actualModel}
+                                {log.reasoning_effort && (
+                                    <span className="flex min-w-0 max-w-24 shrink-0 items-center gap-1 text-xs text-muted-foreground/70" title={log.reasoning_effort}>
+                                        <Brain aria-hidden="true" className="size-3.5 shrink-0" />
+                                        <span className="truncate">{log.reasoning_effort}</span>
+                                    </span>
+                                )}
+                                {requestRunning
+                                    ? <Loader2 className={cn('size-3.5 shrink-0 animate-spin', log.status === 'committed' ? 'text-green-500' : log.round > 1 ? 'text-red-500' : 'text-muted-foreground/50')} />
+                                    : <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50" />}
+                            </span>
+                            <span className="flex w-full min-w-0 max-w-full items-center gap-2 md:w-auto">
+                                <span className="shrink-0 text-xs text-muted-foreground/70"><span className="md:hidden">{PROTOCOL_LABELS[log.target_protocol]?.charAt(0) ?? '-'}</span><span className="hidden md:inline">{PROTOCOL_LABELS[log.target_protocol] ?? '-'}</span></span>
+                                <TargetChannel channel={log.target_channel} keyName={log.target_channel_key_name} brandColor={brandColor} focusable={false} />
+                                <span className="text-muted-foreground truncate">
+                                    {actualModel}
+                                </span>
                             </span>
                         </div>
-                        <div className="grid grid-cols-20 gap-x-4 gap-y-2 text-xs tabular-nums text-muted-foreground md:grid-cols-10">
-                            <LogMetrics log={log} now={now} brandColor={brandColor} variant="card" />
-                        </div>
+                        <LogMetrics log={log} now={now} brandColor={brandColor} variant="card" />
                         {hasRetryTelemetry && (
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 pt-2 text-xs tabular-nums text-muted-foreground">
                                 {(log.attempt !== undefined || log.attempt_limit !== undefined) && (

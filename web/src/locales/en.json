@@ -704,6 +704,22 @@
         },
         "card": {
             "errorInfo": "Error Info",
+            "openDetails": "View request details for {model}",
+            "targetChannelKey": "Channel and key: {target}",
+            "metrics": {
+                "time": "Time",
+                "apiKey": "Client API key",
+                "firstToken": "Time to first token",
+                "duration": "Response duration",
+                "prompt": "Input tokens",
+                "cached": "Cache read tokens",
+                "cacheRate": "Cache hit rate",
+                "completion": "Output tokens",
+                "outputEstimate": "Estimated output characters",
+                "cacheWrite": "Cache write tokens",
+                "speed": "Output speed",
+                "cost": "Cost"
+            },
             "unknownModel": "Unknown model",
             "detailUnavailable": "Body content unavailable",
             "requestContent": "Request Body",

@@ -345,9 +345,9 @@ func TestHealthIdentityAndSlowSubscriber(t *testing.T) {
 
 func TestRequestFailureDeduplicatesByRound(t *testing.T) {
 	r := newRequestState(t.Context(), "round-test", "", 0, model.ProtocolOpenAIChatCompletion, "{}", 0)
-	r.startRound(func() {}, "provider", "model", model.ProtocolOpenAIChatCompletion, true)
+	r.startRound(func() {}, "provider", "key", "model", model.ProtocolOpenAIChatCompletion, true)
 	r.finishRound("identical", true)
-	r.startRound(func() {}, "provider", "model", model.ProtocolOpenAIChatCompletion, true)
+	r.startRound(func() {}, "provider", "key", "model", model.ProtocolOpenAIChatCompletion, true)
 	r.finishRound("", false)
 	r.markFailed(errors.New("identical"), "", nil)
 	if r.ErrorCount != 2 {

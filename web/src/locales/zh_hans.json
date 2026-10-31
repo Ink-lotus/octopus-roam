@@ -704,6 +704,22 @@
         },
         "card": {
             "errorInfo": "错误信息",
+            "openDetails": "查看 {model} 的请求详情",
+            "targetChannelKey": "渠道与 Key：{target}",
+            "metrics": {
+                "time": "时间",
+                "apiKey": "客户端 API Key",
+                "firstToken": "首字响应",
+                "duration": "响应耗时",
+                "prompt": "输入词元",
+                "cached": "缓存读取词元",
+                "cacheRate": "缓存命中率",
+                "completion": "输出词元",
+                "outputEstimate": "估算输出字符",
+                "cacheWrite": "缓存写入词元",
+                "speed": "输出速度",
+                "cost": "费用"
+            },
             "unknownModel": "未知模型",
             "detailUnavailable": "正文内容不可用",
             "requestContent": "请求体",

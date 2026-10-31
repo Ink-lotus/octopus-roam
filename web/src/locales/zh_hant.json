@@ -704,6 +704,22 @@
         },
         "card": {
             "errorInfo": "錯誤訊息",
+            "openDetails": "查看 {model} 的請求詳情",
+            "targetChannelKey": "供應源與 Key：{target}",
+            "metrics": {
+                "time": "時間",
+                "apiKey": "用戶端 API Key",
+                "firstToken": "首字回應",
+                "duration": "回應耗時",
+                "prompt": "輸入詞元",
+                "cached": "快取讀取詞元",
+                "cacheRate": "快取命中率",
+                "completion": "輸出詞元",
+                "outputEstimate": "估算輸出字元",
+                "cacheWrite": "快取寫入詞元",
+                "speed": "輸出速度",
+                "cost": "費用"
+            },
             "unknownModel": "未知模型",
             "detailUnavailable": "正文內容不可用",
             "requestContent": "請求體",

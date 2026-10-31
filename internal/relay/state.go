@@ -51,21 +51,22 @@ type RequestState struct {
 	Cost               float64        `json:"cost"`                 // 请求结束时写入的累计费用。
 	OutputChars        int            `json:"output_chars"`         // 流式过程中按事件数量估算并实时累计的输出字符数, 仅用于界面展示, 不参与结算。
 
-	Round          int            `json:"round"`            // 最新一轮循环的递增序号, 人工中止按此匹配以免误杀下一轮。
-	RoundStartedAt time.Time      `json:"round_started_at"` // 最新一轮上游请求的开始时间。
-	TargetChannel  string         `json:"target_channel"`   // 最新一轮选中的渠道名称。
-	TargetModel    string         `json:"target_model"`     // 最新一轮实际请求上游的模型名称。
-	TargetProtocol model.Protocol `json:"target_protocol"`  // 最新一轮实际请求上游的协议, 与 Protocol 不同即本轮做了跨协议转换; 0 表示尚未选出。
-	Sending        bool           `json:"sending"`          // 最新一轮是否仍在等待上游响应。
-	Error          string         `json:"error,omitempty"`  // 最新一轮的失败原因, 请求结束后即为最终错误。
-	RetryCount     int            `json:"retry_count"`      // 当前成员已经发起的重试次数, 等于 Attempt - 1。
-	Attempt        int            `json:"attempt"`          // 当前成员已经发起的上游请求次数。
-	AttemptLimit   int            `json:"attempt_limit"`    // 当前成员的尝试上限, 0 表示不限次数。
-	Retrying       bool           `json:"retrying"`         // 当前请求是否正在等待重试或可用成员。
-	ErrorCount     int            `json:"error_count"`      // 本请求累计遇到的失败次数。
-	LastError      string         `json:"last_error"`       // 本请求最近一次失败原因, 成功后仍保留供诊断。
-	NextRetryAt    int64          `json:"next_retry_at"`    // 下一次重试的 Unix 毫秒时间, 无计划时为 0。
-	ChannelStatus  ChannelStatus  `json:"channel_status"`   // waiting、normal 或 error。
+	Round                int            `json:"round"`                   // 最新一轮循环的递增序号, 人工中止按此匹配以免误杀下一轮。
+	RoundStartedAt       time.Time      `json:"round_started_at"`        // 最新一轮上游请求的开始时间。
+	TargetChannel        string         `json:"target_channel"`          // 最新一轮选中的渠道名称。
+	TargetChannelKeyName string         `json:"target_channel_key_name"` // 最新一轮实际使用的渠道 Key 名称快照, 不包含凭据值。
+	TargetModel          string         `json:"target_model"`            // 最新一轮实际请求上游的模型名称。
+	TargetProtocol       model.Protocol `json:"target_protocol"`         // 最新一轮实际请求上游的协议, 与 Protocol 不同即本轮做了跨协议转换; 0 表示尚未选出。
+	Sending              bool           `json:"sending"`                 // 最新一轮是否仍在等待上游响应。
+	Error                string         `json:"error,omitempty"`         // 最新一轮的失败原因, 请求结束后即为最终错误。
+	RetryCount           int            `json:"retry_count"`             // 当前成员已经发起的重试次数, 等于 Attempt - 1。
+	Attempt              int            `json:"attempt"`                 // 当前成员已经发起的上游请求次数。
+	AttemptLimit         int            `json:"attempt_limit"`           // 当前成员的尝试上限, 0 表示不限次数。
+	Retrying             bool           `json:"retrying"`                // 当前请求是否正在等待重试或可用成员。
+	ErrorCount           int            `json:"error_count"`             // 本请求累计遇到的失败次数。
+	LastError            string         `json:"last_error"`              // 本请求最近一次失败原因, 成功后仍保留供诊断。
+	NextRetryAt          int64          `json:"next_retry_at"`           // 下一次重试的 Unix 毫秒时间, 无计划时为 0。
+	ChannelStatus        ChannelStatus  `json:"channel_status"`          // waiting、normal 或 error。
 
 	requestBody       string               // 首次脱敏后的请求体, 后续读取还需使用最新凭据补充脱敏。
 	responseBody      string               // 聚合后的完整最终响应体, 同样按需拉取。
@@ -146,6 +147,7 @@ func (r *RequestState) selectMember(itemID int, channel, modelName string, proto
 		r.attemptItemID = itemID
 	}
 	r.TargetChannel = channel
+	r.TargetChannelKeyName = "" // 选择或排队尚未发送, 不能沿用上一轮的 Key 名称。
 	r.TargetModel = modelName
 	r.TargetProtocol = protocol
 	r.AttemptLimit = attemptLimit
@@ -158,7 +160,7 @@ func (r *RequestState) selectMember(itemID int, channel, modelName string, proto
 }
 
 // startRound 记录本轮选中的目标并进入上游请求, cancel 供人工中止本轮, 返回递增的轮次序号。
-func (r *RequestState) startRound(cancel context.CancelFunc, channel, modelName string, protocol model.Protocol, startsAttempt bool) int {
+func (r *RequestState) startRound(cancel context.CancelFunc, channel, channelKeyName, modelName string, protocol model.Protocol, startsAttempt bool) int {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -171,6 +173,10 @@ func (r *RequestState) startRound(cancel context.CancelFunc, channel, modelName 
 	r.OutputChars = 0 // 新一轮从头计数, 避免累计上一轮未提交的输出。
 	r.lastPublish = time.Time{}
 	r.TargetChannel = channel
+	r.TargetChannelKeyName = ""
+	if startsAttempt {
+		r.TargetChannelKeyName = channelKeyName
+	}
 	r.TargetModel = modelName
 	r.TargetProtocol = protocol
 	r.Sending = true
@@ -193,6 +199,7 @@ func (r *RequestState) discardUnsentAttempt() {
 		r.Attempt--
 	}
 	r.RetryCount = max(0, r.Attempt-1)
+	r.TargetChannelKeyName = "" // 构造或本地校验失败, 实际没有使用渠道凭据发送。
 }
 
 // finishRound 记录本轮上游结果, errText 为空表示已取得可提交响应。

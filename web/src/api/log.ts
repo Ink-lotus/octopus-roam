@@ -37,6 +37,7 @@ export interface RelayLogOverview {
     round: number;
     round_started_at: string;
     target_channel: string;
+    target_channel_key_name?: string; // 本轮实际渠道 Key 的名称快照；旧日志可能没有此字段。
     target_model: string;
     target_protocol: number;
     sending: boolean;
