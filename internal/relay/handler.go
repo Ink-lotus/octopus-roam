@@ -282,7 +282,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			roundStartedAt := time.Now() // 本轮上游调用的开始时间, 用于统计首个有效响应耗时。
 
-			// 请求上游并等待可提交响应: 同协议流式包含整个无输出启动阶段。
+			// 请求上游并等待可提交响应: 两条流式路径都包含整个无输出启动阶段。
 			// 同协议渠道原样直通, 跨协议渠道经转换后请求; 此时尚未写给客户端, 失败仍可换目标重试。
 			var result *upstreamResponse
 			// 本轮是否真的向上游发出了请求, 决定这次失败是否消耗该成员的尝试次数。
@@ -314,6 +314,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					// 超时与响应返回同时发生时舍弃尚未提交的流结果, 避免把超时误记为成功。
 					if result != nil && result.events != nil {
 						result.events.Close()
+						result.finalize = result.events
 						if result.closeIdle != nil {
 							result.closeIdle()
 						}
@@ -333,6 +334,9 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				if releaseCapacity != nil {
 					releaseCapacity()
 					releaseCapacity = nil
+				}
+				if result != nil {
+					waitForStreamFinalization(result.finalize)
 				}
 				if !sent && startsAttempt {
 					request.discardUnsentAttempt()
@@ -415,12 +419,17 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					result.closeIdle()
 				}
 				cancelRound()
+				if releaseCapacity != nil {
+					releaseCapacity()
+					releaseCapacity = nil
+				}
+				waitForStreamFinalization(result.events)
 				releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 				activeProbe.token = 0
 				request.markCanceled(ctx.Err(), "", result.usage)
 				return
 			}
-			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 同协议流式计入等待可提交输出的全部时间。
+			roundWaitTime := time.Since(roundStartedAt).Milliseconds() // 流式计入等待可提交输出的全部时间。
 			// 同协议透传时原样返回上游响应头; 跨协议响应没有需要透传的响应头。
 			for key, values := range result.header {
 				c.Writer.Header()[key] = values
@@ -541,12 +550,19 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				// A converter may synthesize a client terminator before the provider's
 				// final marker. Finish observing the provider before confirming health.
 				// The client converter can stop iterating after its own terminal.
-				// Advance the validated provider stream directly in that case.
-				for !result.terminal.complete && result.terminal.Err() == nil && result.terminal.Next() {
+				// Keep the source converter's usage observation active while
+				// finishing the validated provider stream in that case.
+				if result.converted != nil {
+					upstreamErr = result.converted.finishSource()
+				} else {
+					for !result.terminal.complete && result.terminal.Err() == nil && result.terminal.Next() {
+					}
 				}
 				upstreamComplete = result.terminal.complete
 				if !upstreamComplete {
-					upstreamErr = result.terminal.Err()
+					if upstreamErr == nil {
+						upstreamErr = result.terminal.Err()
+					}
 					if upstreamErr == nil {
 						upstreamErr = io.ErrUnexpectedEOF
 					}
@@ -592,6 +608,14 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			if len(sourceChunks) > 0 {
 				if _, sourceMeta, sourceErr := inbound.AggregateStreamChunks(context.WithoutCancel(ctx), sourceChunks); sourceErr == nil {
 					result.usage = sourceMeta.Usage
+				}
+			}
+			// Conversion pre-read may observe usage beyond the last event that
+			// reached the client. Retain that source snapshot even on a short
+			// write, without adding private frames to output or response logs.
+			if result.converted != nil {
+				if usage := result.converted.observedUsage(); usage != nil {
+					result.usage = usage
 				}
 			}
 			// 流式响应结束并聚合出用量后, 按最终结果完成本轮渠道和成员统计。

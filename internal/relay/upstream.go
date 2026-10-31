@@ -2,11 +2,13 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"slices"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
@@ -23,7 +25,8 @@ import (
 )
 
 // upstreamResponse 是已验证但尚未写给客户端的上游成功响应; events 为 nil 表示非流式响应。
-// 透传响应保留上游响应头; 跨协议响应由客户端协议决定响应头。失败一律以 error 返回。
+// 透传响应保留上游响应头; 跨协议响应由客户端协议决定响应头。失败以 error 返回,
+// 仅在真实源需要异步结算时额外携带已关闭源的 finalize, 不携带可写出的响应。
 type upstreamResponse struct {
 	body           []byte                                  // 非流式响应的完整正文。
 	header         http.Header                             // 同协议透传时需要原样返回的上游响应头。
@@ -32,11 +35,13 @@ type upstreamResponse struct {
 	last           bool                                    // 首个事件已经终止整个响应流。
 	usage          *llm.Usage                              // 上游本次可确认的用量。
 	buffered       []*httpclient.StreamEvent               // first 之后已预读的事件, 写出时逐项释放引用。
-	sourceComplete bool                                    // 同协议预读已确认源成功终态, 独立于客户端是否交付。
+	sourceComplete bool                                    // 预读已确认源成功终态, 独立于客户端是否交付。
 	// closeIdle 非 nil 时为渠道专用代理独占客户端的空闲连接归还入口, 消费方读完事件流后必须调用。
 	// 仅流式响应会带上它: 非流式响应返回时连接已经用完, 由发起方就地归还。
 	closeIdle func()
-	terminal  *validatedStream // 原始上游终态，转换器生成的客户端结束事件不能替代它。
+	terminal  *validatedStream                        // 原始上游终态，转换器生成的客户端结束事件不能替代它。
+	converted *conversionMiddleware                   // 转换前已观察用量与源流推进入口。
+	finalize  streams.Stream[*httpclient.StreamEvent] // 预读失败后, 待 handler 释放容量再等待的真实源结算。
 }
 
 // resolveUpstreamClient 按渠道代理配置取得本轮上游请求使用的客户端。
@@ -178,21 +183,26 @@ type conversionMiddleware struct {
 	pipeline.DummyMiddleware               // 提供本次无需处理的其余 pipeline 中间件方法。
 	channel                  model.Channel // 本轮上游请求使用的渠道配置。
 	format                   llm.APIFormat // 上游渠道协议, 用于校验统一响应终态。
+	clientFormat             llm.APIFormat // 客户端协议, 用于保留转换器尚未映射的拒绝文本。
 	clientUserAgent          string        // 客户端原始 User-Agent; pipeline 合并入站请求时会过滤掉, 需在出站阶段补回。
 	rawBody                  []byte        // 上游非流式响应或错误的原始正文。
-	usage                    *llm.Usage    // 非流式统一响应中确认的用量。
+	usage                    *llm.Usage    // 最近观察到的统一响应用量。
+	finalUsage               *llm.Usage    // 已预读完整空成功时的最终快照, 不被缓存重放倒退。
 	terminal                 *validatedStream
 	rawStream                streams.Stream[*httpclient.StreamEvent]
 	llmStream                streams.Stream[*llm.Response]
+	observed                 *conversionLlmStream
 }
 
 // Observe the provider protocol before conversion can consume or synthesize its
 // terminal events. EOF without a protocol terminator is an upstream failure.
 type validatedStream struct {
 	streams.Stream[*httpclient.StreamEvent]
-	format   llm.APIFormat
-	complete bool
-	err      error
+	format    llm.APIFormat
+	complete  bool
+	err       error
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (s *validatedStream) Next() bool {
@@ -214,15 +224,209 @@ func (s *validatedStream) Next() bool {
 
 func (s *validatedStream) Err() error { return s.err }
 
+// Pipeline pre-read failure can close both the adapted and original stream.
+// The provider connection and any source-owned accounting have one owner.
+func (s *validatedStream) Close() error {
+	s.closeOnce.Do(func() { s.closeErr = s.Stream.Close() })
+	return s.closeErr
+}
+
 func (m *conversionMiddleware) OnOutboundRawStream(_ context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
 	m.terminal = &validatedStream{Stream: stream, format: m.format}
 	m.rawStream = preserveDeliveryCapabilities(stream, m.terminal)
+	if m.format == llm.APIFormatOpenAIResponse {
+		m.rawStream = preserveDeliveryCapabilities(m.rawStream, streams.Map(m.rawStream, func(event *httpclient.StreamEvent) *httpclient.StreamEvent {
+			// The fixed Responses transformer omits refusal deltas. Feed their
+			// text through its text path; the original event remains observable
+			// on terminal, and Chat's refusal field is restored below.
+			var parsed responses.StreamEvent
+			if event == nil || json.Unmarshal(event.Data, &parsed) != nil || parsed.Type != "response.refusal.delta" {
+				return event
+			}
+			parsed.Type = responses.StreamEventTypeOutputTextDelta
+			data, err := json.Marshal(parsed)
+			if err != nil {
+				return event
+			}
+			adapted := *event
+			adapted.Type, adapted.Data = string(parsed.Type), data
+			return &adapted
+		}))
+	}
 	return m.rawStream, nil
 }
 
 func (m *conversionMiddleware) OnOutboundLlmStream(_ context.Context, stream streams.Stream[*llm.Response]) (streams.Stream[*llm.Response], error) {
-	m.llmStream = preserveDeliveryCapabilities(m.rawStream, stream)
+	m.observed = &conversionLlmStream{Stream: stream}
+	observed := streams.Map(m.observed, func(response *llm.Response) *llm.Response {
+		if response == nil {
+			return nil
+		}
+		if response.Usage != nil {
+			usage := *response.Usage
+			m.usage = &usage
+		}
+		var sourceRefusal bool
+		if m.format == llm.APIFormatOpenAIResponse && m.terminal != nil && m.terminal.Current() != nil {
+			var source struct{ Type string }
+			if json.Unmarshal(m.terminal.Current().Data, &source) == nil {
+				sourceRefusal = source.Type == "response.refusal.delta"
+			}
+		}
+		for index, choice := range response.Choices {
+			if choice.Delta == nil {
+				continue
+			}
+			if (sourceRefusal && m.clientFormat == llm.APIFormatOpenAIChatCompletion) || (choice.Delta.Refusal != "" && m.clientFormat != llm.APIFormatOpenAIChatCompletion) {
+				adapted := *response
+				adapted.Choices = slices.Clone(response.Choices)
+				delta := *choice.Delta
+				if sourceRefusal && m.clientFormat == llm.APIFormatOpenAIChatCompletion {
+					if delta.Content.Content != nil {
+						delta.Refusal = *delta.Content.Content
+						delta.Content.Content = nil
+					}
+				} else {
+					// Responses/Anthropic's fixed inbound transformers carry
+					// visible refusal text through their text content blocks.
+					text := delta.Refusal
+					if delta.Content.Content != nil {
+						text = *delta.Content.Content + text
+					}
+					delta.Content.Content, delta.Refusal = &text, ""
+				}
+				adapted.Choices[index].Delta = &delta
+				response = &adapted
+			}
+		}
+		return response
+	})
+	m.llmStream = preserveDeliveryCapabilities(m.rawStream, preserveDeliveryCapabilities(stream, observed))
 	return m.llmStream, nil
+}
+
+// The pipeline stops at a finish_reason, which can precede provider completion
+// and final usage. For an empty result, prefetch that tail before committing,
+// then replay it through the same converter without losing its usage events.
+type conversionLlmStream struct {
+	streams.Stream[*llm.Response]
+	current                       *llm.Response
+	pending                       []*llm.Response
+	output                        bool
+	metadataEvents, metadataBytes int
+}
+
+func (s *conversionLlmStream) Next() bool {
+	fresh := len(s.pending) == 0
+	if len(s.pending) > 0 {
+		s.current = s.pending[0]
+		s.pending[0] = nil
+		s.pending = s.pending[1:]
+	} else if s.Stream.Next() {
+		s.current = s.Stream.Current()
+	} else {
+		return false
+	}
+	if response := s.current; response != nil {
+		for _, choice := range response.Choices {
+			for _, message := range []*llm.Message{choice.Delta, choice.Message} {
+				if message != nil && ((message.Content.Content != nil && *message.Content.Content != "") ||
+					len(message.Content.MultipleContent) > 0 || len(message.ToolCalls) > 0 || message.Refusal != "" ||
+					(message.ReasoningContent != nil && *message.ReasoningContent != "") ||
+					(message.Reasoning != nil && *message.Reasoning != "") ||
+					(message.ReasoningSignature != nil && *message.ReasoningSignature != "") ||
+					(message.Audio != nil && (message.Audio.Data != "" || message.Audio.Transcript != ""))) {
+					s.output = true
+				}
+			}
+		}
+	}
+	if fresh && !s.output {
+		s.metadataEvents++
+		encoded, err := json.Marshal(s.current)
+		if err != nil {
+			s.metadataBytes = maxStreamStartupBytes + 1
+		} else {
+			s.metadataBytes += len(encoded)
+		}
+	}
+	return true
+}
+
+func (s *conversionLlmStream) Current() *llm.Response { return s.current }
+
+func (m *conversionMiddleware) prefetchEmptyTail() error {
+	var pending []*llm.Response
+	for m.llmStream.Next() {
+		event := m.llmStream.Current()
+		pending = append(pending, event)
+		if m.observed.output {
+			m.observed.pending = pending
+			return nil
+		}
+		// Prefix and tail share one metadata budget. A real provider terminal
+		// (or meaningful output above) is a valid commitment boundary itself.
+		if !m.terminal.complete && (m.observed.metadataEvents > maxStreamStartupEvents || m.observed.metadataBytes > maxStreamStartupBytes) {
+			return pipeline.ErrPreCommitBufferExceeded
+		}
+	}
+	if err := m.llmStream.Err(); err != nil {
+		return err
+	}
+	if !m.terminal.complete {
+		return io.ErrUnexpectedEOF
+	}
+	m.finalUsage = m.usage
+	// The tail has already passed the observation/normalization map. Replaying
+	// it preserves client wire order; usage is a snapshot, never an increment.
+	m.observed.pending = pending
+	return nil
+}
+
+func (s *conversionLlmStream) Close() error {
+	clear(s.pending)
+	s.pending, s.current = nil, nil
+	return s.Stream.Close()
+}
+
+// Keep advancing the source transformer when the client converter terminates
+// early. This observes final usage as well as the provider's real terminator.
+func (m *conversionMiddleware) finishSource() error {
+	for m.llmStream.Next() {
+		// Map observes usage in Current, not Next. Drain queued LLM events
+		// too: one raw terminal may produce several final usage chunks.
+		_ = m.llmStream.Current()
+	}
+	if m.terminal.complete {
+		return nil
+	}
+	if err := m.llmStream.Err(); err != nil {
+		return err
+	}
+	for !m.terminal.complete && m.terminal.Err() == nil && m.terminal.Next() {
+	}
+	if m.terminal.complete {
+		return nil
+	}
+	return m.terminal.Err()
+}
+
+func (m *conversionMiddleware) observedUsage() *llm.Usage {
+	if m.finalUsage != nil {
+		return m.finalUsage
+	}
+	return m.usage
+}
+
+func (m *conversionMiddleware) failedResponse() *upstreamResponse {
+	if m.rawStream == nil {
+		return nil
+	}
+	m.rawStream.Close()
+	if _, ok := m.rawStream.(streams.FinalizationWaiter); ok {
+		return &upstreamResponse{finalize: m.rawStream}
+	}
+	return nil
 }
 
 func (m *conversionMiddleware) OnInboundRawStream(_ context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
@@ -289,23 +493,41 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 			}
 		}()
 	}
-	middleware := &conversionMiddleware{channel: channel, format: outbound.APIFormat(), clientUserAgent: raw.Headers.Get("User-Agent")}
+	middleware := &conversionMiddleware{channel: channel, format: outbound.APIFormat(), clientFormat: format, clientUserAgent: raw.Headers.Get("User-Agent")}
+	// A redirect would issue another HTTP request inside one Forward attempt.
+	// Keep the actual-send contract independent of both library retries and
+	// net/http's automatic redirect policy.
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	processor := pipeline.NewFactory(httpclient.NewHttpClientWithClient(httpClient)).Pipeline(
 		inbound,
 		outbound,
+		// A positive budget enables startup pre-read. buildOutbound's concrete
+		// transformers do not implement either pipeline retry interface; Forward
+		// remains the sole retry scheduler (verified by real RoundTrip counts).
+		pipeline.WithRetry(1, 0, 0),
 		pipeline.WithMiddlewares(middleware),
 	)
 	result, err := processor.Process(ctx, raw)
 	if err != nil {
+		failed := middleware.failedResponse()
 		if len(middleware.rawBody) > 0 {
-			return nil, sent.Load(), fmt.Errorf("%w: %s", err, middleware.rawBody)
+			return failed, sent.Load(), fmt.Errorf("%w: %s", err, middleware.rawBody)
 		}
-		return nil, sent.Load(), err
+		return failed, sent.Load(), err
 	}
 	if !streaming {
 		return &upstreamResponse{body: slices.Clone(result.Response.Body), usage: middleware.usage}, sent.Load(), nil
 	}
+	if !middleware.observed.output {
+		if err := middleware.prefetchEmptyTail(); err != nil {
+			result.EventStream.Close()
+			return middleware.failedResponse(), sent.Load(), err
+		}
+	}
 
+	// Pipeline has confirmed LLM output, or the empty tail above has confirmed
+	// provider completion. Its original buffer owns the startup budget; do not
+	// apply a second budget to larger representations of those same events.
 	events := result.EventStream
 	for events.Next() {
 		event := events.Current()
@@ -315,16 +537,17 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 		last, err := inspectStreamEvent(format, event)
 		if err != nil {
 			events.Close()
-			return nil, sent.Load(), fmt.Errorf("%w: %s", err, event.Data)
+			return middleware.failedResponse(), sent.Load(), fmt.Errorf("%w: %s", err, event.Data)
 		}
 		committed = true
-		return &upstreamResponse{events: events, first: event, last: last, closeIdle: closeIdle, terminal: middleware.terminal}, sent.Load(), nil
+		return &upstreamResponse{events: events, first: cloneStartupEvent(event), last: last,
+			closeIdle: closeIdle, terminal: middleware.terminal, converted: middleware,
+			sourceComplete: middleware.terminal.complete, usage: middleware.observedUsage()}, sent.Load(), nil
 	}
-
 	err = events.Err()
 	events.Close()
 	if err == nil {
 		err = errors.New("upstream stream ended before first event")
 	}
-	return nil, sent.Load(), err
+	return middleware.failedResponse(), sent.Load(), err
 }

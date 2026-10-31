@@ -233,7 +233,7 @@ func TestStreamDeliveryPipelineCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			middleware := &conversionMiddleware{format: llm.APIFormatOpenAIResponse}
-			processor := pipeline.NewFactory(executor).Pipeline(openai.NewInboundTransformer(), outbound, pipeline.WithMiddlewares(middleware))
+			processor := pipeline.NewFactory(executor).Pipeline(openai.NewInboundTransformer(), outbound, pipeline.WithRetry(1, 0, 0), pipeline.WithMiddlewares(middleware))
 			result, err := processor.Process(ctx, &httpclient.Request{
 				Method: http.MethodPost, URL: server.URL + "/v1/chat/completions",
 				Headers: http.Header{"Content-Type": {"application/json"}},
