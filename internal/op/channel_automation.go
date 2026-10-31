@@ -125,12 +125,29 @@ func refreshChannelModelsWithClient(ctx context.Context, id int, options model.C
 	result = model.ChannelModelRefreshResult{ChannelID: id, AddedModels: []string{}, RemovedModels: []string{}, KeyResults: []model.ChannelModelRefreshKeyResult{}}
 	release, acquired := lockChannelModelRefresh(id)
 	if !acquired {
+		if options.EnabledOnly {
+			reason := channelRefreshEnabledSkipReason(id)
+			if reason == "" {
+				reason = model.ChannelRefreshSkipInProgress
+			}
+			return skippedChannelModelRefresh(id, reason), nil
+		}
 		result.Error = ErrChannelRefreshInProgress.Error()
 		return result, nil
 	}
 	defer release()
+	if options.EnabledOnly {
+		if reason := channelRefreshEnabledSkipReason(id); reason != "" {
+			return skippedChannelModelRefresh(id, reason), nil
+		}
+	}
 	detail, err := ChannelDetailGet(id)
 	if err != nil {
+		if options.EnabledOnly {
+			if reason := channelRefreshEnabledSkipReason(id); reason != "" {
+				return skippedChannelModelRefresh(id, reason), nil
+			}
+		}
 		return result, err
 	}
 	if options.Automatic && !ChannelAutoUpdateEligible(id) {
@@ -161,6 +178,10 @@ func refreshChannelModelsWithClient(ctx context.Context, id int, options model.C
 	}
 	before := GroupList()
 	result, err = refreshChannelModelsOnce(ctx, id, options, client)
+	if result.Skipped {
+		// 跳过不是失败，不覆盖已有诊断；running 仍由本轮 defer 清理。
+		return result, err
+	}
 	if err != nil {
 		result.Error = redactor.Text(err.Error())
 	}

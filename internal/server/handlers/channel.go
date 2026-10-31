@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -379,37 +380,58 @@ func fetchModel(c *gin.Context) {
 // refreshChannelModels 持久化刷新已保存渠道的模型和授权; 任一 Key 探测失败时仍以结果体返回逐 Key 诊断。
 func refreshChannelModels(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
+	if err != nil || id <= 0 {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
 		return
 	}
-	var options model.ChannelModelRefreshOptions
-	if err := c.ShouldBindJSON(&options); err != nil {
+	var request map[string]json.RawMessage
+	if err := c.ShouldBindJSON(&request); err != nil {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
+	var options model.ChannelModelRefreshOptions
+	if value := request["auto_add_groups"]; len(value) > 0 {
+		if err := json.Unmarshal(value, &options.AutoAddGroups); err != nil {
+			resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+			return
+		}
+	}
+	// jsoniter 会将 RawMessage 的 null 解为 nil，用键是否存在区分省略与 null。
+	if value, present := request["enabled_only"]; present {
+		switch strings.TrimSpace(string(value)) {
+		case "true":
+			options.EnabledOnly = true
+		case "false":
+			options.EnabledOnly = false
+		default:
+			resp.Error(c, http.StatusBadRequest, "enabled_only must be a boolean")
+			return
+		}
+	}
 	detail, err := op.ChannelDetailGet(id)
-	if err != nil {
+	if err != nil && !options.EnabledOnly {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
-	detail.AllowedProtocols = model.NormalizeProtocols(detail.AllowedProtocols)
-	if detail.AllowedProtocols&^model.ProtocolAll != 0 {
-		resp.Error(c, http.StatusBadRequest, fmt.Errorf("%w: %d contains undefined bits", op.ErrInvalidChannelAllowedProtocols, detail.AllowedProtocols).Error())
-		return
-	}
 	redactor := privacy.FromContext(c.Request.Context())
-	redactor.AddURL(detail.BaseURL)
-	redactor.AddURL(detail.ChannelProxy)
-	for _, key := range detail.Keys {
-		redactor.Add(key.Key)
-	}
-	for _, header := range detail.CustomHeader {
-		redactor.Add(header.HeaderValue)
-	}
-	if detail.Proxy && detail.ChannelProxy == "" {
-		if proxy, err := op.SettingGetString(model.SettingKeyProxyURL); err == nil {
-			redactor.AddURL(proxy)
+	if err == nil {
+		detail.AllowedProtocols = model.NormalizeProtocols(detail.AllowedProtocols)
+		if (!options.EnabledOnly || detail.Enabled) && detail.AllowedProtocols&^model.ProtocolAll != 0 {
+			resp.Error(c, http.StatusBadRequest, fmt.Errorf("%w: %d contains undefined bits", op.ErrInvalidChannelAllowedProtocols, detail.AllowedProtocols).Error())
+			return
+		}
+		redactor.AddURL(detail.BaseURL)
+		redactor.AddURL(detail.ChannelProxy)
+		for _, key := range detail.Keys {
+			redactor.Add(key.Key)
+		}
+		for _, header := range detail.CustomHeader {
+			redactor.Add(header.HeaderValue)
+		}
+		if detail.Proxy && detail.ChannelProxy == "" {
+			if proxy, err := op.SettingGetString(model.SettingKeyProxyURL); err == nil {
+				redactor.AddURL(proxy)
+			}
 		}
 	}
 	c.Request = c.Request.WithContext(privacy.WithRedactor(c.Request.Context(), redactor))

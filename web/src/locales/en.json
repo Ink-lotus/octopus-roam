@@ -762,6 +762,7 @@
     "channel": {
         "refreshAll": {
             "button": "Refresh all channel models",
+            "noEnabled": "No enabled channels are available to refresh.",
             "pending": "Refreshing all channel models…",
             "progress": "Refreshing channel models: {completed}/{total}",
             "finished": "All-channel model refresh completed",
@@ -769,9 +770,9 @@
             "channelFailed": "Channel model refresh failed",
             "summary": "Succeeded: {success}, failed: {failed}, skipped: {skipped}",
             "empty": "{count} channels returned no models",
-            "warnings": "{count} channels have price maintenance warnings",
+            "warnings": "{count} channels have model probe or maintenance warnings",
             "details": "See the refresh details on each channel card for results.",
-            "skipped": "Channels already refreshing were skipped."
+            "skipped": "Skipped: {disabled} disabled, {deleted} deleted, {in_progress} already refreshing."
         },
         "card": {
             "concurrency": "Concurrency",

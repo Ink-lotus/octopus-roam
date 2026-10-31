@@ -55,6 +55,53 @@ type channelRefreshGrantSnapshot struct {
 	protocols model.Protocol
 }
 
+func skippedChannelModelRefresh(id int, reason model.ChannelModelRefreshSkipReason) model.ChannelModelRefreshResult {
+	return model.ChannelModelRefreshResult{
+		ChannelID: id, Skipped: true, SkipReason: reason,
+		AddedModels: []string{}, RemovedModels: []string{}, KeyResults: []model.ChannelModelRefreshKeyResult{},
+	}
+}
+
+func channelRefreshEnabledSkipReason(id int) model.ChannelModelRefreshSkipReason {
+	channel, ok := channelCache.Get(id)
+	if !ok {
+		return model.ChannelRefreshSkipDeleted
+	}
+	if !channel.Enabled {
+		return model.ChannelRefreshSkipDisabled
+	}
+	return ""
+}
+
+// 每轮拥有独立的 guard，不修改共享客户端。传输入口覆盖每个协议、分页和重定向。
+// 一旦观察到禁用/删除，本轮保持跳过，即使随后重新启用也不提交部分探测结果。
+type channelRefreshEnabledGuard struct {
+	sync.Mutex
+	channelID int
+	reason    model.ChannelModelRefreshSkipReason
+	next      http.RoundTripper
+}
+
+func (g *channelRefreshEnabledGuard) check() model.ChannelModelRefreshSkipReason {
+	if g == nil {
+		return ""
+	}
+	g.Lock()
+	defer g.Unlock()
+	if g.reason == "" {
+		g.reason = channelRefreshEnabledSkipReason(g.channelID)
+	}
+	return g.reason
+}
+
+func (g *channelRefreshEnabledGuard) RoundTrip(req *http.Request) (*http.Response, error) {
+	if reason := g.check(); reason != "" {
+		return nil, fmt.Errorf("channel refresh skipped: %s", reason)
+	}
+	// 不在网络请求期间持有 guard 或 op 写锁；已开始的请求允许正常结束。
+	return g.next.RoundTrip(req)
+}
+
 // ChannelFetchModels 探测一份凭据可用的 OpenAI 与 Anthropic 模型, 并应用渠道和全局过滤。
 // 单侧失败是单协议上游的正常情况; 两侧错误由调用方按 Key 汇总处理。
 func ChannelFetchModels(ctx context.Context, target model.ChannelConfig, key string) (model.ChannelModelFetchResult, error) {
@@ -205,7 +252,17 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 	}
 	channel, ok := channelCache.Get(channelID)
 	if !ok {
+		if options.EnabledOnly {
+			return skippedChannelModelRefresh(channelID, model.ChannelRefreshSkipDeleted), nil
+		}
 		return result, fmt.Errorf("channel not found")
+	}
+	var guard *channelRefreshEnabledGuard
+	if options.EnabledOnly {
+		guard = &channelRefreshEnabledGuard{channelID: channelID}
+		if reason := guard.check(); reason != "" {
+			return skippedChannelModelRefresh(channelID, reason), nil
+		}
 	}
 	channel.AllowedProtocols = model.NormalizeProtocols(channel.AllowedProtocols)
 	if channel.AllowedProtocols&^model.ProtocolAll != 0 {
@@ -242,6 +299,15 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 			defer cleanup()
 		}
 	}
+	if guard != nil {
+		guard.next = client.Transport
+		if guard.next == nil {
+			guard.next = http.DefaultTransport
+		}
+		guardedClient := *client
+		guardedClient.Transport = guard
+		client = &guardedClient
+	}
 
 	modelNames := make([]string, 0)
 	modelSeen := make(map[string]struct{})
@@ -252,7 +318,13 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
+		if reason := guard.check(); reason != "" {
+			return skippedChannelModelRefresh(channelID, reason), nil
+		}
 		probe, err := ChannelFetchModelsWithClient(ctx, channel.ChannelConfig, channelKey.Key, client)
+		if reason := guard.check(); reason != "" {
+			return skippedChannelModelRefresh(channelID, reason), nil
+		}
 		if err != nil {
 			return result, err
 		}
@@ -335,6 +407,9 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
+	if reason := guard.check(); reason != "" {
+		return skippedChannelModelRefresh(channelID, reason), nil
+	}
 	// 渠道刷新会删除失效授权并可能追加分组成员。与分组手动编辑共用这把锁,
 	// 让成员同步、事务提交和缓存重载之间不会插入另一笔分组写入。
 	groupWriteMu.Lock()

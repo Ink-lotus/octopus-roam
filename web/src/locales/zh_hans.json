@@ -762,6 +762,7 @@
     "channel": {
         "refreshAll": {
             "button": "刷新全部渠道模型",
+            "noEnabled": "没有已启用的渠道可供刷新。",
             "pending": "正在刷新全部渠道模型…",
             "progress": "正在刷新渠道模型：{completed}/{total}",
             "finished": "全局渠道模型刷新完成",
@@ -769,9 +770,9 @@
             "channelFailed": "渠道模型刷新失败",
             "summary": "成功 {success} 个，失败 {failed} 个，跳过 {skipped} 个",
             "empty": "其中 {count} 个渠道返回空模型列表",
-            "warnings": "其中 {count} 个渠道有价格维护告警",
+            "warnings": "其中 {count} 个渠道有模型探测或维护警告",
             "details": "可在渠道卡片的刷新详情中查看具体结果。",
-            "skipped": "正在刷新的渠道已跳过。"
+            "skipped": "已跳过：禁用 {disabled} 个，已删除 {deleted} 个，正在刷新 {in_progress} 个。"
         },
         "card": {
             "concurrency": "并发",

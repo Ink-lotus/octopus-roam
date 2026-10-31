@@ -1,4 +1,4 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { mutationOptions, queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { apiRequest } from './client';
 import { channelStatsQueryOptions, groupListQueryOptions, modelListQueryOptions } from './queries';
 import { formatStatsMetrics, type StatsMetrics, type StatsMetricsFormatted } from './stats';
@@ -130,7 +130,7 @@ export type FetchModel = {
 };
 
 // ChannelModelRefreshResult 是已保存渠道执行一次模型刷新后的持久化结果。
-// success 由响应体决定：HTTP 200 但 success=false 仍表示刷新失败，需要由界面展示失败原因。
+// success 由响应体决定；skipped 是批量刷新的正常跳过，不计作失败。
 export type ChannelModelRefreshKeyResult = {
     key_name: string;
     success: boolean;
@@ -140,9 +140,13 @@ export type ChannelModelRefreshKeyResult = {
     error?: string;
 };
 
+export type ChannelModelRefreshSkipReason = 'disabled' | 'deleted' | 'in_progress';
+
 export type ChannelModelRefreshResult = {
     channel_id: number;
     success: boolean;
+    skipped?: boolean;
+    skip_reason?: ChannelModelRefreshSkipReason;
     error?: string;
     warnings?: string[];
     zero_models: boolean;
@@ -353,24 +357,34 @@ export function useFetchModel() {
     });
 }
 
-// useRefreshChannelModels 持久化刷新一个已保存渠道的模型与授权。
-// 调用方传入该渠道已保存的手动刷新选项，服务端只将它用于本次请求。
-export function useRefreshChannelModels() {
-    const queryClient = useQueryClient();
+type ChannelModelRefreshRequest = { id: number; autoAddGroups: boolean; enabledOnly?: boolean };
 
-    return useMutation({
-        mutationFn: ({ id, autoAddGroups }: { id: number; autoAddGroups: boolean }) =>
+export function invalidateChannelModelRefreshQueries(queryClient: QueryClient) {
+    return Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['channels'] }),
+        queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey }),
+        queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey }),
+        queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] }),
+    ]);
+}
+
+// 单渠道 hook 和应用级批量任务共用请求与缓存失效；这些回调不依赖页面 observer。
+export function channelModelRefreshMutationOptions(queryClient: QueryClient) {
+    return mutationOptions({
+        mutationFn: ({ id, autoAddGroups, enabledOnly }: ChannelModelRefreshRequest) =>
             apiRequest<ChannelModelRefreshResult>(`/api/v1/channel/refresh-model/${id}`, {
                 method: 'POST',
-                body: { auto_add_groups: autoAddGroups },
+                body: { auto_add_groups: autoAddGroups, enabled_only: enabledOnly },
             }),
-        onSuccess: () => {
+        onSettled: () => {
             // 刷新会替换模型、授权并同步已有分组成员；失效所有相关列表与详情缓存，
-            // 活跃查询会立即重新拉取，下一次打开详情也会从服务端读取最新数据。
-            queryClient.invalidateQueries({ queryKey: ['channels'] });
-            queryClient.invalidateQueries({ queryKey: modelListQueryOptions.queryKey });
-            queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
-            queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] });
+            // 活跃查询立即重取；失败/跳过也对齐运行状态，卸载页面后仍执行。
+            return invalidateChannelModelRefreshQueries(queryClient);
         },
     });
+}
+
+// 调用方传入该渠道已保存的手动刷新选项，服务端只将它用于本次请求。
+export function useRefreshChannelModels() {
+    return useMutation(channelModelRefreshMutationOptions(useQueryClient()));
 }

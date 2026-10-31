@@ -193,8 +193,17 @@ type ChannelFetchModel struct {
 // 渠道模型刷新选项; AutoAddGroups 控制是否按已有分组规则补齐匹配的授权。
 type ChannelModelRefreshOptions struct {
 	AutoAddGroups bool `json:"auto_add_groups"`
-	Automatic     bool `json:"-"` // 只由服务端调度器设置。
+	EnabledOnly   bool `json:"enabled_only"` // 批量刷新只处理当前仍启用的渠道；显式单渠道请求缺省为 false。
+	Automatic     bool `json:"-"`            // 只由服务端调度器设置。
 }
+
+type ChannelModelRefreshSkipReason string
+
+const (
+	ChannelRefreshSkipDisabled   ChannelModelRefreshSkipReason = "disabled"
+	ChannelRefreshSkipDeleted    ChannelModelRefreshSkipReason = "deleted"
+	ChannelRefreshSkipInProgress ChannelModelRefreshSkipReason = "in_progress"
+)
 
 // 单个启用凭据的模型探测结果; Error 也会说明不影响提交的单侧探测失败。
 type ChannelModelRefreshKeyResult struct {
@@ -210,6 +219,8 @@ type ChannelModelRefreshKeyResult struct {
 type ChannelModelRefreshResult struct {
 	ChannelID     int                            `json:"channel_id"`
 	Success       bool                           `json:"success"`
+	Skipped       bool                           `json:"skipped,omitempty"`
+	SkipReason    ChannelModelRefreshSkipReason  `json:"skip_reason,omitempty"`
 	Error         string                         `json:"error,omitempty"`
 	Warnings      []string                       `json:"warnings,omitempty"` // 刷新已提交后, 价格维护等非关键步骤的诊断。
 	ZeroModels    bool                           `json:"zero_models"`

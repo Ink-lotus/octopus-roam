@@ -762,6 +762,7 @@
     "channel": {
         "refreshAll": {
             "button": "重新整理全部渠道模型",
+            "noEnabled": "沒有已啟用的渠道可供重新整理。",
             "pending": "正在重新整理全部渠道模型…",
             "progress": "正在重新整理渠道模型：{completed}/{total}",
             "finished": "全域渠道模型重新整理完成",
@@ -769,9 +770,9 @@
             "channelFailed": "渠道模型重新整理失敗",
             "summary": "成功 {success} 個，失敗 {failed} 個，略過 {skipped} 個",
             "empty": "其中 {count} 個渠道返回空模型清單",
-            "warnings": "其中 {count} 個渠道有價格維護警告",
+            "warnings": "其中 {count} 個渠道有模型探測或維護警告",
             "details": "可在渠道卡片的重新整理詳情中查看具體結果。",
-            "skipped": "正在重新整理的渠道已略過。"
+            "skipped": "已略過：停用 {disabled} 個，已刪除 {deleted} 個，正在重新整理 {in_progress} 個。"
         },
         "card": {
             "concurrency": "並行",

@@ -7,6 +7,7 @@ import { useRuntimeClock } from './MemberStatus';
 import { useGroupList } from '@/api/group';
 import { PageActions, usePageActionsStore } from '@/components/common/PageActions';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+import { RefreshAllButton } from '@/components/modules/channel/RefreshAllButton';
 
 // GroupActions 向稳定顶栏提供分组页面的搜索、视图选项和创建入口。
 export function GroupActions() {
@@ -39,6 +40,7 @@ export function GroupActions() {
             onFilterChange={(value) => {
                 if (value === 'all' || value === 'with-members' || value === 'empty') setFilter(value);
             }}
+            actions={<RefreshAllButton />}
         >
             <CreateDialogContent />
         </PageActions>
