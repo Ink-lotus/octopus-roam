@@ -41,6 +41,7 @@ type upstreamResponse struct {
 	terminal  *validatedStream                        // 原始上游终态，转换器生成的客户端结束事件不能替代它。
 	converted *conversionMiddleware                   // 转换前已观察用量与源流推进入口。
 	finalize  streams.Stream[*httpclient.StreamEvent] // 预读失败后, 待 handler 释放容量再等待的真实源结算。
+	failure   *upstreamFailureCapture                 // 原始上游失败，包括提交后才观察到的错误；W06 再接通结算。
 }
 
 // resolveUpstreamClient 按渠道代理配置取得本轮上游请求使用的客户端。
@@ -66,26 +67,31 @@ func resolveUpstreamClient(channel model.Channel) (*http.Client, func(), error) 
 // 发送前的失败(请求构造, 参数解析, 代理初始化)不经过 RoundTrip, 故调用方据此可区分
 // "本轮根本没发出上游请求"与"已发出但失败(连接失败, 响应超时, 上游报错)"。
 type trackingTransport struct {
-	inner http.RoundTripper
-	sent  *atomic.Bool
+	inner   http.RoundTripper
+	sent    *atomic.Bool
+	failure *upstreamFailureCapture
 }
 
 // RoundTrip 标记本轮已进入 HTTP 传输后再交给真正的传输层。
 func (t *trackingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	t.sent.Store(true)
-	return t.inner.RoundTrip(request)
+	response, err := t.inner.RoundTrip(request)
+	if response != nil {
+		t.failure.responseStatus(response.StatusCode)
+	}
+	return response, err
 }
 
 // trackUpstreamRoundTrip 返回一个上报"是否已发起 HTTP 传输"的客户端副本及其标志。
 // 只包一层传输层: 原客户端的连接池与归还入口仍指向同一个传输层, 故并发与连接复用行为不变。
-func trackUpstreamRoundTrip(client *http.Client) (*http.Client, *atomic.Bool) {
+func trackUpstreamRoundTrip(client *http.Client, failure *upstreamFailureCapture) (*http.Client, *atomic.Bool) {
 	transport := client.Transport
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
 	sent := &atomic.Bool{}
 	tracked := *client
-	tracked.Transport = &trackingTransport{inner: transport, sent: sent}
+	tracked.Transport = &trackingTransport{inner: transport, sent: sent, failure: failure}
 	return &tracked, sent
 }
 
@@ -101,16 +107,17 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 		return nil, false, err
 	}
 	// 传输层上报必须在发起之前装好, 其后的失败一律算已发出。
-	httpClient, sent := trackUpstreamRoundTrip(httpClient)
+	failureCapture := newUpstreamFailureCapture(ctx, channel.ID, format, upstreamRequestModel(request))
+	httpClient, sent := trackUpstreamRoundTrip(httpClient, failureCapture)
 
 	if streaming {
 		// 流式响应返回后仍在读上游连接, 归还入口随响应交给消费方; 取不到响应时就地归还。
-		result, err := sendPassthroughStream(ctx, format, request, httpClient)
+		result, err := sendPassthroughStream(ctx, format, request, httpClient, failureCapture)
 		if err != nil {
 			if closeIdle != nil {
 				closeIdle()
 			}
-			return nil, sent.Load(), err
+			return nil, sent.Load(), failureCapture.wrap(err)
 		}
 		result.closeIdle = closeIdle
 		return result, sent.Load(), nil
@@ -123,24 +130,28 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 	response, err := httpclient.NewHttpClientWithClient(httpClient).Do(ctx, request)
 	if err != nil {
 		var failure *httpclient.Error
-		if errors.As(err, &failure) && len(failure.Body) > 0 {
-			return nil, sent.Load(), fmt.Errorf("%w: %s", err, failure.Body)
+		if errors.As(err, &failure) {
+			failureCapture.response(failure.Body, failure.Headers.Get("Content-Type"))
+			if len(failure.Body) > 0 {
+				err = fmt.Errorf("%w: %s", err, failure.Body)
+			}
 		}
-		return nil, sent.Load(), err
+		return nil, sent.Load(), failureCapture.wrap(err)
 	}
 	// 同协议下响应可原样回给客户端, 仍需解析一次以取得用量并识别以 200 下发的失败终态。
+	failureCapture.response(response.Body, response.Headers.Get("Content-Type"))
 	parsed, err := outbound.TransformResponse(ctx, response)
 	if err != nil {
-		return nil, sent.Load(), fmt.Errorf("%w: %s", err, response.Body)
+		return nil, sent.Load(), failureCapture.wrap(fmt.Errorf("%w: %s", err, response.Body))
 	}
 	if err := validateResponse(format, parsed); err != nil {
-		return nil, sent.Load(), fmt.Errorf("%w: %s", err, response.Body)
+		return nil, sent.Load(), failureCapture.wrap(fmt.Errorf("%w: %s", err, response.Body))
 	}
-	return &upstreamResponse{body: slices.Clone(response.Body), header: response.Headers.Clone(), usage: parsed.Usage}, sent.Load(), nil
+	return &upstreamResponse{body: slices.Clone(response.Body), header: response.Headers.Clone(), usage: parsed.Usage, failure: failureCapture}, sent.Load(), nil
 }
 
 // sendPassthroughStream 暂存无输出启动事件, 直到可提交输出或合法成功终态; 此前失败仍可重试。
-func sendPassthroughStream(ctx context.Context, format llm.APIFormat, request *httpclient.Request, client *http.Client) (*upstreamResponse, error) {
+func sendPassthroughStream(ctx context.Context, format llm.APIFormat, request *httpclient.Request, client *http.Client, failureCapture *upstreamFailureCapture) (*upstreamResponse, error) {
 	rawRequest, err := httpclient.BuildHttpRequest(ctx, request)
 	if err != nil {
 		return nil, err
@@ -155,18 +166,20 @@ func sendPassthroughStream(ctx context.Context, format llm.APIFormat, request *h
 	if response.StatusCode >= http.StatusBadRequest {
 		failure, readErr := io.ReadAll(response.Body)
 		response.Body.Close()
+		failureCapture.response(failure, response.Header.Get("Content-Type"))
 		if readErr != nil {
 			return nil, readErr
 		}
 		return nil, fmt.Errorf("upstream responded %s: %s", response.Status, failure)
 	}
 
-	events := httpclient.NewDefaultSSEDecoder(ctx, response.Body)
+	events := observeUpstreamFailureStream(httpclient.NewDefaultSSEDecoder(ctx, response.Body), failureCapture)
 	result, err := readStreamStartup(ctx, format, events)
 	if err != nil {
 		return nil, err
 	}
 	result.header = response.Header.Clone()
+	result.failure = failureCapture
 	return result, nil
 }
 
@@ -184,6 +197,7 @@ type conversionMiddleware struct {
 	rawStream                streams.Stream[*httpclient.StreamEvent]
 	llmStream                streams.Stream[*llm.Response]
 	observed                 *conversionLlmStream
+	failure                  *upstreamFailureCapture
 }
 
 // Observe the provider protocol before conversion can consume or synthesize its
@@ -224,6 +238,7 @@ func (s *validatedStream) Close() error {
 }
 
 func (m *conversionMiddleware) OnOutboundRawStream(_ context.Context, stream streams.Stream[*httpclient.StreamEvent]) (streams.Stream[*httpclient.StreamEvent], error) {
+	stream = observeUpstreamFailureStream(stream, m.failure)
 	m.terminal = &validatedStream{Stream: stream, format: m.format}
 	m.rawStream = preserveDeliveryCapabilities(stream, m.terminal)
 	if m.format == llm.APIFormatOpenAIResponse {
@@ -441,7 +456,7 @@ func (m *conversionMiddleware) failedResponse() *upstreamResponse {
 	}
 	m.rawStream.Close()
 	if _, ok := m.rawStream.(streams.FinalizationWaiter); ok {
-		return &upstreamResponse{finalize: m.rawStream}
+		return &upstreamResponse{finalize: m.rawStream, failure: m.failure}
 	}
 	return nil
 }
@@ -454,7 +469,11 @@ func (m *conversionMiddleware) OnInboundRawStream(_ context.Context, stream stre
 func (m *conversionMiddleware) OnOutboundRawRequest(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error) {
 	// pipeline 的 MergeInboundRequest 已过滤客户端 User-Agent, 在应用渠道配置前补回, 供转发上游与占位符读取。
 	preserveClientUserAgent(request, m.clientUserAgent)
-	return request, applyChannelConfig(m.channel, request)
+	err := applyChannelConfig(m.channel, request)
+	if err == nil {
+		m.failure.requestModel(upstreamRequestModel(request))
+	}
+	return request, err
 }
 
 // OnOutboundRawError 保留上游错误状态码携带的原始正文。
@@ -462,12 +481,14 @@ func (m *conversionMiddleware) OnOutboundRawError(_ context.Context, err error) 
 	var failure *httpclient.Error
 	if errors.As(err, &failure) {
 		m.rawBody = slices.Clone(failure.Body)
+		m.failure.response(failure.Body, failure.Headers.Get("Content-Type"))
 	}
 }
 
 // OnOutboundRawResponse 保留上游成功响应的原始正文, 供后续转换或终态校验失败时诊断。
 func (m *conversionMiddleware) OnOutboundRawResponse(_ context.Context, response *httpclient.Response) (*httpclient.Response, error) {
 	m.rawBody = slices.Clone(response.Body)
+	m.failure.response(response.Body, response.Headers.Get("Content-Type"))
 	return response, nil
 }
 
@@ -499,7 +520,8 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 		return nil, false, err
 	}
 	// 传输层上报必须在发起之前装好, 其后的失败一律算已发出。
-	httpClient, sent := trackUpstreamRoundTrip(httpClient)
+	failureCapture := newUpstreamFailureCapture(ctx, channel.ID, outbound.APIFormat(), upstreamRequestModel(raw))
+	httpClient, sent := trackUpstreamRoundTrip(httpClient, failureCapture)
 
 	// 流式响应要等消费方读完才能归还连接, 故只在提交流式结果那一处移交, 其余出口一律就地归还。
 	committed := false
@@ -510,7 +532,7 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 			}
 		}()
 	}
-	middleware := &conversionMiddleware{channel: channel, format: outbound.APIFormat(), clientFormat: format, clientUserAgent: raw.Headers.Get("User-Agent")}
+	middleware := &conversionMiddleware{channel: channel, format: outbound.APIFormat(), clientFormat: format, clientUserAgent: raw.Headers.Get("User-Agent"), failure: failureCapture}
 	// A redirect would issue another HTTP request inside one Forward attempt.
 	// Keep the actual-send contract independent of both library retries and
 	// net/http's automatic redirect policy.
@@ -528,17 +550,17 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 	if err != nil {
 		failed := middleware.failedResponse()
 		if len(middleware.rawBody) > 0 {
-			return failed, sent.Load(), fmt.Errorf("%w: %s", err, middleware.rawBody)
+			err = fmt.Errorf("%w: %s", err, middleware.rawBody)
 		}
-		return failed, sent.Load(), err
+		return failed, sent.Load(), failureCapture.wrap(err)
 	}
 	if !streaming {
-		return &upstreamResponse{body: slices.Clone(result.Response.Body), usage: middleware.usage}, sent.Load(), nil
+		return &upstreamResponse{body: slices.Clone(result.Response.Body), usage: middleware.usage, failure: failureCapture}, sent.Load(), nil
 	}
 	if !middleware.observed.output {
 		if err := middleware.prefetchEmptyTail(); err != nil {
 			result.EventStream.Close()
-			return middleware.failedResponse(), sent.Load(), err
+			return middleware.failedResponse(), sent.Load(), failureCapture.wrap(err)
 		}
 	}
 
@@ -554,17 +576,17 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 		last, err := inspectStreamEvent(format, event)
 		if err != nil {
 			events.Close()
-			return middleware.failedResponse(), sent.Load(), fmt.Errorf("%w: %s", err, event.Data)
+			return middleware.failedResponse(), sent.Load(), failureCapture.wrap(fmt.Errorf("%w: %s", err, event.Data))
 		}
 		committed = true
 		return &upstreamResponse{events: events, first: cloneStartupEvent(event), last: last,
 			closeIdle: closeIdle, terminal: middleware.terminal, converted: middleware,
-			sourceComplete: middleware.terminal.complete, usage: middleware.observedUsage()}, sent.Load(), nil
+			sourceComplete: middleware.terminal.complete, usage: middleware.observedUsage(), failure: failureCapture}, sent.Load(), nil
 	}
 	err = events.Err()
 	events.Close()
 	if err == nil {
 		err = errors.New("upstream stream ended before first event")
 	}
-	return middleware.failedResponse(), sent.Load(), err
+	return middleware.failedResponse(), sent.Load(), failureCapture.wrap(err)
 }
