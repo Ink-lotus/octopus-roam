@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/Ink-lotus/octopus-roam/internal/rhttp"
 	"github.com/looplj/axonhub/llm"
 	"github.com/looplj/axonhub/llm/httpclient"
@@ -73,9 +72,6 @@ type trackingTransport struct {
 
 // RoundTrip 标记本轮已进入 HTTP 传输后再交给真正的传输层。
 func (t *trackingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	redactor := privacy.FromContext(request.Context())
-	redactor.AddHeaders(request.Header)
-	redactor.AddURL(request.URL.String())
 	t.sent.Store(true)
 	return t.inner.RoundTrip(request)
 }
@@ -99,10 +95,6 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 	request, err := buildPassthroughRequest(format, raw, channel, outbound, modelName)
 	if err != nil {
 		return nil, false, err
-	}
-	redactor := privacy.FromContext(ctx)
-	for _, header := range channel.CustomHeader {
-		redactor.Add(request.Headers.Get(header.HeaderKey))
 	}
 	httpClient, closeIdle, err := resolveUpstreamClient(channel)
 	if err != nil {
@@ -462,7 +454,7 @@ func (m *conversionMiddleware) OnInboundRawStream(_ context.Context, stream stre
 func (m *conversionMiddleware) OnOutboundRawRequest(ctx context.Context, request *httpclient.Request) (*httpclient.Request, error) {
 	// pipeline 的 MergeInboundRequest 已过滤客户端 User-Agent, 在应用渠道配置前补回, 供转发上游与占位符读取。
 	preserveClientUserAgent(request, m.clientUserAgent)
-	return request, applyChannelConfig(m.channel, request, privacy.FromContext(ctx))
+	return request, applyChannelConfig(m.channel, request)
 }
 
 // OnOutboundRawError 保留上游错误状态码携带的原始正文。

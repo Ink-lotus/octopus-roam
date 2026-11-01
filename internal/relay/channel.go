@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/looplj/axonhub/llm/auth"
 	"github.com/looplj/axonhub/llm/httpclient"
 	"github.com/looplj/axonhub/llm/transformer"
@@ -59,7 +58,7 @@ func buildOutbound(channel model.Channel, grant model.ChannelGrant, channelKey m
 var clientHeaderPlaceholder = regexp.MustCompile(`\{client_header:[^}]+\}`)
 
 // applyChannelConfig 按渠道配置覆盖上游请求的参数并追加自定义 Header; model 与 stream 由转发流程决定, 不允许覆盖。
-func applyChannelConfig(channel model.Channel, request *httpclient.Request, redactors ...*privacy.Redactor) error {
+func applyChannelConfig(channel model.Channel, request *httpclient.Request) error {
 	if channel.ParamOverride != "" {
 		var overrides map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(channel.ParamOverride), &overrides); err != nil {
@@ -94,9 +93,6 @@ func applyChannelConfig(channel model.Channel, request *httpclient.Request, reda
 			return request.Headers.Get(placeholder[len("{client_header:") : len(placeholder)-1])
 		})
 		request.Headers.Set(header.HeaderKey, value)
-		for _, redactor := range redactors {
-			redactor.Add(value)
-		}
 	}
 	return nil
 }

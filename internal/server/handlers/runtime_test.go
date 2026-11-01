@@ -26,6 +26,8 @@ func TestRuntimeEndpointsRequireAuthAndShareSnapshotContract(t *testing.T) {
 	if err := router.RegisterAll(engine); err != nil {
 		t.Fatalf("注册 HTTP 路由失败: %v", err)
 	}
+	testRetiredSettingRoutes(t, engine)
+	t.Run("configuration-values", func(t *testing.T) { testConfigurationValues(t, engine) })
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	for _, path := range []string{"/api/v1/setting/export", "/api/v1/setting/import"} {
@@ -164,14 +166,8 @@ func testWebhookCRUDAndDelivery(t *testing.T, client *http.Client, serverURL, to
 		t.Fatalf("create webhook returned %d", createResponse.StatusCode)
 	}
 	created := decodeWebhookEndpoint(t, createResponse)
-	for _, secret := range []string{"private-url-token", "private-header-secret", "private-custom-secret"} {
-		if strings.Contains(created.URL, secret) || strings.Contains(strings.Join(mapValues(created.Headers), " "), secret) {
-			t.Fatalf("create response leaked %q: %+v", secret, created)
-		}
-	}
-	masked := webhook.MaskEndpoint(endpoint)
-	if created.URL != masked.URL || created.Headers["Authorization"] != masked.Headers["Authorization"] || created.Headers["X-Notify-Token"] != masked.Headers["X-Notify-Token"] {
-		t.Fatalf("create response did not mask sensitive values: %+v", created)
+	if created.URL != endpoint.URL || !reflect.DeepEqual(created.Headers, endpoint.Headers) {
+		t.Fatal("create response changed configured values")
 	}
 
 	listResponse := webhookAPIRequest(t, client, serverURL, token, http.MethodGet, "/api/v1/webhook/list", nil)

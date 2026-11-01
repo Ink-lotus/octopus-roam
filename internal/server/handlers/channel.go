@@ -13,7 +13,6 @@ import (
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"github.com/Ink-lotus/octopus-roam/internal/op"
 	"github.com/Ink-lotus/octopus-roam/internal/price"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/Ink-lotus/octopus-roam/internal/relay"
 	"github.com/Ink-lotus/octopus-roam/internal/server/middleware"
 	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
@@ -317,19 +316,6 @@ func fetchModel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
-	redactor := privacy.FromContext(c.Request.Context())
-	redactor.Add(request.Key)
-	redactor.AddURL(request.Channel.BaseURL)
-	redactor.AddURL(request.Channel.ChannelProxy)
-	for _, header := range request.Channel.CustomHeader {
-		redactor.Add(header.HeaderValue)
-	}
-	if request.Channel.Proxy && request.Channel.ChannelProxy == "" {
-		if proxy, err := op.SettingGetString(model.SettingKeyProxyURL); err == nil {
-			redactor.AddURL(proxy)
-		}
-	}
-	c.Request = c.Request.WithContext(privacy.WithRedactor(c.Request.Context(), redactor))
 	ctx := c.Request.Context()
 	// 探测收的是尚未落库的提交配置, 不经 normalizeChannelConfig, 故在此自行去空白;
 	// 其中只有地址是硬需求: 渠道尚未命名时也可试拉, 故名称不在此校验。
@@ -413,28 +399,13 @@ func refreshChannelModels(c *gin.Context) {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
-	redactor := privacy.FromContext(c.Request.Context())
 	if err == nil {
 		detail.AllowedProtocols = model.NormalizeProtocols(detail.AllowedProtocols)
 		if (!options.EnabledOnly || detail.Enabled) && detail.AllowedProtocols&^model.ProtocolAll != 0 {
 			resp.Error(c, http.StatusBadRequest, fmt.Errorf("%w: %d contains undefined bits", op.ErrInvalidChannelAllowedProtocols, detail.AllowedProtocols).Error())
 			return
 		}
-		redactor.AddURL(detail.BaseURL)
-		redactor.AddURL(detail.ChannelProxy)
-		for _, key := range detail.Keys {
-			redactor.Add(key.Key)
-		}
-		for _, header := range detail.CustomHeader {
-			redactor.Add(header.HeaderValue)
-		}
-		if detail.Proxy && detail.ChannelProxy == "" {
-			if proxy, err := op.SettingGetString(model.SettingKeyProxyURL); err == nil {
-				redactor.AddURL(proxy)
-			}
-		}
 	}
-	c.Request = c.Request.WithContext(privacy.WithRedactor(c.Request.Context(), redactor))
 
 	result, err := op.RefreshChannelModels(c.Request.Context(), id, options)
 	if err != nil {
@@ -450,13 +421,6 @@ func refreshChannelModels(c *gin.Context) {
 	if !result.Success && result.Error == op.ErrChannelRefreshInProgress.Error() {
 		resp.Error(c, http.StatusConflict, result.Error)
 		return
-	}
-	for i := range result.KeyResults {
-		result.KeyResults[i].Error = redactor.Text(result.KeyResults[i].Error)
-	}
-	result.Error = redactor.Text(result.Error)
-	for i := range result.Warnings {
-		result.Warnings[i] = redactor.Text(result.Warnings[i])
 	}
 	resp.Success(c, result)
 }

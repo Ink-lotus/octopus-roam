@@ -40,13 +40,11 @@ func init() {
 }
 
 func listWebhookEndpoints(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	endpoints, err := op.WebhookEndpointList(c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
-	}
-	for i := range endpoints {
-		endpoints[i] = webhook.MaskEndpoint(endpoints[i])
 	}
 	resp.Success(c, endpoints)
 }
@@ -66,7 +64,7 @@ func createWebhookEndpoint(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp.Success(c, webhook.MaskEndpoint(endpoint))
+	resp.Success(c, endpoint)
 }
 
 func updateWebhookEndpoint(c *gin.Context) {
@@ -75,8 +73,7 @@ func updateWebhookEndpoint(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, "invalid webhook endpoint id")
 		return
 	}
-	current, err := op.WebhookEndpointGet(c.Request.Context(), id)
-	if err != nil {
+	if _, err := op.WebhookEndpointGet(c.Request.Context(), id); err != nil {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
@@ -85,7 +82,6 @@ func updateWebhookEndpoint(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	webhook.PreserveMaskedSecrets(&endpoint, current)
 	if err := webhook.NormalizeAndValidate(&endpoint); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -95,7 +91,7 @@ func updateWebhookEndpoint(c *gin.Context) {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp.Success(c, webhook.MaskEndpoint(endpoint))
+	resp.Success(c, endpoint)
 }
 
 func deleteWebhookEndpoint(c *gin.Context) {

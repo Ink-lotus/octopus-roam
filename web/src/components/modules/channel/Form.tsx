@@ -38,22 +38,30 @@ export function ChannelForm({ channelId, onBack }: {
     channelId?: number;
     onBack?: () => void; // 编辑态由统计视图切入, 给出返回入口; 新建态没有可返回的视图。
 }) {
-    const t = useTranslations('channel.form');
-    const { data: detail, isPending, isError } = useChannelDetail(channelId);
-
     if (channelId === undefined) {
         return <ChannelFormFields />;
     }
-    if (!detail) {
+    return <ChannelEditForm key={channelId} channelId={channelId} onBack={onBack} />;
+}
+
+function ChannelEditForm({ channelId, onBack }: { channelId: number; onBack?: () => void }) {
+    const t = useTranslations('channel.form');
+    const { data: detail, isFetchedAfterMount, isError } = useChannelDetail(channelId);
+    const [initialDetail, setInitialDetail] = useState<ChannelDetail>();
+    // 新编辑必须等本次读取成功；之后的后台刷新不重置用户草稿。
+    if (!initialDetail && detail && isFetchedAfterMount && !isError) {
+        setInitialDetail(detail);
+    }
+    if (!initialDetail) {
         return (
             <div className="flex items-center justify-center h-[min(29rem,calc(100vh-10rem))]">
-                <p className="text-sm text-muted-foreground">
-                    {isError ? t('detailFailed') : isPending ? t('detailLoading') : null}
+                <p role={isError ? 'alert' : 'status'} className="text-sm text-muted-foreground">
+                    {isError ? t('detailFailed') : t('detailLoading')}
                 </p>
             </div>
         );
     }
-    return <ChannelFormFields channel={detail} onBack={onBack} />;
+    return <ChannelFormFields channel={initialDetail} onBack={onBack} />;
 }
 
 // ChannelFormFields 承载表单本体; 初始状态在挂载时定稿, 故必须等配置到齐后才渲染。

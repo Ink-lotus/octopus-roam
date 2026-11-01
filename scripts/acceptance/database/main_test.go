@@ -20,7 +20,6 @@ import (
 
 	"github.com/Ink-lotus/octopus-roam/internal/dbprofile"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/glebarez/sqlite"
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
@@ -176,18 +175,17 @@ func TestNonEmptyTargetIsRejectedBeforeMigration(t *testing.T) {
 }
 
 func TestCanonicalIgnoresOnlyExpectedBackupDifferences(t *testing.T) {
-	first := &model.DBDump{Product: "octopus-roam", Version: 1000, ExportedAt: time.Now(), Channels: []model.Channel{{ID: 1, ChannelConfig: model.ChannelConfig{Name: "fixture", Enabled: false}}}, Settings: []model.Setting{{Key: model.SettingKeyPrivacyProtectionRules, Value: privacy.DefaultConfigJSON()}}}
+	first := &model.DBDump{Product: "octopus-roam", Version: 1000, ExportedAt: time.Now(), Channels: []model.Channel{{ID: 1, ChannelConfig: model.ChannelConfig{Name: "fixture", Enabled: false}}}, Settings: []model.Setting{{Key: model.SettingKeyChannelAutoUpdateEnabled, Value: "false"}}}
 	a, err := canonical(first)
 	if err != nil {
 		t.Fatal(err)
 	}
 	first.ExportedAt = first.ExportedAt.Add(time.Hour)
-	first.Settings[0].Value = privacy.DefaultConfigJSON()
 	b, err := canonical(first)
 	if err != nil || string(a) != string(b) {
 		t.Fatal("expected metadata differences affected comparison")
 	}
-	first.Channels[0].Enabled = true
+	first.Settings[0].Value = "true"
 	c, err := canonical(first)
 	if err != nil || string(b) == string(c) {
 		t.Fatal("configuration corruption was ignored")

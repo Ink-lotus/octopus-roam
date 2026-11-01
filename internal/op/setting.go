@@ -7,7 +7,6 @@ import (
 
 	"github.com/Ink-lotus/octopus-roam/internal/db"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/Ink-lotus/octopus-roam/internal/utils/cache"
 )
 
@@ -16,6 +15,9 @@ var settingCache = cache.New[model.SettingKey, string](16)
 func SettingList(ctx context.Context) ([]model.Setting, error) {
 	settings := make([]model.Setting, 0, settingCache.Len())
 	for key, value := range settingCache.GetAll() {
+		if model.IsRetiredSetting(key) {
+			continue
+		}
 		settings = append(settings, model.Setting{
 			Key:   key,
 			Value: value,
@@ -25,6 +27,9 @@ func SettingList(ctx context.Context) ([]model.Setting, error) {
 }
 
 func SettingGetString(key model.SettingKey) (string, error) {
+	if model.IsRetiredSetting(key) {
+		return "", model.ErrSettingRetired
+	}
 	setting, ok := settingCache.Get(key)
 	if !ok {
 		return "", fmt.Errorf("setting not found")
@@ -33,17 +38,14 @@ func SettingGetString(key model.SettingKey) (string, error) {
 }
 
 func SettingSetString(key model.SettingKey, value string) error {
-	if key == model.SettingKeyPrivacyProtectionRules {
-		return fmt.Errorf("use /api/v1/setting/privacy-rules to update privacy rules")
+	if model.IsRetiredSetting(key) {
+		return model.ErrSettingRetired
 	}
 	if err := (&model.Setting{Key: key, Value: value}).Validate(); err != nil {
 		return err
 	}
 	if key == model.SettingKeyGroupRouteDefaults {
 		return fmt.Errorf("use /api/v1/group/route-defaults to update route defaults")
-	}
-	if key == model.SettingKeyPrivacyProtectionEnabled {
-		return setPrivacyEnabled(value)
 	}
 	valueCache, ok := settingCache.Get(key)
 	if !ok {
@@ -67,23 +69,23 @@ func SettingSetString(key model.SettingKey, value string) error {
 }
 
 func SettingGetInt(key model.SettingKey) (int, error) {
-	setting, ok := settingCache.Get(key)
-	if !ok {
-		return 0, fmt.Errorf("setting not found")
+	setting, err := SettingGetString(key)
+	if err != nil {
+		return 0, err
 	}
 	return strconv.Atoi(setting)
 }
 
 func SettingGetBool(key model.SettingKey) (bool, error) {
-	setting, ok := settingCache.Get(key)
-	if !ok {
-		return false, fmt.Errorf("setting not found")
+	setting, err := SettingGetString(key)
+	if err != nil {
+		return false, err
 	}
 	return strconv.ParseBool(setting)
 }
 
 func SettingSetInt(key model.SettingKey, value int) error {
-	if isChannelAutomationSetting(key) || key == model.SettingKeyPrivacyProtectionEnabled || key == model.SettingKeyPrivacyProtectionRules {
+	if isChannelAutomationSetting(key) || model.IsRetiredSetting(key) {
 		return SettingSetString(key, strconv.Itoa(value))
 	}
 	if key == model.SettingKeyGroupRouteDefaults {
@@ -114,14 +116,15 @@ func SettingSetInt(key model.SettingKey, value int) error {
 func settingRefreshCache(ctx context.Context) error {
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
-	privacyWriteMu.Lock()
-	defer privacyWriteMu.Unlock()
 	db := db.GetDB().WithContext(ctx)
 
 	var settings []model.Setting
 	if err := db.Find(&settings).Error; err != nil {
 		return fmt.Errorf("failed to get settings: %w", err)
 	}
+	settings = withoutRetiredSettings(settings)
+	settingCache.Del(model.SettingKeyPrivacyProtectionEnabled)
+	settingCache.Del(model.SettingKeyPrivacyProtectionRules)
 
 	existingKeys := make(map[model.SettingKey]bool)
 	for _, setting := range settings {
@@ -138,10 +141,6 @@ func settingRefreshCache(ctx context.Context) error {
 	}
 
 	settings = append(settings, missingSettings...)
-	privacyEnabled, policy, err := compilePrivacySettings(settings)
-	if err != nil {
-		return fmt.Errorf("failed to load privacy settings: %w", err)
-	}
 	if len(missingSettings) > 0 {
 		if err := db.CreateInBatches(missingSettings, len(missingSettings)).Error; err != nil {
 			return fmt.Errorf("failed to create missing settings: %w", err)
@@ -158,9 +157,19 @@ func settingRefreshCache(ctx context.Context) error {
 	if automationChanged {
 		automationSettingsSignal.notify()
 	}
-	privacyRulesState = policy
-	privacy.Publish(privacyEnabled, policy)
 	return nil
+}
+
+// Filter before validating or merging defaults. Retired values are opaque and
+// existing database rows stay untouched, including malformed legacy rule text.
+func withoutRetiredSettings(settings []model.Setting) []model.Setting {
+	active := make([]model.Setting, 0, len(settings))
+	for _, setting := range settings {
+		if !model.IsRetiredSetting(setting.Key) {
+			active = append(active, setting)
+		}
+	}
+	return active
 }
 
 func isChannelAutomationSetting(key model.SettingKey) bool {

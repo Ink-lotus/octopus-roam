@@ -186,14 +186,22 @@ func TestRefreshMaintenanceCancellationPolicy(t *testing.T) {
 }
 
 func TestRefreshDiagnosticCopiesDoNotMutateCachedRecord(t *testing.T) {
-	const id = -1000
+	id, _ := newRefreshChannel(t, "http://127.0.0.1:1", []model.ChannelKeyConfig{{Name: "key", Key: "fixture", Enabled: true}})
 	added, removed := 2, 1
 	record := model.ChannelRefreshRecord{ChannelID: id, Status: "success", Result: model.ChannelModelRefreshResult{
 		AddedModels: []string{"added"}, RemovedModels: []string{"removed"}, Warnings: []string{"warning"},
 		KeyResults: []model.ChannelModelRefreshKeyResult{{KeyName: "original", AddedCount: &added, RemovedCount: &removed}},
 	}}
-	channelRefreshRecords.Set(id, record)
-	t.Cleanup(func() { channelRefreshRecords.Del(id) })
+	if err := saveChannelRefreshRecord(t.Context(), record); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ChannelDel(id, context.Background()) })
+	record.Result.AddedModels[0] = "mutated after save"
+	record.Result.RemovedModels[0] = "mutated after save"
+	record.Result.Warnings[0] = "mutated after save"
+	record.Result.KeyResults[0].KeyName = "mutated after save"
+	*record.Result.KeyResults[0].AddedCount = 100
+	*record.Result.KeyResults[0].RemovedCount = 100
 	detail := ChannelRefreshStatus(id)
 	detail.Last.Status = "changed"
 	detail.Last.Result.AddedModels[0] = "changed"
@@ -214,11 +222,6 @@ func TestRefreshDiagnosticCopiesDoNotMutateCachedRecord(t *testing.T) {
 }
 
 func TestChannelRefreshRecordFailureSuccessAndReload(t *testing.T) {
-	previous, _ := SettingGetString(model.SettingKeyPrivacyProtectionEnabled)
-	t.Cleanup(func() { _ = SettingSetString(model.SettingKeyPrivacyProtectionEnabled, previous) })
-	if err := SettingSetString(model.SettingKeyPrivacyProtectionEnabled, "true"); err != nil {
-		t.Fatal(err)
-	}
 	secret := "automation-private-credential"
 	var fail atomic.Bool
 	fail.Store(true)
@@ -241,16 +244,16 @@ func TestChannelRefreshRecordFailureSuccessAndReload(t *testing.T) {
 		t.Fatal(status)
 	}
 	raw, _ := json.Marshal(status)
-	if strings.Contains(string(raw), secret) {
-		t.Fatal("refresh status leaks credential")
+	if !strings.Contains(string(raw), secret) {
+		t.Fatal("refresh status changed the upstream error")
 	}
 	var persisted model.ChannelRefreshRecord
 	if err := db.GetDB().First(&persisted, "channel_id = ?", id).Error; err != nil {
 		t.Fatal(err)
 	}
 	raw, _ = json.Marshal(persisted)
-	if strings.Contains(string(raw), secret) {
-		t.Fatal("stored status leaks credential")
+	if !strings.Contains(string(raw), secret) {
+		t.Fatal("stored status changed the upstream error")
 	}
 	fail.Store(false)
 	result, err = RefreshChannelModels(t.Context(), id, model.ChannelModelRefreshOptions{})

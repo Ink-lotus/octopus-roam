@@ -168,7 +168,6 @@ func healthAttemptCurrent(group model.Group, selection routeSelection, a *health
 
 // settleHealth atomically records the result before releasing recovery ownership.
 // success=false and failure="" means unknown/canceled/unsent, never a failure.
-// failure must already have passed the request's privacy redactor.
 func settleHealth(group model.Group, selection routeSelection, a *healthAttempt, success bool, failure string, retryCount int) time.Duration {
 	return settleHealthAt(group, selection, a, success, failure, retryCount, time.Now())
 }

@@ -15,13 +15,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 )
 
 const (
 	DefaultTimeoutSeconds = 10
 	MaxTimeoutSeconds     = 120
-	redactedValue         = "***"
 )
 
 const DefaultBodyTemplate = `{
@@ -39,7 +37,6 @@ const DefaultBodyTemplate = `{
 }`
 
 type Event struct {
-	redactor       *privacy.Redactor
 	Event          string          `json:"event"`
 	Timestamp      string          `json:"timestamp"`
 	GroupID        int             `json:"group_id,omitempty"`
@@ -78,9 +75,6 @@ func NormalizeAndValidate(endpoint *model.WebhookEndpoint) error {
 	if strings.ContainsAny(endpoint.URL, "\r\n") {
 		return fmt.Errorf("URL contains invalid characters")
 	}
-	if privacy.ContainsMask(endpoint.URL) {
-		return fmt.Errorf("masked credential is stale; reload the endpoint or enter a new value")
-	}
 
 	endpoint.Method = strings.ToUpper(strings.TrimSpace(endpoint.Method))
 	if endpoint.Method == "" {
@@ -110,9 +104,6 @@ func NormalizeAndValidate(endpoint *model.WebhookEndpoint) error {
 	}
 	canonicalHeaders := make(map[string]string, len(endpoint.Headers))
 	for key, value := range endpoint.Headers {
-		if IsSensitiveHeader(key) && privacy.ContainsMask(value) {
-			return fmt.Errorf("masked credential is stale; reload the endpoint or enter a new value")
-		}
 		if !headerNamePattern.MatchString(key) {
 			return fmt.Errorf("invalid header name %q", key)
 		}
@@ -144,7 +135,6 @@ func NormalizeAndValidate(endpoint *model.WebhookEndpoint) error {
 }
 
 func Render(bodyTemplate string, event Event) ([]byte, error) {
-	event = snapshotEvent(event)
 	parsed, err := template.New("webhook").Option("missingkey=error").Funcs(template.FuncMap{
 		"json": func(value any) (string, error) {
 			encoded, err := json.Marshal(value)
@@ -173,97 +163,4 @@ func ValidateRenderedJSON(contentType string, body []byte) error {
 		return fmt.Errorf("rendered body is not valid JSON")
 	}
 	return nil
-}
-
-func IsSensitiveHeader(name string) bool {
-	return privacy.IsSensitiveName(name)
-}
-
-func MaskEndpoint(endpoint model.WebhookEndpoint) model.WebhookEndpoint {
-	endpoint.URL = maskURL(endpoint.URL)
-	endpoint.Headers = cloneHeaders(endpoint.Headers)
-	for key, value := range endpoint.Headers {
-		if IsSensitiveHeader(key) && value != "" {
-			endpoint.Headers[key] = privacy.Mask(value)
-		}
-	}
-	return endpoint
-}
-
-func PreserveMaskedSecrets(incoming *model.WebhookEndpoint, current model.WebhookEndpoint) {
-	incoming.URL = preserveMaskedURL(incoming.URL, current.URL)
-	for key, value := range incoming.Headers {
-		if !IsSensitiveHeader(key) {
-			continue
-		}
-		for oldKey, oldValue := range current.Headers {
-			if strings.EqualFold(key, oldKey) && matchesMaskedValue(value, oldValue) {
-				incoming.Headers[key] = oldValue
-				break
-			}
-		}
-	}
-}
-
-func maskURL(raw string) string {
-	return privacy.New().URL(raw)
-}
-
-func matchesMaskedValue(value, current string) bool {
-	return value == redactedValue || value == privacy.Mask(current)
-}
-
-func preserveMaskedURL(incoming, current string) string {
-	if incoming == maskURL(current) {
-		return current
-	}
-	newURL, newErr := url.Parse(incoming)
-	oldURL, oldErr := url.Parse(current)
-	if newErr != nil || oldErr != nil {
-		return incoming
-	}
-	if newURL.User != nil && oldURL.User != nil {
-		username := newURL.User.Username()
-		if matchesMaskedValue(username, oldURL.User.Username()) {
-			username = oldURL.User.Username()
-		}
-		password, hasPassword := newURL.User.Password()
-		oldPassword, oldHasPassword := oldURL.User.Password()
-		if matchesMaskedValue(password, oldPassword) || (!hasPassword && newURL.User.Username() == redactedValue) {
-			password, hasPassword = oldPassword, oldHasPassword
-		}
-		if hasPassword {
-			newURL.User = url.UserPassword(username, password)
-		} else {
-			newURL.User = url.User(username)
-		}
-	}
-	newQuery := newURL.Query()
-	oldQuery := oldURL.Query()
-	for key, values := range newQuery {
-		if !isSensitiveURLKey(key) {
-			continue
-		}
-		if oldValues, exists := oldQuery[key]; exists {
-			for i, value := range values {
-				if i < len(oldValues) && matchesMaskedValue(value, oldValues[i]) {
-					values[i] = oldValues[i]
-				}
-			}
-		}
-	}
-	newURL.RawQuery = newQuery.Encode()
-	return newURL.String()
-}
-
-func isSensitiveURLKey(key string) bool {
-	return IsSensitiveHeader(key)
-}
-
-func cloneHeaders(headers map[string]string) map[string]string {
-	clone := make(map[string]string, len(headers))
-	for key, value := range headers {
-		clone[key] = value
-	}
-	return clone
 }

@@ -13,7 +13,6 @@ import (
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"github.com/Ink-lotus/octopus-roam/internal/op"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
@@ -42,10 +41,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		redactor := privacy.FromContext(c.Request.Context())
-		redactor.AddHeaders(c.Request.Header)
-		redactor.AddURL(c.Request.URL.String())
-		c.Request = c.Request.WithContext(privacy.WithRedactor(c.Request.Context(), redactor))
 		// 完整读取客户端请求, 正文先登记到请求状态, 后续每轮直接改写为当前目标请求。
 		raw, err := httpclient.ReadHTTPRequest(c.Request)
 		if err != nil {
@@ -174,7 +169,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			}
 			channelModel := grant.ChannelModel
 			channelKey := grant.ChannelKey
-			redactor.Add(channelKey.Key)
 
 			// 成员指向的渠道已被删除时同样等待, 该成员可能很快被改回可用渠道。
 			channel, err := op.ChannelGet(channelModel.ChannelID)
@@ -189,7 +183,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				continue
 			}
 
-			rememberChannelSecrets(redactor, channel, channelKey.Key, raw.Headers)
 			// 将分组成员配置的真实模型写入本轮上游请求。
 			raw.Body, err = sjson.SetBytes(raw.Body, "model", channelModel.Name)
 			if err != nil {
@@ -256,7 +249,6 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				default:
 				}
 				channelKey = freshGrant.ChannelKey
-				rememberChannelSecrets(redactor, channel, channelKey.Key, raw.Headers)
 				outbound, targetProtocol, passthrough, err = buildOutbound(channel, grant, *channelKey, requestProtocol)
 				if err == nil {
 					activeHealth = admitHealth(group, selection, channel, grant)
@@ -329,7 +321,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				countError := ctx.Err() == nil && cancelCause != context.Canceled
 				var retryDelay time.Duration
 				if sent && countError {
-					retryDelay = settleHealth(group, selection, activeHealth, false, redactor.Text(err.Error()), request.retryCount())
+					retryDelay = settleHealth(group, selection, activeHealth, false, err.Error(), request.retryCount())
 				}
 				if releaseCapacity != nil {
 					releaseCapacity()
@@ -536,15 +528,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				} else {
 					event = result.events.Current()
 				}
-				// 已提交的响应不能再换目标重试; 错误事件先脱敏, 转发后作为本请求终态。
+				// 已提交的响应不能再换目标重试; 转发错误事件后作为本请求终态。
 				last, err = inspectStreamEvent(format, event)
 				upstreamErr = err
 				upstreamComplete = result.sourceComplete || (last && err == nil)
-				if err != nil && event != nil {
-					safeEvent := *event
-					safeEvent.Data = []byte(redactor.Body(string(event.Data)))
-					event = &safeEvent
-				}
 			}
 			if upstreamComplete && err == nil && result.terminal != nil {
 				// A converter may synthesize a client terminator before the provider's
@@ -575,7 +562,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			if upstreamComplete || (ctx.Err() == nil && context.Cause(roundCtx) != context.Canceled) {
 				failure := ""
 				if upstreamErr != nil {
-					failure = redactor.Text(upstreamErr.Error())
+					failure = upstreamErr.Error()
 				}
 				settleHealth(group, selection, activeHealth, upstreamComplete, failure, request.retryCount())
 			}
@@ -649,7 +636,7 @@ func rejectUpstream(c *gin.Context, inbound transformer.Inbound, err error, retr
 	c.Header("Retry-After", strconv.FormatInt(retryAfterSeconds(retryDelay), 10))
 	response := inbound.TransformError(c.Request.Context(), &llm.ResponseError{
 		StatusCode: http.StatusServiceUnavailable,
-		Detail:     llm.ErrorDetail{Message: privacy.FromContext(c.Request.Context()).Text(err.Error()), Type: "upstream_error"},
+		Detail:     llm.ErrorDetail{Message: err.Error(), Type: "upstream_error"},
 	})
 	c.Data(response.StatusCode, "application/json", response.Body)
 	c.Abort()
@@ -671,7 +658,7 @@ func retryAfterSeconds(delay time.Duration) int64 {
 func rejectRequest(c *gin.Context, inbound transformer.Inbound, err error) {
 	response := inbound.TransformError(c.Request.Context(), &llm.ResponseError{
 		StatusCode: http.StatusBadRequest,
-		Detail:     llm.ErrorDetail{Message: privacy.FromContext(c.Request.Context()).Text(err.Error()), Type: "invalid_request_error"},
+		Detail:     llm.ErrorDetail{Message: err.Error(), Type: "invalid_request_error"},
 	})
 	c.Data(response.StatusCode, "application/json", response.Body)
 	c.Abort()

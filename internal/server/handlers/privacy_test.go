@@ -2,23 +2,23 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/Ink-lotus/octopus-roam/internal/db"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
-	"github.com/Ink-lotus/octopus-roam/internal/op"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
-	"github.com/Ink-lotus/octopus-roam/internal/server/middleware"
+	serverauth "github.com/Ink-lotus/octopus-roam/internal/server/auth"
+	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
 	"github.com/gin-gonic/gin"
 )
 
-func TestModelDiscoveryErrorsRedactSubmittedCredentials(t *testing.T) {
-	enableHandlerPrivacy(t)
+func TestModelDiscoveryErrorsPreserveSubmittedValues(t *testing.T) {
 	const key, custom = "fixture-discovery-key", "fixture-discovery-custom"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+key && r.Header.Get("X-API-Key") != key {
@@ -42,92 +42,142 @@ func TestModelDiscoveryErrorsRedactSubmittedCredentials(t *testing.T) {
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	if response.Code != http.StatusBadGateway {
-		t.Fatalf("unexpected response: %d %s", response.Code, response.Body)
+		t.Fatalf("unexpected response: %d", response.Code)
 	}
-	if strings.Contains(response.Body.String(), key) || strings.Contains(response.Body.String(), custom) {
-		t.Fatalf("discovery error leaked credentials: %s", response.Body)
-	}
-	if !strings.Contains(response.Body.String(), "denied") {
-		t.Fatal("discovery error lost its diagnostic context")
+	for _, text := range []string{"denied", key, custom} {
+		if !strings.Contains(response.Body.String(), text) {
+			t.Fatal("discovery error lost original content")
+		}
 	}
 }
 
-func privacyHandlerRequest(handler gin.HandlerFunc, input string) *httptest.ResponseRecorder {
-	engine := gin.New()
-	engine.POST("/", middleware.RequireJSON(), handler)
-	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(input))
-	request.Header.Set("Content-Type", "application/json")
+type unreadRetiredBody struct{ reads int }
+
+func (body *unreadRetiredBody) Read([]byte) (int, error) {
+	body.reads++
+	return 0, errors.New("retired request bodies must not be read")
+}
+func (*unreadRetiredBody) Close() error { return nil }
+
+// Called by the existing registered-route integration test: RegisterAll drains
+// the registry, so all registered-route assertions use the same real engine.
+func testRetiredSettingRoutes(t *testing.T, engine *gin.Engine) {
+	t.Helper()
+	token, _, err := serverauth.GenerateJWTToken(60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := []model.SettingKey{model.SettingKeyPrivacyProtectionEnabled, model.SettingKeyPrivacyProtectionRules}
+	var before []model.Setting
+	if err := db.GetDB().Where(map[string]any{"key": keys}).Order("key").Find(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertGone := func(response *httptest.ResponseRecorder) {
+		t.Helper()
+		var envelope struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Data    struct {
+				Reason string `json:"reason"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != http.StatusGone || envelope.Code != http.StatusGone || envelope.Message != model.ErrSettingRetired.Error() || envelope.Data.Reason != "feature_removed" || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("retired operation did not return the removal contract: %s", response.Body.String())
+		}
+	}
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/setting/privacy-rules"},
+		{http.MethodPost, "/api/v1/setting/privacy-rules"},
+		{http.MethodPost, "/api/v1/setting/privacy-preview"},
+	} {
+		t.Run(route.method+route.path, func(t *testing.T) {
+			for _, cookie := range []string{"", "fixture-invalid-session"} {
+				request := httptest.NewRequest(route.method, route.path, strings.NewReader("invalid retired sample"))
+				if cookie != "" {
+					request.AddCookie(&http.Cookie{Name: "auth", Value: cookie})
+				}
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				if response.Code != http.StatusUnauthorized {
+					t.Fatal("retired management endpoint bypassed authentication")
+				}
+			}
+			probe := &unreadRetiredBody{}
+			request := httptest.NewRequest(route.method, route.path, nil)
+			request.Body = probe
+			request.AddCookie(&http.Cookie{Name: "auth", Value: token})
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			assertGone(response)
+			if probe.reads != 0 {
+				t.Fatal("retired management endpoint read its body")
+			}
+		})
+	}
+	for _, key := range keys {
+		for _, value := range []string{`"not-json-legacy-fixture"`, `"true"`, `"yes"`, `{}`, `null`, `123`} {
+			input := `{"key":"` + string(key) + `","value":` + value + `}`
+			for _, authenticated := range []bool{false, true} {
+				request := httptest.NewRequest(http.MethodPost, "/api/v1/setting/set", strings.NewReader(input))
+				request.Header.Set("Content-Type", "application/json")
+				if authenticated {
+					request.AddCookie(&http.Cookie{Name: "auth", Value: token})
+				}
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				if authenticated {
+					assertGone(response)
+				} else if response.Code != http.StatusUnauthorized {
+					t.Fatal("retired setting write bypassed authentication")
+				}
+			}
+		}
+	}
+	for _, input := range []string{`{`, `{"key":"proxy_url","value":{}}`} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/setting/set", strings.NewReader(input))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(&http.Cookie{Name: "auth", Value: token})
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatal("ordinary JSON/value validation was weakened")
+		}
+	}
+	var after []model.Setting
+	if err := db.GetDB().Where(map[string]any{"key": keys}).Order("key").Find(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("retired management requests changed legacy rows")
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/setting/list", nil)
+	request.AddCookie(&http.Cookie{Name: "auth", Value: token})
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
-	return response
-}
-
-func TestPrivacyHandlerCRUDConflictValidationAndPreview(t *testing.T) {
-	initial, _ := op.PrivacyRulesGet()
-	create := map[string]any{"revision": initial.Revision, "action": "create", "rule": map[string]any{"name": "客户编号", "kind": "field_name", "pattern": "customer_id", "enabled": true}}
-	data, _ := json.Marshal(create)
-	response := privacyHandlerRequest(mutatePrivacyRules, string(data))
+	var list struct {
+		Data []model.Setting `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
 	if response.Code != http.StatusOK {
-		t.Fatal(response.Code, response.Body.String())
+		t.Fatal("setting list failed")
 	}
-	var decoded struct {
-		Data op.PrivacyRules `json:"data"`
-	}
-	_ = json.Unmarshal(response.Body.Bytes(), &decoded)
-	created := decoded.Data.CustomRules[len(decoded.Data.CustomRules)-1]
-	t.Cleanup(func() {
-		view, _ := op.PrivacyRulesGet()
-		_, _ = op.PrivacyRulesMutate(context.Background(), op.PrivacyMutation{Revision: view.Revision, Action: "delete", ID: created.ID})
-	})
-	if privacyHandlerRequest(mutatePrivacyRules, string(data)).Code != http.StatusConflict {
-		t.Fatal("stale editor was not rejected")
-	}
-	preview := privacy.PreviewRequest{Revision: decoded.Data.Revision, Mode: "current", RuleID: created.ID, InputType: "json", Input: `{"customer_id":"fixture-customer"}`}
-	data, _ = json.Marshal(preview)
-	response = privacyHandlerRequest(previewPrivacy, string(data))
-	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "fixture-customer") || !strings.Contains(response.Body.String(), created.ID) {
-		t.Fatal("preview response invalid", response.Body.String())
-	}
-	view, _ := op.PrivacyRulesGet()
-	if view.Revision != decoded.Data.Revision {
-		t.Fatal("preview wrote configuration")
-	}
-	for _, test := range []struct {
-		action, id string
-		code       int
-	}{{"delete", privacy.JSONFields, 400}, {"delete", "custom_missing", 404}} {
-		data, _ := json.Marshal(map[string]any{"revision": view.Revision, "action": test.action, "id": test.id})
-		if got := privacyHandlerRequest(mutatePrivacyRules, string(data)); got.Code != test.code {
-			t.Fatal("wrong mutation error", got.Code, got.Body.String())
+	for _, setting := range list.Data {
+		if model.IsRetiredSetting(setting.Key) {
+			t.Fatal("setting list exposed a retired key")
 		}
 	}
-	preview.Input = strings.Repeat("x", privacy.MaxPreviewBytes+1)
-	data, _ = json.Marshal(preview)
-	if response := privacyHandlerRequest(previewPrivacy, string(data)); response.Code != http.StatusRequestEntityTooLarge {
-		t.Fatal("preview size limit not enforced")
+	var unauthorized resp.ResponseStruct
+	response = httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/setting/list", nil))
+	if err := json.Unmarshal(response.Body.Bytes(), &unauthorized); err != nil {
+		t.Fatal(err)
 	}
-	if response := privacyHandlerRequest(previewPrivacy, strings.Repeat(" ", privacy.MaxRequestBytes+1)); response.Code != http.StatusRequestEntityTooLarge {
-		t.Fatal("transport limit not enforced")
-	}
-	if response := privacyHandlerRequest(setSetting, `{"key":"privacy_protection_rules","value":"{}"}`); response.Code != http.StatusBadRequest {
-		t.Fatal("generic route bypassed rule interface")
-	}
-	preview.Revision = initial.Revision
-	preview.Input = "fixture-sample"
-	data, _ = json.Marshal(preview)
-	if response := privacyHandlerRequest(previewPrivacy, string(data)); response.Code != http.StatusConflict {
-		t.Fatal("stale preview was accepted")
-	}
-}
-
-func TestPrivacyRoutesRequireAuthentication(t *testing.T) {
-	for _, handler := range []gin.HandlerFunc{getPrivacyRules, mutatePrivacyRules, previewPrivacy} {
-		engine := gin.New()
-		engine.POST("/", middleware.Auth(), handler)
-		response := httptest.NewRecorder()
-		engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}")))
-		if response.Code != http.StatusUnauthorized {
-			t.Fatal("privacy route was accessible without authentication")
-		}
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatal("setting list bypassed authentication")
 	}
 }

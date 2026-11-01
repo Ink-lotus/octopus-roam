@@ -13,6 +13,8 @@
 Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，已选择性吸收 v0.13.8。独立版本线从 **v0.1.0** 起算；首个正式版本为 **v0.1.0**；已验收范围和已知限制见[发布说明](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0)。参见[变更日志](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/CHANGELOG.md)、[升级与备份说明](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md)和[发布计划](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/plan/release-plan-v0.1.0.md)。
 
 
+当前 **v0.1.1 开发源码（尚未发布）**已整体移除隐私规则、诊断脱敏和固定凭据掩码。配置编辑与转发使用实际保存值；遗留隐私设置被忽略，新导出不再包含它们，兼容的旧备份仍可恢复。历史诊断不重写。登录/API Key 鉴权和加密备份保持原有行为，详见[当前升级说明](docs/upgrade-r1.md)。
+
 ## ✨ 特性
 
 - 🔀 **多渠道聚合** - 支持接入多个 LLM 供应商渠道，统一管理

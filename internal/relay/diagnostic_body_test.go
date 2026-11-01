@@ -1,17 +1,15 @@
 package relay
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 )
 
-func registerDiagnosticRequest(t *testing.T, redactor *privacy.Redactor, body string) *RequestState {
+func registerDiagnosticRequest(t *testing.T, body string) *RequestState {
 	t.Helper()
-	request := &RequestState{ID: idSeq.Add(1), Status: StatusRunning, redactor: redactor, requestBody: redactor.Body(body)}
+	request := &RequestState{ID: idSeq.Add(1), Status: StatusRunning, requestBody: body}
 	mu.Lock()
 	requests[request.ID] = request
 	mu.Unlock()
@@ -19,98 +17,76 @@ func registerDiagnosticRequest(t *testing.T, redactor *privacy.Redactor, body st
 	return request
 }
 
-func TestDiagnosticCachesReloadAfterLateCredentialsAndResponseChanges(t *testing.T) {
-	const first, second = "fixture-first-upstream-key", "fixture-second-upstream-key"
-	body := `{"content":"ordinary prompt ` + first + ` ` + second + `"}`
-	r := privacy.New()
-	request := registerDiagnosticRequest(t, r, body)
-	// Warm a cache before any upstream has been selected, and before a response exists.
+func TestDiagnosticBodiesRetainRawValuesAcrossUpdatesAndRemoval(t *testing.T) {
+	body := `{"api_key":"fixture-body-key","content":"原始正文"}`
+	request := registerDiagnosticRequest(t, body)
 	if RequestBody(request.ID) != body || ResponseBody(request.ID) != "" {
 		t.Fatal("initial diagnostic body is incorrect")
 	}
-	r.Add(first)
-	got := RequestBody(request.ID)
-	if strings.Contains(got, first) || !strings.Contains(got, second) || !strings.Contains(got, "ordinary prompt") {
-		t.Fatal("request cache ignored a credential learned after creation")
-	}
+	response := `{"content":"fixture-response-key","token":"fixture-token"}`
 	mu.Lock()
-	request.Status = StatusSuccess
-	request.responseBody = r.Body(body)
+	request.Status, request.responseBody = StatusSuccess, response
 	mu.Unlock()
-	if got := ResponseBody(request.ID); got == "" || strings.Contains(got, first) {
-		t.Fatal("empty response cache survived completion")
+	if RequestBody(request.ID) != body || ResponseBody(request.ID) != response {
+		t.Fatal("diagnostic values were changed")
 	}
-	// A terminal status is not a redactor freeze: both caches must still invalidate.
-	r.Add(second)
-	for _, read := range []func(uint64) string{RequestBody, ResponseBody} {
-		got := read(request.ID)
-		assertDiagnosticPrivate(t, got, first, second)
-		if read(request.ID) != got || !strings.Contains(got, "ordinary prompt") {
-			t.Fatal("stable cached read changed the diagnostic")
+	snapshot, stream := OpenRequestStream()
+	CloseRequestStream(stream)
+	for _, item := range snapshot {
+		if item.ID != request.ID {
+			continue
+		}
+		raw, err := json.Marshal(item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range []string{"requestBody", "responseBody", "fixture-body-key", "fixture-response-key"} {
+			if strings.Contains(string(raw), text) {
+				t.Fatal("state/SSE acquired on-demand body content")
+			}
 		}
 	}
 	mu.Lock()
-	request.responseBody = `{"content":"updated ordinary response"}`
+	request.responseBody = "updated fixture-response-key"
 	mu.Unlock()
-	if got := ResponseBody(request.ID); !strings.Contains(got, "updated ordinary response") {
-		t.Fatal("changed body reused a result from the same credential revision")
+	if ResponseBody(request.ID) != "updated fixture-response-key" {
+		t.Fatal("on-demand detail returned an obsolete response")
 	}
 	mu.Lock()
 	delete(requests, request.ID)
 	mu.Unlock()
 	if RequestBody(request.ID) != "" || ResponseBody(request.ID) != "" {
-		t.Fatal("deleted request remained accessible through the cache")
+		t.Fatal("removed request remained accessible")
 	}
 }
 
-func TestDiagnosticCacheTracksRedactorIdentityAndDiscoveredCredentials(t *testing.T) {
-	cache := &diagnosticBodyCache{}
-	input := "fixture-first-value fixture-second-value"
-	first := privacy.New("fixture-first-value")
-	second := privacy.New("fixture-second-value")
-	cache.read(first, input)
-	if got := cache.read(second, input); strings.Contains(got, "fixture-second-value") || !strings.Contains(got, "fixture-first-value") {
-		t.Fatal("cache reused a different redactor's result")
-	}
-	// Text credentials can be discovered during Body itself. Both the first
-	// result and the subsequent cached read must reflect the discovered value.
-	r := privacy.New()
-	body := `["fixture-discovered-value","api_key=fixture-discovered-value"]`
-	if got := cache.read(r, body); strings.Contains(got, "fixture-discovered-value") {
-		t.Fatal("first diagnostic read missed a credential found in the body")
-	}
-	if got := cache.read(r, body); strings.Contains(got, "fixture-discovered-value") {
-		t.Fatal("body discovery poisoned the cache with an obsolete result")
-	}
-}
-
-func TestConcurrentDiagnosticReadsUseCredentialsRegisteredBeforeReading(t *testing.T) {
-	var secrets []string
-	for i := range 16 {
-		secrets = append(secrets, fmt.Sprintf("fixture-concurrent-upstream-%02d", i))
-	}
-	body := `{"content":"` + strings.Join(secrets, " ") + `"}`
-	policy, err := privacy.Compile(privacy.DefaultConfig())
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := privacy.NewWithPolicy(policy)
-	request := registerDiagnosticRequest(t, r, body)
-	mu.Lock()
-	request.responseBody = body
-	mu.Unlock()
-	RequestBody(request.ID)
-	ResponseBody(request.ID)
-	var readers sync.WaitGroup
-	for _, secret := range secrets {
-		r.Add(secret)
-		for _, read := range []func(uint64) string{RequestBody, ResponseBody} {
-			readers.Go(func() {
-				if strings.Contains(read(request.ID), secret) {
-					t.Error("concurrent read reused a cache from before credential registration")
-				}
-			})
+func TestConcurrentDiagnosticReadsObserveCompleteBodies(t *testing.T) {
+	body := "password=fixture-original-body"
+	request := registerDiagnosticRequest(t, body)
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		for i := range 1000 {
+			mu.Lock()
+			if i%2 == 0 {
+				request.responseBody = "response-a"
+			} else {
+				request.responseBody = "response-b"
+			}
+			mu.Unlock()
 		}
+	})
+	for range 8 {
+		workers.Go(func() {
+			for range 1000 {
+				if RequestBody(request.ID) != body {
+					t.Error("request body changed")
+				}
+				got := ResponseBody(request.ID)
+				if got != "" && got != "response-a" && got != "response-b" {
+					t.Error("incomplete response observed")
+				}
+			}
+		})
 	}
-	readers.Wait()
+	workers.Wait()
 }

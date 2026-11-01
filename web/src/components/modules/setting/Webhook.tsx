@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'use-intl';
 import { BellRing, Check, FlaskConical, LoaderCircle, Maximize2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -62,7 +62,7 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
     onFormOpenChange?: (open: boolean) => void;
 }) {
     const t = useTranslations('setting.webhook');
-    const { data: endpoints = [], isPending: endpointsLoading, isError: endpointsFailed } = useWebhookEndpointList();
+    const { data: endpoints = [], isPending: endpointsLoading, isError: endpointsFailed, refetch } = useWebhookEndpointList();
     const { data: settings } = useSettingList();
     const setSetting = useSetSetting();
     const createEndpoint = useCreateWebhookEndpoint();
@@ -84,6 +84,34 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
     const [draft, setDraft] = useState<EndpointDraft>(emptyDraft);
     const [headersText, setHeadersText] = useState('{}');
     const [testResults, setTestResults] = useState<Record<number, string>>({});
+    const [readingEndpoint, setReadingEndpoint] = useState(false);
+    const readPending = useRef(false);
+    const readEpoch = useRef(0);
+    useEffect(() => () => { readEpoch.current += 1; }, []);
+
+    // 列表可能来自上次会话，编辑和开关写入都先取最新的完整配置。
+    const withLatestEndpoint = async (id: number, apply: (endpoint: WebhookEndpoint) => void | Promise<void>) => {
+        if (readPending.current) return;
+        readPending.current = true;
+        const epoch = ++readEpoch.current;
+        setReadingEndpoint(true);
+        try {
+            const result = await refetch({ throwOnError: true, cancelRefetch: true });
+            if (epoch !== readEpoch.current) return;
+            const endpoint = result.data?.find((item) => item.id === id);
+            if (!endpoint) throw new Error(t('loadFailed'));
+            await apply(endpoint);
+        } catch (error) {
+            if (epoch === readEpoch.current) {
+                toast.error(error instanceof Error ? error.message : t('loadFailed'));
+            }
+        } finally {
+            if (epoch === readEpoch.current) {
+                readPending.current = false;
+                setReadingEndpoint(false);
+            }
+        }
+    };
 
     const openCreate = () => {
         setEditingId(null);
@@ -92,13 +120,13 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
         setFormOpen(true);
     };
 
-    const openEdit = (endpoint: WebhookEndpoint) => {
-        const { id, ...values } = endpoint;
-        setEditingId(id);
+    const openEdit = (id: number) => withLatestEndpoint(id, (endpoint) => {
+        const { id: editingId, ...values } = endpoint;
+        setEditingId(editingId);
         setDraft(values);
         setHeadersText(JSON.stringify(values.headers ?? {}, null, 2));
         setFormOpen(true);
-    };
+    });
 
     const saveEndpoint = async () => {
         let headers: Record<string, string>;
@@ -143,13 +171,10 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
         }
     };
 
-    const toggleEndpoint = async (endpoint: WebhookEndpoint, enabled: boolean) => {
-        try {
+    const toggleEndpoint = (id: number, enabled: boolean) =>
+        withLatestEndpoint(id, async (endpoint) => {
             await updateEndpoint.mutateAsync({ endpoint: { ...endpoint, enabled }, body: { ...endpoint, enabled } });
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : t('saveFailed'));
-        }
-    };
+        });
 
     const removeEndpoint = async (id: number) => {
         if (!window.confirm(t('deleteConfirm'))) return;
@@ -187,18 +212,23 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
                         <Dialog.Trigger asChild>
                             <button type="button" title={t('add')} aria-label={t('add')} onClick={openCreate}
                                 className="flex size-9 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
-                                disabled={formOpen || createEndpoint.isPending || updateEndpoint.isPending}>
+                                disabled={formOpen || readingEndpoint || createEndpoint.isPending || updateEndpoint.isPending}>
                                 <Plus className="size-4" />
                             </button>
                         </Dialog.Trigger>
                         {expanded ? (
-                            <button type="button" title={t('close')} aria-label={t('close')} onClick={onClose}
+                            <button type="button" title={t('close')} aria-label={t('close')} onClick={() => {
+                                readEpoch.current += 1;
+                                readPending.current = false;
+                                setReadingEndpoint(false);
+                                onClose?.();
+                            }}
                                 className="flex size-9 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:bg-muted">
                                 <X className="size-4" />
                             </button>
                         ) : (
                             <MorphingDialog>
-                                {formOpen ? (
+                                {formOpen || readingEndpoint ? (
                                     <button type="button" disabled aria-label={t('viewAll')}
                                         className="flex size-9 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground opacity-50">
                                         <Maximize2 className="size-4" />
@@ -250,6 +280,7 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
                     </div>
                 )}
 
+                {readingEndpoint && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{t('loading')}</p>}
                 <div className={`${expanded ? 'min-h-0 flex-1' : 'h-36'} overflow-y-auto overscroll-contain`}>
                     {endpointsLoading ? (
                         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{t('loading')}</p>
@@ -263,7 +294,7 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
                                 <li key={endpoint.id} className="space-y-2 rounded-xl bg-muted/50 p-3">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                                            <Switch checked={endpoint.enabled} onCheckedChange={(checked) => void toggleEndpoint(endpoint, checked)} aria-label={t('enabled')} />
+                                            <Switch checked={endpoint.enabled} disabled={readingEndpoint || updateEndpoint.isPending} onCheckedChange={(checked) => void toggleEndpoint(endpoint.id, checked)} aria-label={t('enabled')} />
                                             <div className="min-w-0">
                                                 <div className="truncate text-sm font-medium">{endpoint.name}</div>
                                                 <div className="truncate text-xs text-muted-foreground" title={endpoint.url}>{endpoint.method} · {endpoint.url}</div>
@@ -274,11 +305,11 @@ function WebhookPanel({ expanded = false, onClose, titleId, onFormOpenChange }: 
                                                 className="size-8 rounded-lg bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground dark:hover:bg-muted">
                                                 <FlaskConical className="size-4" />
                                             </Button>
-                                            <Button type="button" variant="ghost" size="icon" title={t('edit')} aria-label={t('edit')} onClick={() => openEdit(endpoint)}
+                                            <Button type="button" variant="ghost" size="icon" title={t('edit')} aria-label={t('edit')} disabled={readingEndpoint || updateEndpoint.isPending} onClick={() => void openEdit(endpoint.id)}
                                                 className="size-8 rounded-lg bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground dark:hover:bg-muted">
                                                 <Pencil className="size-4" />
                                             </Button>
-                                            <Button type="button" variant="ghost" size="icon" title={t('delete')} aria-label={t('delete')} onClick={() => void removeEndpoint(endpoint.id)}
+                                            <Button type="button" variant="ghost" size="icon" title={t('delete')} aria-label={t('delete')} disabled={readingEndpoint} onClick={() => void removeEndpoint(endpoint.id)}
                                                 className="size-8 rounded-lg bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground dark:hover:bg-destructive">
                                                 <Trash2 className="size-4" />
                                             </Button>

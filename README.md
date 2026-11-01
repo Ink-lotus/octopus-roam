@@ -13,6 +13,8 @@
 Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. The first stable release is **v0.1.0**; its [release notes](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0) describe the validated scope and known limitations. See the [changelog](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/CHANGELOG.md), [upgrade and backup guide](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md), and [release plan](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/plan/release-plan-v0.1.0.md).
 
 
+The current development source for **v0.1.1 (not yet released)** removes privacy rules, diagnostic redaction and fixed credential masking throughout the application. Configuration editing and forwarding use the actual saved values. Legacy privacy settings are ignored and excluded from new exports; compatible older backups can still be restored. Existing historical diagnostics are not rewritten. Login/API key authentication and encrypted backups retain their existing behavior. See the [current upgrade guide](docs/upgrade-r1.md).
+
 ## ✨ Features
 
 - 🔀 **Multi-Channel Aggregation** - Connect multiple LLM provider channels with unified management

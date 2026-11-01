@@ -2,7 +2,6 @@ package op
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/Ink-lotus/octopus-roam/internal/db"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/Ink-lotus/octopus-roam/internal/utils/cache"
 	"gorm.io/gorm/clause"
 )
@@ -89,24 +87,29 @@ func ChannelRefreshStatus(id int) *model.ChannelRefreshStatus {
 	status := &model.ChannelRefreshStatus{Running: started != nil, StartedAt: started}
 	if record, ok := channelRefreshRecords.Get(id); ok {
 		// 仅复制可变字段，不在热查询里执行 JSON 往返。
-		record.Result.AddedModels = slices.Clone(record.Result.AddedModels)
-		record.Result.RemovedModels = slices.Clone(record.Result.RemovedModels)
-		record.Result.KeyResults = slices.Clone(record.Result.KeyResults)
-		for i := range record.Result.KeyResults {
-			keyResult := &record.Result.KeyResults[i]
-			if keyResult.AddedCount != nil {
-				count := *keyResult.AddedCount
-				keyResult.AddedCount = &count
-			}
-			if keyResult.RemovedCount != nil {
-				count := *keyResult.RemovedCount
-				keyResult.RemovedCount = &count
-			}
-		}
-		record.Result.Warnings = slices.Clone(record.Result.Warnings)
+		record.Result = cloneChannelRefreshResult(record.Result)
 		status.Last = &record
 	}
 	return status
+}
+
+func cloneChannelRefreshResult(result model.ChannelModelRefreshResult) model.ChannelModelRefreshResult {
+	result.AddedModels = slices.Clone(result.AddedModels)
+	result.RemovedModels = slices.Clone(result.RemovedModels)
+	result.KeyResults = slices.Clone(result.KeyResults)
+	for i := range result.KeyResults {
+		keyResult := &result.KeyResults[i]
+		if keyResult.AddedCount != nil {
+			count := *keyResult.AddedCount
+			keyResult.AddedCount = &count
+		}
+		if keyResult.RemovedCount != nil {
+			count := *keyResult.RemovedCount
+			keyResult.RemovedCount = &count
+		}
+	}
+	result.Warnings = slices.Clone(result.Warnings)
+	return result
 }
 
 func loadChannelRefreshRecords(ctx context.Context) error {
@@ -162,20 +165,6 @@ func refreshChannelModelsWithClient(ctx context.Context, id int, options model.C
 		delete(channelRefreshActivity.running, id)
 		channelRefreshActivity.Unlock()
 	}()
-	redactor := privacy.FromContext(ctx)
-	redactor.AddURL(detail.BaseURL)
-	redactor.AddURL(detail.ChannelProxy)
-	for _, key := range detail.Keys {
-		redactor.Add(key.Key)
-	}
-	for _, header := range detail.CustomHeader {
-		redactor.Add(header.HeaderValue)
-	}
-	if detail.Proxy && detail.ChannelProxy == "" {
-		if proxy, e := SettingGetString(model.SettingKeyProxyURL); e == nil {
-			redactor.AddURL(proxy)
-		}
-	}
 	before := GroupList()
 	result, err = refreshChannelModelsOnce(ctx, id, options, client)
 	if result.Skipped {
@@ -183,7 +172,7 @@ func refreshChannelModelsWithClient(ctx context.Context, id int, options model.C
 		return result, err
 	}
 	if err != nil {
-		result.Error = redactor.Text(err.Error())
+		result.Error = err.Error()
 	}
 	if result.Success {
 		channelRefreshObservers.Lock()
@@ -203,13 +192,6 @@ func refreshChannelModelsWithClient(ctx context.Context, id int, options model.C
 			result.Warnings = append(result.Warnings, maintenance(maintenanceCtx, result.AddedModels)...)
 		}
 	}
-	result.Error = redactor.Text(result.Error)
-	for i := range result.KeyResults {
-		result.KeyResults[i].Error = redactor.Text(result.KeyResults[i].Error)
-	}
-	for i := range result.Warnings {
-		result.Warnings[i] = redactor.Text(result.Warnings[i])
-	}
 	record := model.ChannelRefreshRecord{ChannelID: id, StartedAt: started, FinishedAt: time.Now(), Source: "manual", Status: "failed", BeforeCount: len(detail.Models), AfterCount: len(detail.Models), Result: result}
 	if options.Automatic {
 		record.Source = "automatic"
@@ -220,16 +202,15 @@ func refreshChannelModelsWithClient(ctx context.Context, id int, options model.C
 	} else if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 		record.Status = "canceled"
 	}
-	// 对持久化的完整诊断再脱敏，包括上游回显到模型名或 Key 名中的已知秘密。
-	raw, _ := json.Marshal(record.Result)
-	_ = json.Unmarshal([]byte(redactor.Body(string(raw))), &record.Result)
 	if e := saveChannelRefreshRecord(ctx, record); e != nil {
-		result.Warnings = append(result.Warnings, redactor.Text(fmt.Sprintf("refresh status save: %v", e)))
+		result.Warnings = append(result.Warnings, fmt.Sprintf("refresh status save: %v", e))
 	}
 	return result, err
 }
 
 func saveChannelRefreshRecord(ctx context.Context, record model.ChannelRefreshRecord) error {
+	// 返回给调用方的切片/计数指针不能改变已保存的诊断快照。
+	record.Result = cloneChannelRefreshResult(record.Result)
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	channelRefreshCommitMu.Lock()

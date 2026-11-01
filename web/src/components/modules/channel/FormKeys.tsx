@@ -7,11 +7,6 @@ import { IconButton } from '@/components/common/IconButton';
 import { useModelProbe } from './probe';
 import { grantKey, normalizeAllowedProtocols, type ChannelFormState } from './state';
 
-// maskKey 显示凭据尾部, 其余以点替代。
-function maskKey(key: string) {
-    return key.length <= 8 ? key : `${key.slice(0, 3)}••••${key.slice(-4)}`;
-}
-
 // FormKeys 渠道凭据的增删改。
 // 凭据改名后其授权要跟着改名, 否则授权会指向已不存在的凭据; 删除凭据同时删掉它的全部授权。
 export function FormKeys({ state, setState }: {
@@ -116,7 +111,7 @@ export function FormKeys({ state, setState }: {
                         <div className="grid min-w-0 flex-1 basis-40 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-4">
                             <span className="min-w-0 truncate text-sm font-medium" title={channelKey.name}>{channelKey.name}</span>
                             <span className="min-w-0 truncate text-xs font-mono text-muted-foreground">
-                                {channelKey.key ? maskKey(channelKey.key) : t('keyEmpty')}
+                                {channelKey.key || t('keyEmpty')}
                             </span>
                         </div>
                         <div className="ml-auto flex shrink-0 items-center gap-1">

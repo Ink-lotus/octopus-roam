@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,7 +22,6 @@ import (
 	"github.com/Ink-lotus/octopus-roam/internal/dbprofile"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"github.com/Ink-lotus/octopus-roam/internal/op"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/glebarez/sqlite"
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
@@ -281,9 +279,6 @@ func (s *suite) seed() error {
 		no := false
 		policy := model.DefaultGroupRelayConfig()
 		policy.MemberMaxAttempts, policy.RetryMode, policy.RetryInitialIntervalSeconds = 4, model.RetryModeExponential, 2
-		privacyConfig := privacy.DefaultConfig()
-		privacyConfig.CustomRules = []privacy.Rule{{ID: privacy.NewRuleID(), Name: "synthetic-rule", Kind: "literal", Pattern: "synthetic-private-value", Enabled: false}}
-		privacyJSON, _ := json.Marshal(privacyConfig)
 		policyJSON, _ := json.Marshal(policy)
 		dump := &model.DBDump{Product: "octopus-roam", Version: 1000,
 			Channels:         []model.Channel{{ID: fixtureID, ChannelConfig: model.ChannelConfig{Name: "env-disabled-channel", BaseURL: "http://127.0.0.1:1", Enabled: false, FollowGlobalAutoUpdate: &no, MaxConcurrency: 3, AllowedProtocols: model.ProtocolOpenAIResponse, CustomHeader: []model.CustomHeader{{HeaderKey: "X-Fixture", HeaderValue: "synthetic-value"}}, ParamOverride: `{"temperature":0.1}`}}},
@@ -294,7 +289,7 @@ func (s *suite) seed() error {
 			GroupItems:       []model.GroupItem{{ID: fixtureID, GroupID: fixtureID, ChannelGrantID: fixtureID, Priority: 2}},
 			APIKeys:          []model.APIKey{{ID: fixtureID, Name: "env-disabled-api-key", APIKey: "synthetic-api-key", Enabled: false, SupportedModels: []string{"env-disabled-group"}}},
 			WebhookEndpoints: []model.WebhookEndpoint{{ID: fixtureID, Name: "env-disabled-hook", Enabled: false, URL: "http://127.0.0.1:1/hook", Method: "POST", ContentType: "application/json", Headers: map[string]string{"X-Fixture": "synthetic-header"}, BodyTemplate: "{}", TimeoutSeconds: 15}},
-			Settings:         []model.Setting{{Key: model.SettingKeyPrivacyProtectionRules, Value: string(privacyJSON)}, {Key: model.SettingKeyPrivacyProtectionEnabled, Value: "true"}, {Key: model.SettingKeyGroupRouteDefaults, Value: string(policyJSON)}, {Key: model.SettingKeyChannelAutoUpdateEnabled, Value: "true"}, {Key: model.SettingKeyChannelAutoUpdateInterval, Value: "60"}, {Key: model.SettingKeyChannelAutoAddGroups, Value: "true"}},
+			Settings:         []model.Setting{{Key: model.SettingKeyPrivacyProtectionRules, Value: "{malformed legacy rules"}, {Key: model.SettingKeyPrivacyProtectionEnabled, Value: "true"}, {Key: model.SettingKeyGroupRouteDefaults, Value: string(policyJSON)}, {Key: model.SettingKeyChannelAutoUpdateEnabled, Value: "true"}, {Key: model.SettingKeyChannelAutoUpdateInterval, Value: "60"}, {Key: model.SettingKeyChannelAutoAddGroups, Value: "true"}},
 		}
 		if _, e := op.DBImportIncremental(s.ctx, dump); e != nil {
 			return e
@@ -412,15 +407,16 @@ func (s *suite) checkConfiguration() error {
 	if e != nil {
 		return e
 	}
-	rules, e := op.PrivacyRulesGet()
-	if e != nil {
-		return e
+	for _, key := range []model.SettingKey{model.SettingKeyPrivacyProtectionEnabled, model.SettingKeyPrivacyProtectionRules} {
+		if _, err := op.SettingGetString(key); !errors.Is(err, model.ErrSettingRetired) {
+			return errAssertion
+		}
 	}
 	auto, e := op.SettingGetBool(model.SettingKeyChannelAutoUpdateEnabled)
 	if e != nil {
 		return e
 	}
-	return require(policy.MemberMaxAttempts == 4 && rules.Enabled && len(rules.CustomRules) == 1 && !rules.CustomRules[0].Enabled && rules.CustomRules[0].Pattern == "synthetic-private-value" && auto)
+	return require(policy.MemberMaxAttempts == 4 && auto)
 }
 
 func (s *suite) rowLock() error {
@@ -683,8 +679,7 @@ func (s *suite) fingerprint() ([]byte, error) {
 }
 
 func canonical(dump *model.DBDump) ([]byte, error) {
-	// Export order is database-dependent. Normalize only ordering, export
-	// timestamps and the intentionally renewed privacy editor revision.
+	// Export order is database-dependent. Normalize only ordering and export timestamps.
 	raw, err := json.Marshal(dump)
 	if err != nil {
 		return nil, err
@@ -698,21 +693,6 @@ func canonical(dump *model.DBDump) ([]byte, error) {
 		rows, ok := field.([]any)
 		if !ok {
 			continue
-		}
-		for _, row := range rows {
-			object, ok := row.(map[string]any)
-			if !ok {
-				continue
-			}
-			if object["key"] == string(model.SettingKeyPrivacyProtectionRules) {
-				var rules map[string]any
-				if json.Unmarshal([]byte(fmt.Sprint(object["value"])), &rules) != nil {
-					return nil, errAssertion
-				}
-				delete(rules, "revision")
-				encoded, _ := json.Marshal(rules)
-				object["value"] = string(encoded)
-			}
 		}
 		sort.Slice(rows, func(i, j int) bool {
 			a, _ := json.Marshal(rows[i])

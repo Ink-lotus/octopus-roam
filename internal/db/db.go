@@ -2,7 +2,9 @@ package db
 
 import (
 	"fmt"
+	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -17,11 +19,21 @@ import (
 
 var db *gorm.DB
 
+func debugLogger(writer logger.Writer) logger.Interface {
+	return logger.New(writer, logger.Config{
+		SlowThreshold: 200 * time.Millisecond,
+		LogLevel:      logger.Info,
+		Colorful:      true,
+		// Retain statement structure/timing without adding bound parameters to logs.
+		ParameterizedQueries: true,
+	})
+}
+
 func InitDB(dbType, dsn string, debug bool) error {
 	var err error
 	gormConfig := gorm.Config{Logger: logger.Discard}
 	if debug {
-		gormConfig.Logger = redactedLogger{logger.Default.LogMode(logger.Info)}
+		gormConfig.Logger = debugLogger(log.New(os.Stdout, "\r\n", log.LstdFlags))
 	}
 
 	switch dbType {

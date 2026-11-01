@@ -7,25 +7,25 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"github.com/Ink-lotus/octopus-roam/internal/op"
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/gin-gonic/gin"
 	"github.com/looplj/axonhub/llm"
 )
 
-func assertDiagnosticPrivate(t *testing.T, text string, secrets ...string) {
+func assertDiagnosticContains(t *testing.T, text string, secrets ...string) {
 	t.Helper()
 	for _, secret := range secrets {
-		if strings.Contains(text, secret) {
-			t.Fatalf("diagnostic contains a fixture credential: %s", text)
+		if !strings.Contains(text, secret) {
+			t.Fatalf("diagnostic lost an original fixture value: %s", text)
 		}
 	}
 }
 
-func latestPrivacyRequest(t *testing.T, groupID int) RequestState {
+func latestDiagnosticRequest(t *testing.T, groupID int) RequestState {
 	t.Helper()
 	snapshot, stream := OpenRequestStream()
 	CloseRequestStream(stream)
@@ -38,14 +38,13 @@ func latestPrivacyRequest(t *testing.T, groupID int) RequestState {
 	return RequestState{}
 }
 
-func TestRelayErrorsUseSameRedactionAcrossProtocolsAndDiagnostics(t *testing.T) {
-	setTestPrivacyProtection(t, true)
+func TestRelayErrorsRetainOriginalValuesAcrossProtocolsAndDiagnostics(t *testing.T) {
 	for _, format := range []llm.APIFormat{llm.APIFormatOpenAIChatCompletion, llm.APIFormatOpenAIResponse, llm.APIFormatAnthropicMessage} {
 		t.Run(string(format), func(t *testing.T) {
 			const inboundSecret, customSecret, bodySecret = "fixture-inbound-key", "fixture-custom-value", "fixture-body-password"
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "Bearer test-upstream-credential" || r.Header.Get("X-Private-Custom") != customSecret {
-					t.Error("redaction changed upstream credentials")
+					t.Error("forwarding changed upstream credentials")
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
@@ -79,55 +78,33 @@ func TestRelayErrorsUseSameRedactionAcrossProtocolsAndDiagnostics(t *testing.T) 
 			if response.Code != http.StatusServiceUnavailable {
 				t.Fatalf("unexpected error status: %d: %s", response.Code, response.Body)
 			}
-			state := latestPrivacyRequest(t, group.ID)
+			state := latestDiagnosticRequest(t, group.ID)
 			encoded, _ := json.Marshal(state)
 			runtime, _ := json.Marshal(RuntimeSnapshot())
 			secrets := []string{"test-upstream-credential", inboundSecret, customSecret, bodySecret, "fixture-user", "fixture-url-password", "fixture-query-key"}
-			for _, diagnostic := range []string{response.Body.String(), string(encoded), string(runtime), RequestBody(state.ID)} {
-				assertDiagnosticPrivate(t, diagnostic, secrets...)
+			for _, diagnostic := range []string{response.Body.String(), string(encoded), string(runtime)} {
+				assertDiagnosticContains(t, diagnostic, secrets...)
 			}
-			if !strings.Contains(state.LastError, "denied") || !strings.Contains(state.LastError, privacy.Mask("test-upstream-credential")) {
-				t.Fatalf("error lost context/fingerprint: %s", state.LastError)
+			if !strings.Contains(state.LastError, "denied") || !strings.Contains(state.LastError, "test-upstream-credential") {
+				t.Fatalf("error lost original context: %s", state.LastError)
 			}
-			if !strings.Contains(response.Body.String(), privacy.Mask("test-upstream-credential")) {
-				t.Fatal("response uses a different fingerprint")
+			if !strings.Contains(response.Body.String(), "test-upstream-credential") {
+				t.Fatal("response changed the original error")
 			}
-			if !strings.Contains(RequestBody(state.ID), "ordinary prompt") {
+			if RequestBody(state.ID) != body {
 				t.Fatal("request body lost ordinary content")
 			}
 		})
 	}
 }
 
-func TestDiagnosticBodyRedactionDoesNotChangeSuccessfulForwarding(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
-			setTestPrivacyProtection(t, enabled)
-			checkDiagnosticBodyForwarding(t, enabled)
-		})
-	}
-}
-
-func setTestPrivacyProtection(t *testing.T, enabled bool) {
-	t.Helper()
-	previous, err := op.SettingGetString(model.SettingKeyPrivacyProtectionEnabled)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, previous) })
-	if err := op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, fmt.Sprint(enabled)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func checkDiagnosticBodyForwarding(t *testing.T, enabled bool) {
-	t.Helper()
+func TestDiagnosticBodiesRetainSuccessfulForwarding(t *testing.T) {
 	const bodySecret = "fixture-success-body-key"
 	responseBody := strings.Replace(chatCompletionBody, `"content":"pong"`, `"content":"pong test-upstream-credential","api_key":"fixture-response-key"`, 1)
 	received := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-upstream-credential" {
-			t.Error("privacy setting changed the upstream credential")
+			t.Error("forwarding changed the upstream credential")
 		}
 		body, _ := io.ReadAll(r.Body)
 		received <- string(body)
@@ -147,27 +124,25 @@ func checkDiagnosticBodyForwarding(t *testing.T, enabled bool) {
 		t.Fatal("successful forwarding payload was changed")
 	}
 	if !strings.Contains(<-received, bodySecret) {
-		t.Fatal("upstream request body was redacted")
+		t.Fatal("upstream request body was changed")
 	}
-	state := latestPrivacyRequest(t, group.ID)
-	// Reading diagnostics after removing the channel must retain its captured secrets.
+	state := latestDiagnosticRequest(t, group.ID)
+	// Reading existing diagnostics does not depend on the channel still existing.
 	if err := op.ChannelDel(channelIDOfGrant(t, grantID), t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if enabled {
-		assertDiagnosticPrivate(t, RequestBody(state.ID), bodySecret)
-		assertDiagnosticPrivate(t, ResponseBody(state.ID), "test-upstream-credential", "fixture-response-key")
-	} else if RequestBody(state.ID) != body || ResponseBody(state.ID) != responseBody {
-		t.Fatal("disabled privacy changed diagnostic bodies")
+	if RequestBody(state.ID) != body || ResponseBody(state.ID) != responseBody {
+		t.Fatal("diagnostic bodies changed the original payloads")
 	}
 	if !strings.Contains(ResponseBody(state.ID), "pong") {
 		t.Fatal("response diagnostic lost ordinary output")
 	}
 }
 
-func TestCommittedStreamErrorIsRedacted(t *testing.T) {
-	setTestPrivacyProtection(t, true)
+func TestCommittedStreamErrorRetainsOriginalMessage(t *testing.T) {
+	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		io.WriteString(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n")
 		w.(http.Flusher).Flush()
@@ -181,14 +156,14 @@ func TestCommittedStreamErrorIsRedacted(t *testing.T) {
 	if !strings.Contains(response.Body.String(), "hello") || !strings.Contains(response.Body.String(), "denied") {
 		t.Fatalf("stream content/error missing: %s", response.Body)
 	}
-	assertDiagnosticPrivate(t, response.Body.String(), "test-upstream-credential")
+	assertDiagnosticContains(t, response.Body.String(), "test-upstream-credential")
 	group, err := op.GroupGetByName(name)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h := healthOf(t, group.ID).Members[group.ActiveItemID]
-	if h.FailureStreak != 1 {
+	if h.FailureStreak != 1 || calls.Load() != 1 {
 		t.Fatalf("committed error not reflected in health: %+v", h)
 	}
-	assertDiagnosticPrivate(t, h.LastError, "test-upstream-credential")
+	assertDiagnosticContains(t, h.LastError, "test-upstream-credential")
 }

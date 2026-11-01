@@ -5,25 +5,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Ink-lotus/octopus-roam/internal/privacy"
 	"github.com/gin-gonic/gin"
 )
 
-func TestRequestLogRedactsQueryAndHeaderCredentials(t *testing.T) {
-	previous := privacy.DiagnosticsEnabled()
-	privacy.SetDiagnosticsEnabled(true)
-	t.Cleanup(func() { privacy.SetDiagnosticsEnabled(previous) })
-	request := httptest.NewRequest("GET", "/v1/models?api_key=fixture-query-secret&room=ops", nil)
-	request.Header.Set("Authorization", "Bearer fixture-inbound-secret")
-	request.Header.Set("X-Secret-Id", "fixture-header-suffix-value")
-	request.URL.RawQuery += "&api_key_id=fixture-query-suffix-value"
-	got := formatRequestLog(gin.LogFormatterParams{Request: request, Path: request.URL.RequestURI(), ErrorMessage: "failed fixture-inbound-secret fixture-header-suffix-value", StatusCode: 502})
-	for _, secret := range []string{"fixture-query-secret", "fixture-inbound-secret", "fixture-header-suffix-value", "fixture-query-suffix-value"} {
-		if strings.Contains(got, secret) {
-			t.Fatalf("access log leaked credential: %s", got)
+func TestRequestLogPreservesOriginalFieldsWithoutCollectingHeadersOrBody(t *testing.T) {
+	request := httptest.NewRequest("POST", "/v1/models?api_key=fixture-query-value&room=ops", strings.NewReader("fixture-uncollected-body"))
+	request.Header.Set("Authorization", "Bearer fixture-uncollected-header")
+	message := "failed password=fixture-error-value"
+	got := formatRequestLog(gin.LogFormatterParams{Request: request, Path: request.URL.RequestURI(), ErrorMessage: message, StatusCode: 502})
+	for _, text := range []string{request.URL.RequestURI(), message, "502"} {
+		if !strings.Contains(got, text) {
+			t.Fatalf("access log lost a supplied field: %s", got)
 		}
 	}
-	if !strings.Contains(got, "/v1/models") || !strings.Contains(got, "room=ops") || !strings.Contains(got, "502") {
-		t.Fatalf("access log lost diagnostics: %s", got)
+	for _, text := range []string{"fixture-uncollected-header", "fixture-uncollected-body", "[redacted:"} {
+		if strings.Contains(got, text) {
+			t.Fatal("access log expanded collection or replaced content")
+		}
 	}
 }

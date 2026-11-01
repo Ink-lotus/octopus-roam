@@ -23,20 +23,7 @@ import (
 
 var channelHandlerFixtureID atomic.Int64
 
-func enableHandlerPrivacy(t *testing.T) {
-	t.Helper()
-	previous, err := op.SettingGetString(model.SettingKeyPrivacyProtectionEnabled)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, previous) })
-	if err := op.SettingSetString(model.SettingKeyPrivacyProtectionEnabled, "true"); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestRefreshChannelModelsHandlerReturnsPerKeyResult(t *testing.T) {
-	enableHandlerPrivacy(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
@@ -96,8 +83,8 @@ func TestRefreshChannelModelsHandlerReturnsPerKeyResult(t *testing.T) {
 	if keyResult.AddedCount == nil || keyResult.RemovedCount == nil || *keyResult.AddedCount != 1 || *keyResult.RemovedCount != 1 {
 		t.Fatalf("per-key changes missing from response: %+v", keyResult)
 	}
-	if !strings.Contains(keyResult.Error, "anthropic:") || strings.Contains(keyResult.Error, "handler-refresh-key") {
-		t.Fatalf("tolerated-side diagnostic missing or secret was not redacted: %+v", keyResult)
+	if !strings.Contains(keyResult.Error, "anthropic:") || !strings.Contains(keyResult.Error, "handler-refresh-key") {
+		t.Fatalf("tolerated-side diagnostic lost the upstream error: %+v", keyResult)
 	}
 	if envelope.Data.AddedModels == nil || len(envelope.Data.AddedModels) != 1 || envelope.Data.AddedModels[0] != "handler-new-model" {
 		t.Fatalf("unexpected refresh delta: %+v", envelope.Data)
@@ -307,8 +294,7 @@ func TestRefreshChannelModelsHandlerReturnsConflictWhileRefreshIsRunning(t *test
 	}
 }
 
-func TestRefreshChannelModelsHandlerRedactsEachKeyError(t *testing.T) {
-	enableHandlerPrivacy(t)
+func TestRefreshChannelModelsHandlerKeepsEachKeyError(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			http.NotFound(w, r)
@@ -330,7 +316,7 @@ func TestRefreshChannelModelsHandlerRedactsEachKeyError(t *testing.T) {
 	}
 	detail := &model.ChannelDetail{
 		ChannelConfig: model.ChannelConfig{
-			Name:    fmt.Sprintf("handler-refresh-redact-%d", channelHandlerFixtureID.Add(1)),
+			Name:    fmt.Sprintf("handler-refresh-errors-%d", channelHandlerFixtureID.Add(1)),
 			Enabled: true,
 			BaseURL: upstream.URL,
 		},
@@ -340,7 +326,7 @@ func TestRefreshChannelModelsHandlerRedactsEachKeyError(t *testing.T) {
 	}
 	created, err := op.ChannelCreate(detail, t.Context())
 	if err != nil {
-		t.Fatalf("create redaction fixture: %v", err)
+		t.Fatalf("create diagnostic fixture: %v", err)
 	}
 
 	engine := gin.New()
@@ -350,18 +336,18 @@ func TestRefreshChannelModelsHandlerRedactsEachKeyError(t *testing.T) {
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
-		t.Fatalf("redaction refresh returned %d: %s", response.Code, response.Body.String())
+		t.Fatalf("diagnostic refresh returned %d: %s", response.Code, response.Body.String())
 	}
 	for _, secret := range []string{"first-secret", "second-secret", "Bearer first-secret", "Bearer second-secret"} {
-		if strings.Contains(response.Body.String(), secret) {
-			t.Fatalf("refresh response leaked %q: %s", secret, response.Body.String())
+		if !strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("refresh response lost fixture value %q: %s", secret, response.Body.String())
 		}
 	}
 	var envelope struct {
 		Data model.ChannelModelRefreshResult `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("decode redacted refresh response: %v", err)
+		t.Fatalf("decode refresh response: %v", err)
 	}
 	if len(envelope.Data.KeyResults) != len(keys) {
 		t.Fatalf("unexpected key results: %+v", envelope.Data)

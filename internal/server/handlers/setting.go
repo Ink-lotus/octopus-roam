@@ -25,13 +25,13 @@ func init() {
 	router.NewGroupRouter("/api/v1/setting").
 		Use(middleware.Auth()).
 		AddRoute(
-			router.NewRoute("/privacy-rules", http.MethodGet).Handle(getPrivacyRules),
+			router.NewRoute("/privacy-rules", http.MethodGet).Handle(privacyRemoved),
 		).
 		AddRoute(
-			router.NewRoute("/privacy-rules", http.MethodPost).Use(middleware.RequireJSON()).Handle(mutatePrivacyRules),
+			router.NewRoute("/privacy-rules", http.MethodPost).Handle(privacyRemoved),
 		).
 		AddRoute(
-			router.NewRoute("/privacy-preview", http.MethodPost).Use(middleware.RequireJSON()).Handle(previewPrivacy),
+			router.NewRoute("/privacy-preview", http.MethodPost).Handle(privacyRemoved),
 		).
 		AddRoute(
 			router.NewRoute("/list", http.MethodGet).
@@ -67,17 +67,27 @@ func getSettingList(c *gin.Context) {
 }
 
 func setSetting(c *gin.Context) {
-	var setting model.Setting
-	if err := c.ShouldBindJSON(&setting); err != nil {
+	var input struct {
+		Key   model.SettingKey `json:"key"`
+		Value json.RawMessage  `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
 		resp.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if setting.Key == model.SettingKeyGroupRouteDefaults {
-		resp.Error(c, http.StatusBadRequest, "use /api/v1/group/route-defaults to update route defaults")
+	if model.IsRetiredSetting(input.Key) {
+		privacyRemoved(c)
 		return
 	}
-	if setting.Key == model.SettingKeyPrivacyProtectionRules {
-		resp.Error(c, http.StatusBadRequest, "use /api/v1/setting/privacy-rules to update privacy rules")
+	setting := model.Setting{Key: input.Key}
+	if len(input.Value) > 0 {
+		if err := json.Unmarshal(input.Value, &setting.Value); err != nil {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if setting.Key == model.SettingKeyGroupRouteDefaults {
+		resp.Error(c, http.StatusBadRequest, "use /api/v1/group/route-defaults to update route defaults")
 		return
 	}
 	if err := setting.Validate(); err != nil {
@@ -85,10 +95,6 @@ func setSetting(c *gin.Context) {
 		return
 	}
 	if err := op.SettingSetString(setting.Key, setting.Value); err != nil {
-		if setting.Key == model.SettingKeyPrivacyProtectionEnabled {
-			privacyError(c, err)
-			return
-		}
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
