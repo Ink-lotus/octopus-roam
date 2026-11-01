@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"time"
 
@@ -32,11 +33,17 @@ func touchRouteConfigLocked(groupID int) {
 }
 
 func emptyRouteStateLocked(group model.Group) RouteState {
+	hits := ruleCooldownsForItemsLocked(group.Items)
+	if !slices.Equal(emptyRuleStates[group.ID], hits) {
+		emptyRuleStates[group.ID] = slices.Clone(hits)
+		routeStateVersions[group.ID] = routeVersion.Add(1)
+	}
 	state := RouteState{
 		GroupID:          group.ID,
 		Version:          publicRouteVersion(routeStateVersions[group.ID]),
 		ConfigVersion:    publicRouteVersion(routeConfigVersions[group.ID]),
-		SelectionVersion: publicRouteVersion(routeStateVersions[group.ID]),
+		SelectionVersion: publicRouteVersion(routeConfigVersions[group.ID]),
+		RuleCooldowns:    hits,
 		Cooldowns:        map[int]int64{}, CooldownVersions: map[int]string{},
 	}
 	if group.Mode == model.GroupModeManual {
@@ -46,9 +53,16 @@ func emptyRouteStateLocked(group model.Group) RouteState {
 }
 
 func routeSnapshotLocked(route *routeRuntime) RouteState {
+	hits := ruleCooldownsForItemsLocked(route.ruleItems)
+	if !slices.Equal(route.state.RuleCooldowns, hits) {
+		route.state.RuleCooldowns = hits
+		routeStateVersions[route.state.GroupID] = routeVersion.Add(1)
+		route.state.Version = publicRouteVersion(routeStateVersions[route.state.GroupID])
+	}
 	state := route.state
 	state.Cooldowns = maps.Clone(state.Cooldowns)
 	state.CooldownVersions = maps.Clone(state.CooldownVersions)
+	state.RuleCooldowns = slices.Clone(hits)
 	return state
 }
 

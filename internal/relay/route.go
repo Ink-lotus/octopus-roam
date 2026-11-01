@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ type RouteState struct {
 	ProbeItemID      int            `json:"probe_item_id"`     // 当前占用恢复探测的成员 ID, 同一分组同时只允许一个成员被探测; 手动模式恒为 0。
 	AffinityUntil    int64          `json:"affinity_until"`    // 兼容旧 API 的字段, 路由不再使用亲和, 恒为 0。
 	Cooldowns        map[int]int64  `json:"cooldowns"`         // 失败成员 ID 对应的冷却截止 Unix 毫秒时间, 已到期的条目由前端按当前时间忽略。
+	RuleCooldowns    []CooldownHit  `json:"rule_cooldowns"`    // 跨分组共享的渠道/实际模型规则命中。
 }
 
 // routeSelection 是一次选路的内部结果。Generation 将结果回报绑定到选路版本,
@@ -45,6 +47,7 @@ type routeRuntime struct {
 	recoveryBarrier          uint64
 	failedChannelsAtRecovery int
 	health                   map[int]*memberHealth
+	ruleItems                []model.GroupItem
 	state                    RouteState
 	generation               uint64
 	probeToken               uint64
@@ -101,6 +104,7 @@ func RouteStateOf(group model.Group) RouteState {
 		return emptyRouteStateLocked(group)
 	}
 	expireRouteCooldownsLocked(route, time.Now())
+	route.ruleItems = slices.Clone(group.Items)
 	state := routeSnapshotLocked(route)
 	if group.Mode == model.GroupModeManual {
 		state.CurrentItemID = group.ActiveItemID
@@ -175,7 +179,7 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 	if group.Mode == model.GroupModeManual {
 		for _, item := range group.Items {
 			if item.ID == group.ActiveItemID && item.Available {
-				if deadline, wait := healthWaitLocked(route, item, now); wait {
+				if deadline, wait := cooldownWaitLocked(route, item, now); wait {
 					return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
 				}
 				return selectionOf(route, item, 0)
@@ -187,28 +191,44 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 	// 当前成员健康时一直固定使用。仅在它已经从本轮可用成员集合中消失时重新选路。
 	if route.state.CurrentItemID != 0 {
 		if current, exists := availableItemOf(group, route.state.CurrentItemID); exists {
-			if deadline, wait := healthWaitLocked(route, current, now); wait {
-				return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
+			if ruleCooldownDeadline(current).IsZero() {
+				if deadline, wait := healthWaitLocked(route, current, now); wait {
+					return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
+				}
+				return selectionOf(route, current, 0)
 			}
-			return selectionOf(route, current, 0)
+			// A shared rule permits failover before the original member budget is
+			// exhausted. Keep its health/cooldown cycle and select another target.
+		} else {
+			route.state.CurrentItemID = 0
+			route.state.AffinityUntil = 0
+			advanceRouteLocked(route)
+			publishRouteLocked(route)
 		}
-		route.state.CurrentItemID = 0
-		route.state.AffinityUntil = 0
-		advanceRouteLocked(route)
-		publishRouteLocked(route)
 	}
 
 	// 恢复探测由原持有者继续, 其失败预算与退避从该请求的首次探测尝试开始累计。
 	if probeToken != 0 && route.probeToken == probeToken && route.state.ProbeItemID != 0 {
 		if item, exists := availableItemOf(group, route.state.ProbeItemID); exists {
-			if deadline, wait := healthWaitLocked(route, item, now); wait {
-				return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
+			if ruleCooldownDeadline(item).IsZero() {
+				if deadline, wait := healthWaitLocked(route, item, now); wait {
+					return routeSelection{Wait: true, WaitUntil: deadline, Generation: route.generation, Changed: route.changed}
+				}
+				return selectionOf(route, item, route.probeToken)
 			}
-			return selectionOf(route, item, route.probeToken)
+			// The holder has not started another send; release its selection
+			// reservation before waiting for a shared rule or trying a fallback.
+			route.state.ProbeItemID, route.probeToken = 0, 0
+			advanceRouteLocked(route)
+			signalRouteLocked(route)
+			publishRouteLocked(route)
 		}
 	}
 	if route.state.ProbeItemID != 0 {
-		return routeSelection{Wait: true, Generation: route.generation, Changed: route.changed}
+		item, exists := availableItemOf(group, route.state.ProbeItemID)
+		if !exists || ruleCooldownDeadline(item).IsZero() {
+			return routeSelection{Wait: true, Generation: route.generation, Changed: route.changed}
+		}
 	}
 
 	var earliest time.Time
@@ -216,13 +236,16 @@ func pickGroupItemAt(group model.Group, probeToken uint64, now time.Time) routeS
 		if !item.Available {
 			continue
 		}
-		if deadline, wait := healthWaitLocked(route, item, now); wait {
+		if deadline, wait := cooldownWaitLocked(route, item, now); wait {
 			if !deadline.IsZero() && (earliest.IsZero() || deadline.Before(earliest)) {
 				earliest = deadline
 			}
 			continue
 		}
 		if route.health[item.ID].recoveryPending {
+			if route.state.ProbeItemID != 0 {
+				continue // preserve a different in-flight probe's ownership
+			}
 			// 计数清零后仍需真实成功验证，并保留单一恢复探测持有者。
 			if retryAt := route.probeRetryAfter[item.ID]; retryAt.After(now) {
 				if earliest.IsZero() || retryAt.Before(earliest) {
@@ -442,6 +465,7 @@ func NotifyRouteStateChanged(group model.Group) {
 	touchRouteConfigLocked(group.ID)
 	delete(routeBlocked, group.ID)
 	if route := routes[group.ID]; route != nil {
+		route.ruleItems = slices.Clone(group.Items)
 		for _, item := range group.Items {
 			memberHealthLocked(route, item)
 		}
@@ -512,6 +536,7 @@ func ensureRouteLocked(group model.Group) *routeRuntime {
 		route.state.SelectionVersion = publicRouteVersion(route.generation)
 		routes[group.ID] = route
 	}
+	route.ruleItems = slices.Clone(group.Items)
 	return route
 }
 
@@ -524,6 +549,7 @@ func cleanupRouteBlockedLocked(now time.Time) {
 			delete(routeBlocked, groupID)
 			delete(routeConfigVersions, groupID)
 			delete(routeStateVersions, groupID)
+			delete(emptyRuleStates, groupID)
 		}
 	}
 	routeBlockCleanupAt = now.Add(routeBlockCleanupInterval)

@@ -156,7 +156,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			// 成员指向的授权缺失, 凭据被停用或两侧已被删除时等待, 该成员可能很快被改回可用配置。
 			// ChannelGrantGet 一次校验齐这几种情况, 取到的授权必然可直接转发, 无需再逐项检查。
-			grant, err := op.ChannelGrantGet(item.ChannelGrantID)
+			attemptConfig, err := op.ChannelRelaySnapshot(item.ChannelGrantID)
 			if err != nil {
 				request.recordFailure(err.Error())
 				if group.Mode == model.GroupModeFailover {
@@ -167,21 +167,11 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 				continue
 			}
+			grant := attemptConfig.Grant
 			channelModel := grant.ChannelModel
 			channelKey := grant.ChannelKey
-
-			// 成员指向的渠道已被删除时同样等待, 该成员可能很快被改回可用渠道。
-			channel, err := op.ChannelGet(channelModel.ChannelID)
-			if err != nil {
-				request.recordFailure(err.Error())
-				if group.Mode == model.GroupModeFailover {
-					recordRouteFailure(group, item.ID, group.RelayConfig.MemberMaxAttempts, selection.Generation, selection.ProbeToken)
-					probeToken = 0
-				} else if !request.waitRetry(ctx, secondsToDuration(group.RelayConfig.MemberRetryIntervalSeconds), selection.Changed) {
-					return
-				}
-				continue
-			}
+			channel := attemptConfig.Channel
+			var cooldownToken CooldownToken
 
 			// 将分组成员配置的真实模型写入本轮上游请求。
 			raw.Body, err = sjson.SetBytes(raw.Body, "model", channelModel.Name)
@@ -229,16 +219,16 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					continue
 				}
 				// 排队期间渠道配置可能已更新。重读授权和渠道，避免使用旧凭据或协议。
-				freshGrant, grantErr := op.ChannelGrantGet(item.ChannelGrantID)
-				freshChannel, channelErr := op.ChannelGet(channel.ID)
-				if grantErr != nil || channelErr != nil || !freshChannel.Enabled {
+				freshConfig, configErr := op.ChannelRelaySnapshot(item.ChannelGrantID)
+				if configErr != nil || !freshConfig.Channel.Enabled || freshConfig.Channel.ID != channel.ID {
 					releaseCapacity()
 					releaseCapacity = nil
 					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
 					probeToken, activeProbe.token = 0, 0
 					continue
 				}
-				grant, channel = freshGrant, freshChannel
+				attemptConfig = freshConfig
+				grant, channel = freshConfig.Grant, freshConfig.Channel
 				select {
 				case <-selection.Changed:
 					releaseCapacity()
@@ -248,7 +238,26 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 					continue
 				default:
 				}
-				channelKey = freshGrant.ChannelKey
+				channelKey, channelModel = grant.ChannelKey, grant.ChannelModel
+				engine := ruleCooldownEngine.Load()
+				var captured bool
+				cooldownToken, captured = engine.Capture(channel.ID, attemptConfig.Generation, channelModel.Name)
+				observation := engine.Observe(channel.ID, channelModel.Name)
+				if !captured || observation.Generation != attemptConfig.Generation || !observation.Until.IsZero() {
+					releaseCapacity()
+					releaseCapacity = nil
+					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					probeToken, activeProbe.token = 0, 0
+					continue
+				}
+				raw.Body, err = sjson.SetBytes(raw.Body, "model", channelModel.Name)
+				if err != nil {
+					releaseCapacity()
+					releaseCapacity = nil
+					request.markFailed(err, "", nil)
+					rejectRequest(c, inbound, err)
+					return
+				}
 				outbound, targetProtocol, passthrough, err = buildOutbound(channel, grant, *channelKey, requestProtocol)
 				if err == nil {
 					activeHealth = admitHealth(group, selection, channel, grant)
@@ -265,6 +274,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 
 			// 为本轮上游调用建立独立取消入口并登记当前目标; 取消原因用于区分人工中止与响应超时。
 			roundCtx, cancelRoundCause := context.WithCancelCause(ctx)
+			roundCtx = bindCooldownSend(roundCtx, attemptConfig, cooldownToken, group, selection)
 			// 人工中止和本轮完成都使用普通 canceled 原因, 超时回调则写入具体的超时错误。
 			cancelRound := func() {
 				cancelRoundCause(context.Canceled)
@@ -314,7 +324,29 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				}
 			}
 
+			if err == nil && !metadata.Streaming {
+				err = ordinaryUpstreamFailure(result)
+			}
 			if err != nil {
+				if !sent && errors.Is(err, errCooldownSendChanged) {
+					cancelRound()
+					if releaseCapacity != nil {
+						releaseCapacity()
+						releaseCapacity = nil
+					}
+					releaseHealth()
+					releaseRouteProbe(group, item.ID, selection.Generation, selection.ProbeToken)
+					probeToken, activeProbe.token = 0, 0
+					if result != nil {
+						waitForStreamFinalization(result.finalize)
+					}
+					if startsAttempt {
+						request.discardUnsentAttempt()
+					}
+					request.finishRound("", false)
+					continue
+				}
+				recordAttemptCooldown(roundCtx, cooldownToken, sent, result, err)
 				// 记录本轮上游调用已经结束及其失败原因。
 				cancelCause := context.Cause(roundCtx)
 				cancelRound()
@@ -559,6 +591,7 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 			if result.terminal != nil {
 				upstreamComplete = result.terminal.complete
 			}
+			recordAttemptCooldown(roundCtx, cooldownToken, sent, result, upstreamErr)
 			if upstreamComplete || (ctx.Err() == nil && context.Cause(roundCtx) != context.Canceled) {
 				failure := ""
 				if upstreamErr != nil {

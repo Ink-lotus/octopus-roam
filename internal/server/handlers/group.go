@@ -109,12 +109,14 @@ func publishGroupSnapshot(group model.Group) {
 }
 
 // streamGroupEvents 向前端发送分组的变更事件与实时运行状态。
-// 一条连接承载两个来源: 分组的增删改由本包发布, 故障转移模式的运行状态增量由 Relay 的路由自身发布。
+// 一条连接承载分组增删改、路由运行状态及跨分组共享的渠道规则状态。
 // 不发初始快照: 分组读取接口已随分组带回当前状态, 前端由此拿到的初始值即全量。
 func streamGroupEvents(c *gin.Context) {
 	prepareSSE(c)
 	routeUpdates := relay.OpenRouteStream()
 	defer relay.CloseRouteStream(routeUpdates)
+	cooldownUpdates := relay.OpenChannelCooldownStream()
+	defer relay.CloseChannelCooldownStream(cooldownUpdates)
 
 	events := make(chan groupEvent, groupEventBuffer)
 	groupEventMu.Lock()
@@ -129,6 +131,9 @@ func streamGroupEvents(c *gin.Context) {
 			close(events)
 		}
 	}()
+	// Flush only after all subscriptions exist; onopen can then fetch current
+	// snapshots without waiting for a change or the first heartbeat.
+	c.Writer.Flush()
 
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -146,6 +151,14 @@ func streamGroupEvents(c *gin.Context) {
 				return
 			}
 			if err := sse.Encode(c.Writer, sse.Event{Event: "runtime", Data: update}); err != nil {
+				return
+			}
+			c.Writer.Flush()
+		case update, ok := <-cooldownUpdates:
+			if !ok {
+				return
+			}
+			if err := sse.Encode(c.Writer, sse.Event{Event: "channel-cooldown", Data: update}); err != nil {
 				return
 			}
 			c.Writer.Flush()

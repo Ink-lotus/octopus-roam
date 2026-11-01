@@ -405,6 +405,8 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 		return result, nil
 	}
 
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
 	if reason := guard.check(); reason != "" {
@@ -415,6 +417,7 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
 	oldNames := make(map[string]struct{})
+	var cooldownConfig *channelCooldownConfig
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if options.Automatic && !ChannelAutoUpdateEligible(channelID) {
 			return ErrChannelRefreshStale
@@ -439,11 +442,18 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 		if err := syncChannelGrants(tx, channelID, grants); err != nil {
 			return err
 		}
-		return syncRefreshedChannelGroups(tx, channelID, options.AutoAddGroups, oldGrantIDs)
+		if err := syncRefreshedChannelGroups(tx, channelID, options.AutoAddGroups, oldGrantIDs); err != nil {
+			return err
+		}
+		cooldownConfig, err = loadChannelCooldownConfig(tx, channelID)
+		return err
 	}); err != nil {
 		return result, err
 	}
 
+	if cooldownNotify, err = publishChannelCooldownConfig(cooldownConfig); err != nil {
+		return result, err
+	}
 	// 仅在事务提交后统计各 Key 的授权变化，失败或并发冲突保留零变更。
 	keyResultsByName := make(map[string]*model.ChannelModelRefreshKeyResult, len(result.KeyResults))
 	for i := range result.KeyResults {

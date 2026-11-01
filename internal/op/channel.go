@@ -77,12 +77,17 @@ func ChannelCreateWithOptions(detail *model.ChannelDetail, options model.Channel
 	if err := normalizeChannelDetail(detail); err != nil {
 		return nil, err
 	}
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
+	channelRefreshCommitMu.Lock()
+	defer channelRefreshCommitMu.Unlock()
 	if options.AutoAddGroups {
 		groupWriteMu.Lock()
 		defer groupWriteMu.Unlock()
 	}
 
 	channel := model.Channel{ChannelConfig: detail.ChannelConfig}
+	var cooldownConfig *channelCooldownConfig
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&channel).Error; err != nil {
 			return fmt.Errorf("failed to create channel: %w", err)
@@ -91,13 +96,21 @@ func ChannelCreateWithOptions(detail *model.ChannelDetail, options model.Channel
 			return err
 		}
 		if options.AutoAddGroups {
-			return appendMatchingChannelGroups(tx, channel.ID)
+			if err := appendMatchingChannelGroups(tx, channel.ID); err != nil {
+				return err
+			}
 		}
-		return nil
+		var err error
+		cooldownConfig, err = loadChannelCooldownConfig(tx, channel.ID)
+		return err
 	}); err != nil {
 		return nil, err
 	}
 
+	var err error
+	if cooldownNotify, err = publishChannelCooldownConfig(cooldownConfig); err != nil {
+		return nil, err
+	}
 	channelCache.Set(channel.ID, channel)
 	notifyChannelConfigChanged()
 	// 凭据, 模型与授权的主键都在事务内分配, 此刻只在库里; 重载子表缓存以让授权候选与转发都能查到。
@@ -125,6 +138,8 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 	if _, ok := channelCache.Get(detail.ID); !ok {
 		return nil, fmt.Errorf("channel not found")
 	}
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
 	groupWriteMu.Lock()
@@ -140,6 +155,7 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 		return nil, err
 	}
 
+	var cooldownConfig *channelCooldownConfig
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 逐列点名而不整行覆盖: 全量提交下 enabled 置假与被清空的可选字段都必须落库, 按零值跳过会写不进去;
 		// 而统计列由转发累加, 不在提交范围内, 整行覆盖会把它抹回提交时的旧值。
@@ -154,13 +170,21 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 			return err
 		}
 		if options.AutoAddGroups {
-			return appendMatchingChannelGroups(tx, detail.ID)
+			if err := appendMatchingChannelGroups(tx, detail.ID); err != nil {
+				return err
+			}
 		}
-		return nil
+		var err error
+		cooldownConfig, err = loadChannelCooldownConfig(tx, detail.ID)
+		return err
 	}); err != nil {
 		return nil, err
 	}
 
+	var err error
+	if cooldownNotify, err = publishChannelCooldownConfig(cooldownConfig); err != nil {
+		return nil, err
+	}
 	// 缓存条目由提交的配置重建, 统计从原条目搬过来: 它含本轮尚未落库的累加, 比库内的行更新。
 	channelStatsNeedUpdateLock.Lock()
 	channel := model.Channel{ID: detail.ID, ChannelConfig: detail.ChannelConfig}
@@ -281,17 +305,33 @@ func syncChannelChildren(tx *gorm.DB, channelID int, detail *model.ChannelDetail
 
 // ChannelEnabled 更新渠道启用状态。
 func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
-	channel, ok := channelCache.Get(id)
-	if !ok {
-		return fmt.Errorf("channel not found")
-	}
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
-	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
+	if _, ok := channelCache.Get(id); !ok {
+		return fmt.Errorf("channel not found")
+	}
+	var cooldownConfig *channelCooldownConfig
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
+			return err
+		}
+		var err error
+		cooldownConfig, err = loadChannelCooldownConfig(tx, id)
+		return err
+	}); err != nil {
 		return err
 	}
+	var err error
+	if cooldownNotify, err = publishChannelCooldownConfig(cooldownConfig); err != nil {
+		return err
+	}
+	channelStatsNeedUpdateLock.Lock()
+	channel, _ := channelCache.Get(id)
 	channel.Enabled = enabled
 	channelCache.Set(id, channel)
+	channelStatsNeedUpdateLock.Unlock()
 	notifyChannelConfigChanged()
 	return nil
 }
@@ -301,6 +341,8 @@ func ChannelDel(id int, ctx context.Context) error {
 	if _, ok := channelCache.Get(id); !ok {
 		return fmt.Errorf("channel not found")
 	}
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
 	grantIDs := channelGrantIDs(id)
@@ -321,6 +363,11 @@ func ChannelDel(id int, ctx context.Context) error {
 		return err
 	}
 
+	proxy, _ := SettingGetString(model.SettingKeyProxyURL)
+	var err error
+	if cooldownNotify, err = republishChannelCooldownConfigs(proxy, id); err != nil {
+		return err
+	}
 	channelStatsNeedUpdateLock.Lock()
 	channelCache.Del(id)
 	channelRefreshRecords.Del(id)
@@ -440,6 +487,10 @@ func ChannelGrantCandidates() []model.ChannelGrantCandidate {
 
 // channelRefreshCache 从数据库刷新渠道, 凭据, 模型与渠道授权缓存。
 func channelRefreshCache(ctx context.Context) error {
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
+	channelRefreshCommitMu.Lock()
+	defer channelRefreshCommitMu.Unlock()
 	conn := db.GetDB().WithContext(ctx)
 	channels := []model.Channel{}
 	if err := conn.Find(&channels).Error; err != nil {
@@ -459,17 +510,26 @@ func channelRefreshCache(ctx context.Context) error {
 		return err
 	}
 
+	configs := make([]*channelCooldownConfig, 0, len(channels))
+	for i := range channels {
+		channels[i].AllowedProtocols = model.NormalizeProtocols(channels[i].AllowedProtocols)
+		rules, err := model.NormalizeCooldownRules(channels[i].CooldownRules)
+		if err != nil {
+			return fmt.Errorf("invalid cooldown rules for channel %d: %w", channels[i].ID, err)
+		}
+		channels[i].CooldownRules = rules
+		configs = append(configs, makeChannelCooldownConfig(channels[i], channelKeys, channelModels, channelGrants))
+	}
+	proxy, _ := SettingGetString(model.SettingKeyProxyURL)
+	var err error
+	if cooldownNotify, err = publishChannelCooldownConfigs(configs, true, proxy); err != nil {
+		return err
+	}
 	channelCache.Clear()
 	channelKeyCache.Clear()
 	channelModelCache.Clear()
 	channelGrantCache.Clear()
 	for _, channel := range channels {
-		channel.AllowedProtocols = model.NormalizeProtocols(channel.AllowedProtocols)
-		rules, err := model.NormalizeCooldownRules(channel.CooldownRules)
-		if err != nil {
-			return fmt.Errorf("invalid cooldown rules for channel %d: %w", channel.ID, err)
-		}
-		channel.CooldownRules = rules
 		channelCache.Set(channel.ID, channel)
 	}
 	for _, channelKey := range channelKeys {

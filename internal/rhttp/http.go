@@ -37,6 +37,12 @@ func Proxy() (*http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ProxyForURL(currentProxyURL)
+}
+
+// ProxyForURL keeps the shared pool while binding an immutable Relay snapshot
+// to the exact effective proxy used by that attempt.
+func ProxyForURL(currentProxyURL string) (*http.Client, error) {
 	if currentProxyURL == "" {
 		return nil, fmt.Errorf("proxy url is empty")
 	}

@@ -41,17 +41,23 @@ type upstreamResponse struct {
 	terminal  *validatedStream                        // 原始上游终态，转换器生成的客户端结束事件不能替代它。
 	converted *conversionMiddleware                   // 转换前已观察用量与源流推进入口。
 	finalize  streams.Stream[*httpclient.StreamEvent] // 预读失败后, 待 handler 释放容量再等待的真实源结算。
-	failure   *upstreamFailureCapture                 // 原始上游失败，包括提交后才观察到的错误；W06 再接通结算。
+	failure   *upstreamFailureCapture                 // 原始上游失败，包括提交后才观察到的错误。
 }
 
 // resolveUpstreamClient 按渠道代理配置取得本轮上游请求使用的客户端。
 // 第二个返回值非 nil 时说明客户端是为渠道专用代理新建的独占实例, 不进共享连接池, 用完须调用它归还空闲连接。
-func resolveUpstreamClient(channel model.Channel) (*http.Client, func(), error) {
+func resolveUpstreamClient(channel model.Channel, contexts ...context.Context) (*http.Client, func(), error) {
 	switch {
 	case !channel.Proxy:
 		client, err := rhttp.Direct()
 		return client, nil, err
 	case channel.ChannelProxy == "":
+		if len(contexts) > 0 {
+			if attempt, ok := contexts[0].Value(cooldownSendContextKey{}).(cooldownSendContext); ok {
+				client, err := rhttp.ProxyForURL(attempt.config.ProxyURL)
+				return client, nil, err
+			}
+		}
 		client, err := rhttp.Proxy()
 		return client, nil, err
 	default:
@@ -74,6 +80,9 @@ type trackingTransport struct {
 
 // RoundTrip 标记本轮已进入 HTTP 传输后再交给真正的传输层。
 func (t *trackingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if err := checkCooldownSend(request.Context(), t.failure); err != nil {
+		return nil, err
+	}
 	t.sent.Store(true)
 	response, err := t.inner.RoundTrip(request)
 	if response != nil {
@@ -102,7 +111,7 @@ func sendPassthrough(ctx context.Context, format llm.APIFormat, raw *httpclient.
 	if err != nil {
 		return nil, false, err
 	}
-	httpClient, closeIdle, err := resolveUpstreamClient(channel)
+	httpClient, closeIdle, err := resolveUpstreamClient(channel, ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -515,7 +524,7 @@ func sendConverted(ctx context.Context, format llm.APIFormat, raw *httpclient.Re
 		inbound = openai.NewInboundTransformer()
 	}
 
-	httpClient, closeIdle, err := resolveUpstreamClient(channel)
+	httpClient, closeIdle, err := resolveUpstreamClient(channel, ctx)
 	if err != nil {
 		return nil, false, err
 	}

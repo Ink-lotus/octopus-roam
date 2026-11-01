@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -125,10 +126,19 @@ func getChannelRefreshStatus(c *gin.Context) {
 // 不带整份配置: 统计每次转发都在变, 界面按更短的间隔刷新它, 而路径, 代理与凭据明文只在编辑时用得上。
 func listChannelStats(c *gin.Context) {
 	stats := op.ChannelStatsList()
+	responses := make([]channelStatsResponse, len(stats))
 	for i := range stats {
 		stats[i].Concurrency = relay.ChannelConcurrencyStats(stats[i].ChannelID)
+		state := relay.ChannelCooldownStateOf(stats[i].ChannelID)
+		responses[i] = channelStatsResponse{ChannelStats: stats[i], RuleCooldowns: state.RuleCooldowns, RuleCooldownVersion: state.Version}
 	}
-	resp.Success(c, stats)
+	resp.Success(c, responses)
+}
+
+type channelStatsResponse struct {
+	model.ChannelStats
+	RuleCooldowns       []relay.CooldownHit `json:"rule_cooldowns"`
+	RuleCooldownVersion string              `json:"rule_cooldown_version"`
 }
 
 // listChannelGrant 返回全部渠道授权候选, 供分组页选取成员。
@@ -183,6 +193,7 @@ func updateChannel(c *gin.Context) {
 	groupMutationMu.Lock()
 	defer groupMutationMu.Unlock()
 	previousGroups := allGroupsByID()
+	previousChannel, _ := op.ChannelDetailGet(req.ID)
 	channel, err := op.ChannelUpdateWithOptions(&req.ChannelDetail, req.ChannelSaveOptions, c.Request.Context())
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -192,7 +203,7 @@ func updateChannel(c *gin.Context) {
 		resp.Error(c, status, err.Error())
 		return
 	}
-	refreshChangedChannelGroups(req.ID, previousGroups, allGroupsByID())
+	refreshChangedChannelGroups(req.ID, previousGroups, allGroupsByID(), sameChannelExceptCooldownRules(previousChannel, *channel))
 	if err := addChannelModelPrices(channel.Models, c.Request.Context()); err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
@@ -259,7 +270,12 @@ func allGroupsByID() map[int]model.Group {
 	return groups
 }
 
-func refreshChangedChannelGroups(channelID int, previous, current map[int]model.Group) {
+func sameChannelExceptCooldownRules(left, right model.ChannelDetail) bool {
+	left.CooldownRules, right.CooldownRules = nil, nil
+	return reflect.DeepEqual(left, right)
+}
+
+func refreshChangedChannelGroups(channelID int, previous, current map[int]model.Group, preserveRoute ...bool) {
 	groupIDs := make(map[int]struct{}, len(previous)+len(current))
 	for groupID := range previous {
 		groupIDs[groupID] = struct{}{}
@@ -284,7 +300,7 @@ func refreshChangedChannelGroups(channelID int, previous, current map[int]model.
 		}
 		if !hadOld || !slices.Equal(oldMembers, newMembers) {
 			relay.ResetRouteStateForGroup(newGroup)
-		} else {
+		} else if len(preserveRoute) == 0 || !preserveRoute[0] {
 			relay.NotifyRouteStateChanged(newGroup)
 		}
 		publishGroupSnapshot(newGroup)

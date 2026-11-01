@@ -57,9 +57,8 @@ var healthStreams = make(map[chan HealthSnapshot]struct{}) // guarded by routeMu
 // Only a digest of effective outbound configuration is retained. Capacity and
 // discovery preferences do not change the identity of an upstream attempt.
 func memberIdentity(item model.GroupItem) [32]byte {
-	channel, _ := op.ChannelGet(item.ChannelID)
-	grant, _ := op.ChannelGrantGet(item.ChannelGrantID)
-	return outboundIdentity(channel, grant)
+	config, _ := op.ChannelRelaySnapshot(item.ChannelGrantID)
+	return outboundIdentity(config.Channel, config.Grant)
 }
 
 func outboundIdentity(channel model.Channel, grant model.ChannelGrant) [32]byte {
@@ -68,6 +67,7 @@ func outboundIdentity(channel model.Channel, grant model.ChannelGrant) [32]byte 
 	config.FollowGlobalAutoUpdate = nil
 	config.MatchRegex = ""
 	config.Name = ""
+	config.CooldownRules = nil
 	var key model.ChannelKeyConfig
 	var modelName string
 	if grant.ChannelKey != nil {
@@ -139,7 +139,7 @@ func admitHealthAt(group model.Group, selection routeSelection, now time.Time, e
 	if route == nil || route.generation != selection.Generation || !sameRouteConfig(routeConfigs[group.ID], routeConfigSignatureOf(group)) {
 		return nil
 	}
-	if _, waiting := healthWaitLocked(route, selection.Item, now); waiting {
+	if _, waiting := cooldownWaitLocked(route, selection.Item, now); waiting {
 		return nil
 	}
 	if deadline := route.state.Cooldowns[selection.Item.ID]; deadline > now.UnixMilli() {

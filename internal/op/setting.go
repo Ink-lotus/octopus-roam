@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/Ink-lotus/octopus-roam/internal/db"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
@@ -41,6 +42,13 @@ func SettingSetString(key model.SettingKey, value string) error {
 	if model.IsRetiredSetting(key) {
 		return model.ErrSettingRetired
 	}
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
+	if key == model.SettingKeyProxyURL {
+		value = strings.TrimSpace(value)
+		channelRefreshCommitMu.Lock()
+		defer channelRefreshCommitMu.Unlock()
+	}
 	if err := (&model.Setting{Key: key, Value: value}).Validate(); err != nil {
 		return err
 	}
@@ -60,6 +68,12 @@ func SettingSetString(key model.SettingKey, value string) error {
 	}
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("failed to set setting, key not found")
+	}
+	if key == model.SettingKeyProxyURL {
+		var err error
+		if cooldownNotify, err = republishChannelCooldownConfigs(value, 0); err != nil {
+			return err
+		}
 	}
 	settingCache.Set(key, value)
 	if isChannelAutomationSetting(key) {
@@ -114,6 +128,10 @@ func SettingSetInt(key model.SettingKey, value int) error {
 }
 
 func settingRefreshCache(ctx context.Context) error {
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
+	channelRefreshCommitMu.Lock()
+	defer channelRefreshCommitMu.Unlock()
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
 	db := db.GetDB().WithContext(ctx)
@@ -156,6 +174,12 @@ func settingRefreshCache(ctx context.Context) error {
 	}
 	if automationChanged {
 		automationSettingsSignal.notify()
+	}
+	proxy, _ := SettingGetString(model.SettingKeyProxyURL)
+	var err error
+	cooldownNotify, err = republishChannelCooldownConfigs(proxy, 0)
+	if err != nil {
+		return err
 	}
 	return nil
 }
