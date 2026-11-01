@@ -139,6 +139,10 @@ func listChannelGrant(c *gin.Context) {
 func createChannel(c *gin.Context) {
 	var req model.ChannelSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if errors.Is(err, model.ErrInvalidCooldownRule) || strings.Contains(strings.ToLower(err.Error()), "cooldown") {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
@@ -147,7 +151,11 @@ func createChannel(c *gin.Context) {
 	previousGroups := allGroupsByID()
 	channel, err := op.ChannelCreateWithOptions(&req.ChannelDetail, req.ChannelSaveOptions, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, model.ErrInvalidCooldownRule) || strings.Contains(strings.ToLower(err.Error()), "cooldown") {
+			status = http.StatusBadRequest
+		}
+		resp.Error(c, status, err.Error())
 		return
 	}
 	refreshChangedChannelGroups(channel.ID, previousGroups, allGroupsByID())
@@ -161,6 +169,10 @@ func createChannel(c *gin.Context) {
 func updateChannel(c *gin.Context) {
 	var req model.ChannelSaveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if errors.Is(err, model.ErrInvalidCooldownRule) || strings.Contains(strings.ToLower(err.Error()), "cooldown") {
+			resp.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
@@ -173,7 +185,11 @@ func updateChannel(c *gin.Context) {
 	previousGroups := allGroupsByID()
 	channel, err := op.ChannelUpdateWithOptions(&req.ChannelDetail, req.ChannelSaveOptions, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, model.ErrInvalidCooldownRule) || strings.Contains(strings.ToLower(err.Error()), "cooldown") {
+			status = http.StatusBadRequest
+		}
+		resp.Error(c, status, err.Error())
 		return
 	}
 	refreshChangedChannelGroups(req.ID, previousGroups, allGroupsByID())

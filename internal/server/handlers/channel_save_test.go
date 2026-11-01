@@ -34,7 +34,7 @@ func TestChannelSaveAddsMatchingModelsToExistingGroups(t *testing.T) {
 					model.ChannelDetail
 					AutoAddGroups *bool `json:"auto_add_groups,omitempty"`
 				}{ChannelDetail: model.ChannelDetail{
-					ChannelConfig: model.ChannelConfig{Name: name, Enabled: true, BaseURL: "http://127.0.0.1"},
+					ChannelConfig: model.ChannelConfig{Name: name, Enabled: true, BaseURL: "http://127.0.0.1", CooldownRules: []model.CooldownRule{}},
 					Keys: []model.ChannelKeyConfig{
 						{Name: "enabled", Key: "fixture-enabled-key", Enabled: true},
 						{Name: "empty", Enabled: true},

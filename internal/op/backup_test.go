@@ -17,20 +17,21 @@ func TestValidateDumpOrigin(t *testing.T) {
 		dump      *model.DBDump
 		wantError string
 	}{
-		{"roam", &model.DBDump{Product: "octopus-roam", Version: 1000}, ""},
+		{"roam legacy", &model.DBDump{Product: "octopus-roam", Version: 1000}, ""},
+		{"roam current", &model.DBDump{Product: "octopus-roam", Version: 1001}, ""},
 		{"upstream zero", &model.DBDump{Version: 0}, ""},
 		{"upstream five", &model.DBDump{Version: 5}, ""},
 		{"nil", nil, "empty dump"},
 		{"ambiguous six", &model.DBDump{Version: 6}, "re-export"},
 		{"upstream four", &model.DBDump{Version: 4}, "no product marker"},
 		{"future upstream", &model.DBDump{Version: 7}, "no product marker"},
-		{"missing identity", &model.DBDump{Version: 1000}, "no product marker"},
+		{"missing identity", &model.DBDump{Version: 1001}, "no product marker"},
 		{"foreign", &model.DBDump{Product: "foreign-product", Version: 5}, "product"},
-		{"case", &model.DBDump{Product: "Octopus-Roam", Version: 1000}, "product"},
-		{"whitespace", &model.DBDump{Product: " octopus-roam ", Version: 1000}, "product"},
+		{"case", &model.DBDump{Product: "Octopus-Roam", Version: 1001}, "product"},
+		{"whitespace", &model.DBDump{Product: " octopus-roam ", Version: 1001}, "product"},
 		{"roam zero", &model.DBDump{Product: "octopus-roam", Version: 0}, "unsupported octopus-roam"},
 		{"roam six", &model.DBDump{Product: "octopus-roam", Version: 6}, "unsupported octopus-roam"},
-		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1001}, "unsupported octopus-roam"},
+		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1002}, "unsupported octopus-roam"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateDumpOrigin(tc.dump)
@@ -47,7 +48,7 @@ func TestValidateDumpOrigin(t *testing.T) {
 
 func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 	// 后续上游同步不能带入其版本或扩大接受白名单，否则重新引入备份撞号。
-	if dumpProduct != "octopus-roam" || dbDumpVersion != 1000 {
+	if dumpProduct != "octopus-roam" || dbDumpVersion != 1001 {
 		t.Fatal("backup identity changed")
 	}
 	if len(upstreamDumpVersions) != 2 {
@@ -58,11 +59,13 @@ func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 			t.Fatalf("missing upstream %d", version)
 		}
 	}
-	if len(roamDumpVersions) != 1 {
+	if len(roamDumpVersions) != 2 {
 		t.Fatal("roam whitelist changed")
 	}
-	if _, ok := roamDumpVersions[1000]; !ok {
-		t.Fatal("missing roam 1000")
+	for _, version := range []int{1000, 1001} {
+		if _, ok := roamDumpVersions[version]; !ok {
+			t.Fatalf("missing roam %d", version)
+		}
 	}
 }
 
@@ -130,7 +133,7 @@ func TestBackupDisabledStateAndConflictSemantics(t *testing.T) {
 
 func TestBackupRejectsBeforeWriteAndRollsBackInvalidMember(t *testing.T) {
 	const id = 810002
-	for _, version := range []int{6, 7, 1000} {
+	for _, version := range []int{6, 7, 1002} {
 		if _, err := DBImportIncremental(t.Context(), &model.DBDump{Version: version, Groups: []model.Group{{ID: id, Name: t.Name()}}}); err == nil {
 			t.Fatalf("accepted version %d", version)
 		}
@@ -152,11 +155,26 @@ func TestBackupRejectsBeforeWriteAndRollsBackInvalidMember(t *testing.T) {
 }
 
 func TestBackupExportJSONRoundTrip(t *testing.T) {
+	const channelID = 810005
+	if _, err := DBImportIncremental(t.Context(), &model.DBDump{
+		Version: 5,
+		Channels: []model.Channel{{
+			ID: channelID,
+			ChannelConfig: model.ChannelConfig{
+				Name:    t.Name(),
+				BaseURL: "https://example.invalid",
+			},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.GetDB().Delete(&model.Channel{}, channelID) })
+
 	dump, err := DBExportAll(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dump.Product != "octopus-roam" || dump.Version != 1000 {
+	if dump.Product != "octopus-roam" || dump.Version != 1001 {
 		t.Fatal("export lacks roam identity")
 	}
 	raw, err := json.Marshal(dump)
@@ -169,6 +187,30 @@ func TestBackupExportJSONRoundTrip(t *testing.T) {
 	}
 	if string(wire["product"]) != `"octopus-roam"` {
 		t.Fatal("product JSON tag missing")
+	}
+	if string(wire["group_categories"]) != `[]` {
+		t.Fatalf("group_categories JSON shape = %s, want []", wire["group_categories"])
+	}
+	var channels []map[string]json.RawMessage
+	if err := json.Unmarshal(wire["channels"], &channels); err != nil {
+		t.Fatal(err)
+	}
+	var foundChannel bool
+	for _, channel := range channels {
+		var id int
+		if err := json.Unmarshal(channel["id"], &id); err != nil {
+			t.Fatal(err)
+		}
+		if id != channelID {
+			continue
+		}
+		foundChannel = true
+		if string(channel["cooldown_rules"]) != `[]` {
+			t.Fatalf("channel cooldown_rules JSON shape = %s, want []", channel["cooldown_rules"])
+		}
+	}
+	if !foundChannel {
+		t.Fatalf("export omitted fixture channel %d", channelID)
 	}
 	var decoded model.DBDump
 	if err := json.Unmarshal(raw, &decoded); err != nil {

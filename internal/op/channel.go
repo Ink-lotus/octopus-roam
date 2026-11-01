@@ -30,6 +30,7 @@ func ChannelDetailGet(id int) (model.ChannelDetail, error) {
 	if !ok {
 		return model.ChannelDetail{}, fmt.Errorf("channel not found")
 	}
+	channel.CooldownRules = model.CloneCooldownRules(channel.CooldownRules)
 	return channelDetail(channel), nil
 }
 
@@ -124,13 +125,20 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 	if _, ok := channelCache.Get(detail.ID); !ok {
 		return nil, fmt.Errorf("channel not found")
 	}
-	if err := normalizeChannelDetail(detail); err != nil {
-		return nil, err
-	}
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if !options.CooldownRulesPresent {
+		current, ok := channelCache.Get(detail.ID)
+		if !ok {
+			return nil, fmt.Errorf("channel not found")
+		}
+		detail.CooldownRules = model.CloneCooldownRules(current.CooldownRules)
+	}
+	if err := normalizeChannelDetail(detail); err != nil {
+		return nil, err
+	}
 
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 逐列点名而不整行覆盖: 全量提交下 enabled 置假与被清空的可选字段都必须落库, 按零值跳过会写不进去;
@@ -138,7 +146,7 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 		if err := tx.Model(&model.Channel{}).Where("id = ?", detail.ID).
 			Select("name", "dialect", "enabled", "follow_global_auto_update", "max_concurrency", "allowed_protocols", "base_url",
 				"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
-				"proxy", "channel_proxy", "custom_header", "param_override", "match_regex").
+				"proxy", "channel_proxy", "custom_header", "cooldown_rules", "param_override", "match_regex").
 			Updates(&model.Channel{ChannelConfig: detail.ChannelConfig}).Error; err != nil {
 			return fmt.Errorf("failed to update channel: %w", err)
 		}
@@ -211,6 +219,11 @@ func normalizeChannelConfig(config model.ChannelConfig) (model.ChannelConfig, er
 	if config.CustomHeader == nil {
 		config.CustomHeader = []model.CustomHeader{}
 	}
+	rules, err := model.NormalizeCooldownRules(config.CooldownRules)
+	if err != nil {
+		return config, err
+	}
+	config.CooldownRules = rules
 
 	config.ChannelProxy = strings.TrimSpace(config.ChannelProxy)
 	config.ParamOverride = strings.TrimSpace(config.ParamOverride)
@@ -347,6 +360,7 @@ func ChannelGet(id int) (model.Channel, error) {
 	if !ok {
 		return model.Channel{}, fmt.Errorf("channel not found")
 	}
+	channel.CooldownRules = model.CloneCooldownRules(channel.CooldownRules)
 	return channel, nil
 }
 
@@ -451,6 +465,11 @@ func channelRefreshCache(ctx context.Context) error {
 	channelGrantCache.Clear()
 	for _, channel := range channels {
 		channel.AllowedProtocols = model.NormalizeProtocols(channel.AllowedProtocols)
+		rules, err := model.NormalizeCooldownRules(channel.CooldownRules)
+		if err != nil {
+			return fmt.Errorf("invalid cooldown rules for channel %d: %w", channel.ID, err)
+		}
+		channel.CooldownRules = rules
 		channelCache.Set(channel.ID, channel)
 	}
 	for _, channelKey := range channelKeys {
@@ -544,6 +563,7 @@ func reloadChannelChildren(ctx context.Context, channelID int) error {
 // 三个集合字段恒为数组, 空集合也给出, 免得各消费方各自兜底 null; Header 由写入侧保证已是数组。
 // 三者均按名称定序: 缓存遍历顺序随机, 而编辑表单不提供排序开关, 顺序须由此处定稿。
 func channelDetail(channel model.Channel) model.ChannelDetail {
+	channel.CooldownRules = model.CloneCooldownRules(channel.CooldownRules)
 	detail := model.ChannelDetail{ID: channel.ID, ChannelConfig: channel.ChannelConfig}
 
 	detail.Keys = make([]model.ChannelKeyConfig, 0)

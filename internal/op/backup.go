@@ -16,12 +16,12 @@ import (
 
 const (
 	dumpProduct   = "octopus-roam"
-	dbDumpVersion = 1000
+	dbDumpVersion = 1001
 )
 
 // 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
 var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
-var roamDumpVersions = map[int]struct{}{dbDumpVersion: {}}
+var roamDumpVersions = map[int]struct{}{1000: {}, dbDumpVersion: {}}
 
 var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
 
@@ -65,13 +65,21 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 // 所有表来自同一快照，避免刷新/删除在导出期间产生不完整的关联数据。
 func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 	d := &model.DBDump{
-		Product:    dumpProduct,
-		Version:    dbDumpVersion,
-		ExportedAt: time.Now().UTC(),
+		Product:         dumpProduct,
+		Version:         dbDumpVersion,
+		ExportedAt:      time.Now().UTC(),
+		GroupCategories: []model.BackupGroupCategory{},
 	}
 
 	if err := conn.Find(&d.Channels).Error; err != nil {
 		return nil, fmt.Errorf("export channels: %w", err)
+	}
+	for i := range d.Channels {
+		rules, err := model.NormalizeCooldownRules(d.Channels[i].CooldownRules)
+		if err != nil {
+			return nil, fmt.Errorf("export channel %d cooldown rules: %w", d.Channels[i].ID, err)
+		}
+		d.Channels[i].CooldownRules = rules
 	}
 	if err := conn.Find(&d.Groups).Error; err != nil {
 		return nil, fmt.Errorf("export groups: %w", err)
@@ -120,6 +128,9 @@ func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 
 func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImportResult, error) {
 	if err := validateDumpOrigin(dump); err != nil {
+		return nil, err
+	}
+	if err := validateBackupFeatureFields(dump); err != nil {
 		return nil, err
 	}
 	dump.Settings = withoutRetiredSettings(dump.Settings)
@@ -282,6 +293,35 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 		settingCache.Set(model.SettingKeyGroupRouteDefaults, *importedDefaults)
 	}
 	return res, nil
+}
+
+func validateBackupFeatureFields(dump *model.DBDump) error {
+	if dump.HasExplicitNullCooldownRules() {
+		return fmt.Errorf("cooldown_rules cannot be null")
+	}
+	if dump.HasExplicitNullGroupCategories() {
+		return fmt.Errorf("group_categories cannot be null")
+	}
+	for i := range dump.Channels {
+		rules, err := model.NormalizeCooldownRules(dump.Channels[i].CooldownRules)
+		if err != nil {
+			return fmt.Errorf("import channel %d: %w", dump.Channels[i].ID, err)
+		}
+		if dump.Version != dbDumpVersion && len(rules) > 0 {
+			return fmt.Errorf("backup version %d cannot contain cooldown_rules", dump.Version)
+		}
+		dump.Channels[i].CooldownRules = rules
+	}
+	if dump.Version != dbDumpVersion {
+		if len(dump.GroupCategories) > 0 || dump.HasNonNullGroupCategoryReference() {
+			return fmt.Errorf("backup version %d cannot contain platform categories", dump.Version)
+		}
+		return nil
+	}
+	if len(dump.GroupCategories) > 0 || dump.HasNonNullGroupCategoryReference() {
+		return fmt.Errorf("platform categories are reserved for a later work package")
+	}
+	return nil
 }
 
 func validateBackupSettings(settings []model.Setting) error {

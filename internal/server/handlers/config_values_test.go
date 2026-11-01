@@ -124,6 +124,7 @@ func testChannelConfigurationValues(t *testing.T, engine *gin.Engine, cookie *ht
 	detail := model.ChannelDetail{
 		ChannelConfig: model.ChannelConfig{
 			Name: "fixture-w03-channel", Enabled: true, BaseURL: upstream.URL,
+			CooldownRules: []model.CooldownRule{},
 			CustomHeader:  []model.CustomHeader{{HeaderKey: "X-Config", HeaderValue: "fixture-header-initial"}},
 			ParamOverride: "{\"temperature\":0.1}",
 		},
