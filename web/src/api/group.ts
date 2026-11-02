@@ -1,9 +1,10 @@
 import { queryOptions, useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
 import { ApiError, apiRequest } from './client';
 import { queryClient } from './client';
 import { groupListQueryOptions, groupRouteDefaultsQueryOptions } from './queries';
-import { clearPendingGroupRuntimes, readGroup, removeGroupCache, shareGroupSnapshot, writeGroupCache, writeGroupRuntime } from './group-cache';
+import { readGroup, removeGroupCache, shareGroupSnapshot, writeGroupCache } from './group-cache';
+import { useLiveEvents } from './live-events';
+import type { CooldownHit } from './cooldown';
 
 // GroupGrantCandidate 是分组编辑器可新增的一条渠道授权。
 // 后端只返回当前渠道和凭据都可用的授权; 已有不可用成员仍随 Group.items 返回。
@@ -66,6 +67,7 @@ export interface GroupRuntime {
     current_item_id: number;
     probe_item_id: number;
     cooldowns: Record<number, number>;
+    rule_cooldowns: CooldownHit[];
 }
 
 // Group 是客户端模型名称对应的渠道分组。
@@ -108,7 +110,7 @@ export interface GroupUpdateRequest {
 export function useGroupList(enabled = true, eventsEnabled = false) {
     const query = useQuery({ ...groupListQueryOptions, enabled });
 
-    useGroupEventStream(enabled && eventsEnabled);
+    useLiveEvents(enabled && eventsEnabled);
 
     return query;
 }
@@ -122,52 +124,9 @@ export function useGroup(id: number | undefined, enabled = true, eventsEnabled =
         enabled: enabled && id !== undefined,
     });
 
-    useGroupEventStream(enabled && eventsEnabled);
+    useLiveEvents(enabled && eventsEnabled);
 
     return query;
-}
-
-// groupEventSource 是全应用共享的一条分组事件连接，由订阅方引用计数维持。
-// 列表页与日志详情可能同时订阅，各自建连会白占浏览器对同域的连接数。
-let groupEventSource: EventSource | null = null;
-let groupEventRefCount = 0; // 当前订阅该连接的组件数量，归零时关闭连接。
-
-// useGroupEventStream 订阅分组的变更事件与运行状态增量，并写回列表与详情两处缓存。
-function useGroupEventStream(enabled: boolean) {
-    useEffect(() => {
-        if (!enabled) return;
-
-        groupEventRefCount++;
-        if (!groupEventSource) {
-            const source = new EventSource('/api/v1/group/events', { withCredentials: true });
-            groupEventSource = source;
-            source.addEventListener('changed', (event) => {
-                writeGroupCache(JSON.parse((event as MessageEvent<string>).data) as Group);
-            });
-            source.addEventListener('deleted', (event) => {
-                removeGroupCache(Number((event as MessageEvent<string>).data));
-            });
-            source.addEventListener('runtime', (event) => {
-                const update = JSON.parse((event as MessageEvent<string>).data) as GroupRuntime;
-                writeGroupRuntime(update);
-            });
-            // 后端不留事件历史，连接断开期间的变更无从补发，故每次连上都重新拉取一次对齐。
-            // 拉取放在 onopen 而非 onerror: EventSource 自行重连，onerror 在每次失败时都会触发，
-            // 写在那里会让断网期间反复全量重拉。
-            source.onopen = () => {
-                queryClient.invalidateQueries({ queryKey: groupListQueryOptions.queryKey });
-                queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] });
-            };
-        }
-
-        return () => {
-            groupEventRefCount--;
-            if (groupEventRefCount > 0) return;
-            groupEventSource?.close();
-            groupEventSource = null;
-            clearPendingGroupRuntimes();
-        };
-    }, [enabled]);
 }
 
 // useCreateGroup 创建分组。

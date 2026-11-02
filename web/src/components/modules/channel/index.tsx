@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { ArrowUpAZ } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { useChannelStats } from '@/api/channel';
+import { useLiveEvents } from '@/api/live-events';
+import { useCooldownClock } from '@/components/common/useCooldownClock';
 import { PageActions, usePageActionsStore } from '@/components/common/PageActions';
 import { MorphingDialogDescription } from '@/components/ui/morphing-dialog';
 import { Card } from './Card';
@@ -58,6 +60,8 @@ export function ChannelActions() {
 // Channel 渲染渠道列表正文。
 export function Channel() {
     const { data: statsData } = useChannelStats();
+    useLiveEvents(true);
+    const cooldownNow = useCooldownClock(statsData?.flatMap((channel) => channel.rule_cooldowns));
     const searchTerm = usePageActionsStore((state) => state.searchTerms.channel || '');
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
     const sortOrder = usePageActionsStore((state) => state.sortOrders.channel === 'desc' ? 'desc' : 'asc');
@@ -85,10 +89,10 @@ export function Channel() {
             items={visibleChannels}
             layout={layout}
             columns={{ default: 1, sm: 2, md: 3, lg: 4, xl: 5, '2xl': 6 }}
-            estimateItemHeight={350}
+            estimateItemHeight={380}
             getItemKey={(channel) => `channel-${channel.channel_id}`}
             renderItem={(channel) => (
-                <Card channel={channel} />
+                <Card channel={channel} now={cooldownNow} />
             )}
         />
     );

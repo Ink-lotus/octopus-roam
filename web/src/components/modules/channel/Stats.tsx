@@ -22,6 +22,8 @@ import { useTranslations } from 'use-intl';
 import { type ChannelStatsFormatted, useDeleteChannel } from '@/api/channel';
 import { type StatsMetricsFormatted } from '@/api/stats';
 import { useMorphingDialog } from '@/components/ui/morphing-dialog';
+import { CooldownHitList } from '@/components/common/CooldownHitList';
+import { useCooldownClock } from '@/components/common/useCooldownClock';
 
 type FormattedMetric = StatsMetricsFormatted['request_count'];
 
@@ -66,6 +68,7 @@ export function ChannelStats({ channel, onEdit }: {
     // 分享截图的源节点
     const contentRef = useRef<HTMLDivElement>(null);
     const metrics = channel.formatted;
+    const cooldownNow = useCooldownClock(channel.rule_cooldowns);
 
     // 预览关闭或组件卸载时释放临时对象 URL
     useEffect(() => () => {
@@ -264,6 +267,7 @@ export function ChannelStats({ channel, onEdit }: {
                             )}
                         </div>
                     </div>
+                    <CooldownHitList hits={channel.rule_cooldowns} now={cooldownNow} />
                     {/* 宽屏下四项各占四分之一列高: 行数与 summary 的项数一致, 等分由 grid-rows-4 表达。 */}
                     <dl className="grid grid-cols-2 gap-2 @md/stats:grid-cols-4 @2xl/stats:flex-1 @2xl/stats:grid-cols-1 @2xl/stats:grid-rows-4">
                         {summary.map(({ icon, label, value, sub }) => (

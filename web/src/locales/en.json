@@ -132,6 +132,18 @@
             "noContent": "Nothing to copy"
         }
     },
+    "cooldown": {
+        "listLabel": "Active shared cooldowns",
+        "modelScope": "Model",
+        "channelScope": "Channel",
+        "allModels": "all models",
+        "unknownModel": "the affected model",
+        "errorCode": "code",
+        "keyword": "keyword",
+        "compactSeconds": "{seconds}s",
+        "hit": "{scope}: {target}, {seconds}s remaining",
+        "details": "Rule {ruleIndex}; {scope}: {target}; match {conditions}; {seconds}s remaining (until {until})"
+    },
     "home": {
         "metric": {
             "cost": "Cost",
@@ -721,6 +733,21 @@
             "customHeaderKey": "Header key",
             "customHeaderValue": "Header value",
             "customHeaderAdd": "Add header",
+            "cooldownRules": "Custom cooldown rules",
+            "cooldownRulesHint": "Add rules only when needed. If both conditions are filled, they must match together.",
+            "cooldownRulesEmpty": "No custom cooldown rules. Add one when an upstream failure should pause a model or channel.",
+            "cooldownRuleAdd": "Add cooldown rule",
+            "cooldownRuleRemove": "Remove cooldown rule",
+            "cooldownRule": "Rule {index}",
+            "cooldownErrorCode": "Error code",
+            "cooldownKeyword": "Keyword",
+            "cooldownSeconds": "Cooldown seconds",
+            "cooldownScope": "Scope",
+            "cooldownScopeModel": "Model only",
+            "cooldownScopeChannel": "Entire channel",
+            "cooldownRuleConditionError": "Enter an error code, a keyword, or both.",
+            "cooldownRuleSecondsError": "Enter a whole number of seconds from 1 to 2147483647.",
+            "cooldownRuleScopeError": "Choose a model or channel scope.",
             "edit": "Edit",
             "delete": "Delete",
             "submit": "Create",

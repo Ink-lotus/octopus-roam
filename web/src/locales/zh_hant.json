@@ -132,6 +132,18 @@
             "noContent": "無可複製內容"
         }
     },
+    "cooldown": {
+        "listLabel": "正在生效的共享冷卻",
+        "modelScope": "模型",
+        "channelScope": "渠道",
+        "allModels": "全部模型",
+        "unknownModel": "受影響模型",
+        "errorCode": "錯誤碼",
+        "keyword": "關鍵詞",
+        "compactSeconds": "{seconds} 秒",
+        "hit": "{scope}：{target}，剩餘 {seconds} 秒",
+        "details": "規則 {ruleIndex}；{scope}：{target}；匹配條件：{conditions}；剩餘 {seconds} 秒（截止 {until}）"
+    },
     "home": {
         "metric": {
             "cost": "金額",
@@ -721,6 +733,21 @@
             "customHeaderKey": "Header Key",
             "customHeaderValue": "Header Value",
             "customHeaderAdd": "新增 Header",
+            "cooldownRules": "自訂冷卻規則",
+            "cooldownRulesHint": "按需新增規則；錯誤碼和關鍵詞同時填寫時必須同時匹配。",
+            "cooldownRulesEmpty": "暫無自訂冷卻規則。上游錯誤需要暫停模型或渠道時再新增。",
+            "cooldownRuleAdd": "新增冷卻規則",
+            "cooldownRuleRemove": "刪除冷卻規則",
+            "cooldownRule": "規則 {index}",
+            "cooldownErrorCode": "錯誤碼",
+            "cooldownKeyword": "關鍵詞",
+            "cooldownSeconds": "冷卻秒數",
+            "cooldownScope": "作用範圍",
+            "cooldownScopeModel": "僅該模型",
+            "cooldownScopeChannel": "整個渠道",
+            "cooldownRuleConditionError": "請輸入錯誤碼、關鍵詞，或兩者都填寫。",
+            "cooldownRuleSecondsError": "請輸入 1 到 2147483647 之間的整數秒數。",
+            "cooldownRuleScopeError": "請選擇模型級或渠道級範圍。",
             "edit": "編輯",
             "delete": "刪除",
             "submit": "建立",

@@ -6,6 +6,15 @@ const detailKey = (id: number) => ['groups', 'detail', id] as const;
 // Runtime events may arrive before the configuration snapshot they belong to.
 const pendingRuntimes = new Map<number, GroupRuntime>();
 
+function normalizeRuntime(runtime: GroupRuntime): GroupRuntime {
+    return {
+        ...runtime,
+        cooldown_versions: runtime.cooldown_versions ?? {},
+        cooldowns: runtime.cooldowns ?? {},
+        rule_cooldowns: runtime.rule_cooldowns ?? [],
+    };
+}
+
 export function compareRouteVersions(left: string, right: string): number {
     if (left === right) return 0;
     const a = left.split(':').map(BigInt);
@@ -17,7 +26,9 @@ export function compareRouteVersions(left: string, right: string): number {
 }
 
 function mergeGroup(current: Group | undefined, incoming: Group): Group {
+    incoming = { ...incoming, runtime: normalizeRuntime(incoming.runtime) };
     if (!current) return incoming;
+    current = { ...current, runtime: normalizeRuntime(current.runtime) };
     const configOrder = compareRouteVersions(incoming.runtime.config_version, current.runtime.config_version);
     if (configOrder < 0) return current;
     if (configOrder === 0 && compareRouteVersions(incoming.runtime.version, current.runtime.version) < 0) {
@@ -69,6 +80,7 @@ export function removeGroupCache(id: number) {
 }
 
 export function writeGroupRuntime(update: GroupRuntime) {
+    update = normalizeRuntime(update);
     const pending = pendingRuntimes.get(update.group_id);
     if (pending && compareRouteVersions(update.version, pending.version) <= 0) return;
     pendingRuntimes.set(update.group_id, update);

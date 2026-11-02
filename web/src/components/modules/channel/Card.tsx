@@ -20,13 +20,14 @@ import { Dialog } from 'radix-ui';
 import { useChannelPreferences } from '@/stores/channel';
 import { toast } from 'sonner';
 import { useRef, useState } from 'react';
+import { CooldownHitList } from '@/components/common/CooldownHitList';
 
 // Card 展示单个渠道的概览; 名称, 启停与统计都在同一条统计查询里, 整份配置只在点开编辑时另取。
-export function Card({ channel }: { channel: ChannelStatsFormatted }) {
-    return <MorphingDialog><ChannelCard channel={channel} /></MorphingDialog>;
+export function Card({ channel, now }: { channel: ChannelStatsFormatted; now: number }) {
+    return <MorphingDialog><ChannelCard channel={channel} now={now} /></MorphingDialog>;
 }
 
-function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
+function ChannelCard({ channel, now }: { channel: ChannelStatsFormatted; now: number }) {
     const t = useTranslations('channel.card');
     const tAuto = useTranslations('automation');
     const tStats = useTranslations('channel.stats');
@@ -230,6 +231,8 @@ function ChannelCard({ channel }: { channel: ChannelStatsFormatted }) {
                                 </div>
                             ))}
                         </dl>
+
+                    <CooldownHitList hits={channel.rule_cooldowns} now={now} />
 
                     <div
                         onClick={stopCardTrigger}

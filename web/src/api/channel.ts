@@ -2,6 +2,7 @@ import { mutationOptions, queryOptions, useMutation, useQuery, useQueryClient, t
 import { apiRequest } from './client';
 import { channelStatsQueryOptions, groupListQueryOptions, modelListQueryOptions } from './queries';
 import { formatStatsMetrics, type StatsMetrics, type StatsMetricsFormatted } from './stats';
+import { cloneCooldownHits, type CooldownHit, type CooldownRule } from './cooldown';
 
 // Protocol 是渠道支持的上游线协议位掩码，位值与后端 model.Protocol 一致，不可变更。
 // 一条授权可同时支持多个协议，按位或组合；1 << 0 由后端保留待用。
@@ -16,6 +17,8 @@ export const ProtocolAll = Protocol.OpenAIChatCompletion | Protocol.OpenAIRespon
 // Dialect 是上游在标准协议之上的方言，决定出站转换器的厂商特化配置。
 // 地址与路径不属于方言范畴，由前端按服务商预填到渠道字段上。
 export type Dialect = 'generic';
+
+export type { CooldownHit, CooldownRule } from './cooldown';
 
 type CustomHeader = {
     header_key: string;
@@ -65,6 +68,7 @@ export type ChannelDetail = {
     param_override: string;
     channel_proxy: string;
     match_regex: string;
+    cooldown_rules: CooldownRule[];
 };
 
 // 选项只用于本次保存，浏览器单独保存用户偏好。
@@ -88,6 +92,8 @@ export type ChannelStats = StatsMetrics & {
     max_concurrency: number;
     refresh?: ChannelRefreshSummary;
     concurrency: { active: number; waiting: number };
+    rule_cooldowns: CooldownHit[];
+    rule_cooldown_version: string;
 };
 
 // ChannelModelStatsFormatted 是单个渠道模型的展示用统计。
@@ -110,6 +116,8 @@ export type ChannelStatsFormatted = {
     max_concurrency: number;
     refresh?: ChannelRefreshSummary;
     concurrency: { active: number; waiting: number };
+    rule_cooldowns: CooldownHit[];
+    rule_cooldown_version: string;
 };
 
 // FetchModelRequest 按指定凭据试拉上游模型列表。
@@ -202,6 +210,8 @@ const channelStatsFormattedQueryOptions = queryOptions({
         max_concurrency: item.max_concurrency ?? 0,
         refresh: item.refresh,
         concurrency: item.concurrency ?? { active: 0, waiting: 0 },
+        rule_cooldowns: cloneCooldownHits(item.rule_cooldowns),
+        rule_cooldown_version: item.rule_cooldown_version ?? '',
         models: item.models.map((channelModel) => ({
             model_id: channelModel.model_id,
             model_name: channelModel.model_name,

@@ -1,4 +1,5 @@
 import { ProtocolAll, type ChannelDetail } from '@/api/channel';
+import { cloneCooldownRules, type CooldownRule } from '@/api/cooldown';
 
 // ChannelFormState 是渠道表单的全部可编辑内容。
 // 全按名称组织而不存主键: 后端凭据与模型都按名称匹配增删改, 而新建渠道和新加模型时主键尚不存在。
@@ -21,6 +22,7 @@ export type ChannelFormState = {
     channel_proxy: string;
     param_override: string;
     match_regex: string;
+    cooldown_rules: CooldownRule[];
 };
 
 // grantKey 生成授权在状态里的键; 分隔符取 \0, 模型名与凭据名都不会含它。
@@ -68,6 +70,7 @@ export const emptyFormState: ChannelFormState = {
     channel_proxy: '',
     param_override: '',
     match_regex: '',
+    cooldown_rules: [],
 };
 
 // fromChannel 把渠道完整配置还原为表单状态; 授权读写都按名称, 直接建索引即可。
@@ -92,6 +95,7 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         channel_proxy: channel.channel_proxy,
         param_override: channel.param_override,
         match_regex: channel.match_regex,
+        cooldown_rules: cloneCooldownRules(channel.cooldown_rules),
     };
 }
 
@@ -114,6 +118,11 @@ export function toChannelConfig(state: ChannelFormState) {
         channel_proxy: state.channel_proxy.trim(),
         param_override: state.param_override.trim(),
         match_regex: state.match_regex.trim(),
+        cooldown_rules: cloneCooldownRules(state.cooldown_rules).map((rule) => ({
+            ...rule,
+            error_code: rule.error_code.trim(),
+            keyword: rule.keyword.trim(),
+        })),
     };
 }
 

@@ -4,6 +4,8 @@ import { useTranslations } from 'use-intl';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { Group } from '@/api/group';
+import { cooldownHitsForModel } from '@/api/cooldown';
+import { CooldownHitList } from '@/components/common/CooldownHitList';
 
 // MemberStatusProps 描述成员的冷却和当前使用状态。
 interface MemberStatusProps {
@@ -22,10 +24,15 @@ export function useRuntimeClock(source?: Group | Group[]) {
     let enabled = false;
     let lastDeadline = 0;
     for (const group of groups) {
-        if (group.mode !== 'failover') continue;
-        enabled = true;
-        for (const cooldownUntil of Object.values(group.runtime.cooldowns)) {
-            lastDeadline = Math.max(lastDeadline, cooldownUntil);
+        if (group.mode === 'failover') {
+            enabled = true;
+            for (const cooldownUntil of Object.values(group.runtime.cooldowns)) {
+                lastDeadline = Math.max(lastDeadline, cooldownUntil);
+            }
+        }
+        if (group.runtime.rule_cooldowns.length > 0) {
+            enabled = true;
+            for (const hit of group.runtime.rule_cooldowns) lastDeadline = Math.max(lastDeadline, hit.until);
         }
     }
 
@@ -55,28 +62,42 @@ export function useRuntimeClock(source?: Group | Group[]) {
 export function MemberStatus({ group, itemId, now, active = false, activeClassName, compact = false }: MemberStatusProps) {
     const t = useTranslations('group.card');
 
+    const item = itemId === undefined ? undefined : group.items.find((entry) => entry.id === itemId);
+    const ruleHits = item
+        ? cooldownHitsForModel(group.runtime.rule_cooldowns, item.channel_id, item.model_name)
+        : [];
+    const ruleStatus = <CooldownHitList hits={ruleHits} now={now} compact={compact} />;
+
     if (group.mode === 'failover' && itemId !== undefined) {
         const cooldownUntil = group.runtime.cooldowns[itemId] ?? 0;
         if (now < cooldownUntil) {
             const seconds = Math.ceil((cooldownUntil - now) / 1000);
             return (
-                <Badge
-                    variant="outline"
-                    aria-label={t('cooling', { seconds })}
-                    title={t('cooling', { seconds })}
-                    className="shrink-0 border-orange-500/30 bg-orange-500/10 px-1.5 py-0 text-[10px] font-medium text-orange-600 dark:text-orange-400"
-                >
-                    <span className={compact ? '@max-[22rem]/member:hidden' : undefined}>{t('cooling', { seconds })}</span>
-                    {compact && <span className="hidden @max-[22rem]/member:inline" aria-hidden="true">{seconds}s</span>}
-                </Badge>
+                <>
+                    {ruleStatus}
+                    <Badge
+                        variant="outline"
+                        aria-label={t('cooling', { seconds })}
+                        title={t('cooling', { seconds })}
+                        className="shrink-0 border-orange-500/30 bg-orange-500/10 px-1.5 py-0 text-[10px] font-medium text-orange-600 dark:text-orange-400"
+                    >
+                        <span className={compact ? '@max-[22rem]/member:hidden' : undefined}>{t('cooling', { seconds })}</span>
+                        {compact && <span className="hidden @max-[22rem]/member:inline" aria-hidden="true">{seconds}s</span>}
+                    </Badge>
+                </>
             );
         }
     }
 
     // 勾选仅表示当前成员，不能从选路结果推断渠道健康。
-    return active ? (
-        <span role="img" aria-label={t('current')} className={cn('inline-flex shrink-0 text-primary', activeClassName)}>
-            <CircleCheck className="size-4" aria-hidden="true" />
-        </span>
-    ) : null;
+    return (
+        <>
+            {ruleStatus}
+            {active && (
+                <span role="img" aria-label={t('current')} className={cn('inline-flex shrink-0 text-primary', activeClassName)}>
+                    <CircleCheck className="size-4" aria-hidden="true" />
+                </span>
+            )}
+        </>
+    );
 }
