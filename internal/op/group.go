@@ -95,6 +95,7 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 	}
 	group := model.Group{
 		Name:           name,
+		CategoryID:     copyCategoryID(req.CategoryID),
 		Mode:           req.Mode,
 		ModelMatchMode: model.NormalizeGroupModelMatchMode(req.ModelMatchMode),
 		RelayConfig:    req.RelayConfig,
@@ -120,10 +121,15 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 	for i, item := range req.Items {
 		group.Items[i] = model.GroupItem{ChannelGrantID: item.ChannelGrantID, Priority: i + 1}
 	}
-	if err := db.GetDB().WithContext(ctx).Create(&group).Error; err != nil {
+	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := validateGroupCategoryReference(tx, group.CategoryID); err != nil {
+			return err
+		}
+		return tx.Omit("Category").Create(&group).Error
+	}); err != nil {
 		return nil, err
 	}
-	groupCache.Set(group.ID, group)
+	group = setGroupCacheLocked(group)
 	groupNameIndex.Set(group.Name, group.ID)
 	snapshot := groupSnapshot(group)
 	return &snapshot, nil
@@ -155,6 +161,10 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 
 	var selectFields []string
 	updates := model.Group{ID: id}
+	if req.CategoryID.Present {
+		selectFields = append(selectFields, "category_id")
+		updates.CategoryID = copyCategoryID(req.CategoryID.ID)
+	}
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
@@ -185,11 +195,18 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 		}
 	}
 	model.NormalizeGroupRelayConfigForMode(&config, mode)
-	selectFields = append(selectFields, "relay_config")
-	updates.RelayConfig = config
+	if !req.CategoryID.Present || req.RelayConfig != nil || req.Mode != nil {
+		selectFields = append(selectFields, "relay_config")
+		updates.RelayConfig = config
+	}
 
 	var group model.Group
 	err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if req.CategoryID.Present {
+			if err := validateGroupCategoryReference(tx, updates.CategoryID); err != nil {
+				return err
+			}
+		}
 		if len(selectFields) > 0 {
 			if err := tx.Model(&model.Group{}).Where("id = ?", id).Select(selectFields).Updates(&updates).Error; err != nil {
 				return fmt.Errorf("failed to update group: %w", err)
@@ -222,7 +239,7 @@ func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*m
 
 	sortGroupItems(group.Items)
 	group.ModelMatchMode = model.NormalizeGroupModelMatchMode(group.ModelMatchMode)
-	groupCache.Set(group.ID, group)
+	group = setGroupCacheLocked(group)
 	groupNameIndex.Set(group.Name, group.ID)
 	if oldName != group.Name {
 		groupNameIndex.Del(oldName)
@@ -317,13 +334,20 @@ func groupRefreshCacheLocked(ctx context.Context) error {
 		Find(&groups).Error; err != nil {
 		return err
 	}
-	groupCache.Clear()
+	if err := groupCategoryRefreshCacheLocked(ctx); err != nil {
+		return err
+	}
+	previous := groupCache.GetAll()
 	groupNameIndex.Clear()
 	for _, group := range groups {
 		group.ModelMatchMode = model.NormalizeGroupModelMatchMode(group.ModelMatchMode)
 		sortGroupItems(group.Items)
-		groupCache.Set(group.ID, group)
+		setGroupCacheLocked(group)
 		groupNameIndex.Set(group.Name, group.ID)
+		delete(previous, group.ID)
+	}
+	for id := range previous {
+		groupCache.Del(id)
 	}
 	return nil
 }
@@ -342,6 +366,8 @@ func sortGroupItems(items []model.GroupItem) {
 // 可用性在此一次定稿: 渠道与凭据均启用且模型, 凭据均存在时可转发, 否则仍列出该成员但标记不可用,
 // 由此界面无需再按渠道列表回查, 也不会出现前后端各判一套的分歧。
 func groupSnapshot(group model.Group) model.Group {
+	group.CategoryID = copyCategoryID(group.CategoryID)
+	group.Category = nil
 	group.ModelMatchMode = model.NormalizeGroupModelMatchMode(group.ModelMatchMode)
 	model.NormalizeGroupRelayConfigForMode(&group.RelayConfig, group.Mode)
 	// 成员恒为数组: 读取侧承诺该字段不为 null, 空分组也要给出空数组。

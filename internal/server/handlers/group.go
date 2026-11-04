@@ -65,8 +65,9 @@ type groupResponse struct {
 	// model.Group 上的 tag 供数据库转储使用不能删, 遮蔽也不能用 json:"-" ——
 	// 带该 tag 的字段被 encoding/json 直接跳过, 不进候选集也就不参与同名冲突消解, 嵌入的那份仍会输出;
 	// 同名加 omitempty 才既胜出又因零值被省略。
-	ActiveItemID int              `json:"active_item_id,omitempty"`
-	Runtime      relay.RouteState `json:"runtime"` // 分组当前的实时路由状态。
+	ActiveItemID    int              `json:"active_item_id,omitempty"`
+	MetadataVersion string           `json:"metadata_version"` // 分类归属版本，与 runtime 的排序独立。
+	Runtime         relay.RouteState `json:"runtime"`          // 分组当前的实时路由状态。
 }
 
 // 分组变更事件, SSE 收到后按事件名原样转发。
@@ -104,7 +105,7 @@ func publishGroupEvent(event groupEvent) {
 func publishGroupSnapshot(group model.Group) {
 	publishGroupEvent(groupEvent{
 		Name: "changed",
-		Data: groupResponse{Group: group, Runtime: relay.RouteStateOf(group)},
+		Data: groupResponse{Group: group, MetadataVersion: group.MetadataVersion, Runtime: relay.RouteStateOf(group)},
 	})
 }
 
@@ -182,7 +183,7 @@ func getGroupList(c *gin.Context) {
 	groups := op.GroupList()
 	responses := make([]groupResponse, len(groups))
 	for i, group := range groups {
-		responses[i] = groupResponse{Group: group, Runtime: relay.RouteStateOf(group)}
+		responses[i] = groupResponse{Group: group, MetadataVersion: group.MetadataVersion, Runtime: relay.RouteStateOf(group)}
 	}
 	resp.Success(c, responses)
 }
@@ -208,7 +209,7 @@ func getGroup(c *gin.Context) {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
-	resp.Success(c, groupResponse{Group: group, Runtime: relay.RouteStateOf(group)})
+	resp.Success(c, groupResponse{Group: group, MetadataVersion: group.MetadataVersion, Runtime: relay.RouteStateOf(group)})
 }
 
 func createGroup(c *gin.Context) {
@@ -225,7 +226,7 @@ func createGroup(c *gin.Context) {
 		return
 	}
 	relay.SetRouteConfig(*group)
-	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
+	response := groupResponse{Group: *group, MetadataVersion: group.MetadataVersion, Runtime: relay.RouteStateOf(*group)}
 	publishGroupEvent(groupEvent{Name: "changed", Data: response})
 	resp.Success(c, response)
 }
@@ -259,13 +260,16 @@ func updateGroup(c *gin.Context) {
 	// 模式、完整成员顺序或任一 Relay 策略变化都会使旧运行时状态失效, 并唤醒在旧状态上等待的请求。
 	if routeConfigChanged(oldGroup, *group) {
 		relay.ResetRouteStateForGroup(*group)
-	} else {
+	} else if !req.CategoryID.Present || oldGroup.Name != group.Name ||
+		oldGroup.ModelMatchMode != group.ModelMatchMode || oldGroup.RelayConfig != group.RelayConfig ||
+		oldGroup.ActiveItemID != group.ActiveItemID {
+		// 只有分类变化时，连 SetRouteConfig 也不能调用：它会推进 config_version。
 		relay.SetRouteConfig(*group)
 		if oldGroup.Name != group.Name {
 			relay.NotifyRouteStateChanged(*group)
 		}
 	}
-	response := groupResponse{Group: *group, Runtime: relay.RouteStateOf(*group)}
+	response := groupResponse{Group: *group, MetadataVersion: group.MetadataVersion, Runtime: relay.RouteStateOf(*group)}
 	publishGroupEvent(groupEvent{Name: "changed", Data: response})
 	resp.Success(c, response)
 }
@@ -289,7 +293,7 @@ func routeConfigChanged(oldGroup, newGroup model.Group) bool {
 
 func groupWriteError(c *gin.Context, err error) {
 	status := http.StatusInternalServerError
-	if errors.Is(err, model.ErrInvalidGroupConfig) {
+	if errors.Is(err, model.ErrInvalidGroupConfig) || errors.Is(err, model.ErrInvalidGroupCategory) {
 		status = http.StatusBadRequest
 	}
 	resp.Error(c, status, err.Error())

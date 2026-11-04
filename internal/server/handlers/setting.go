@@ -273,6 +273,10 @@ func importDB(c *gin.Context) {
 	}
 	relay.ResetAllRouteStates()
 	relay.SetAllRouteConfigs(op.GroupList())
+	publishGroupCategories()
+	for _, group := range op.GroupList() {
+		publishGroupSnapshot(group)
+	}
 
 	resp.Success(c, result)
 }

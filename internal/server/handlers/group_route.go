@@ -48,9 +48,9 @@ func mutateGroupRoute(c *gin.Context, apply func(model.Group, int, string) (rela
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusConflict, resp.ResponseStruct{
 			Code: http.StatusConflict, Message: err.Error(),
-			Data: groupResponse{Group: group, Runtime: relay.RouteStateOf(group)},
+			Data: groupResponse{Group: group, MetadataVersion: group.MetadataVersion, Runtime: relay.RouteStateOf(group)},
 		})
 		return
 	}
-	resp.Success(c, groupResponse{Group: group, Runtime: state})
+	resp.Success(c, groupResponse{Group: group, MetadataVersion: group.MetadataVersion, Runtime: state})
 }

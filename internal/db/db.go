@@ -71,6 +71,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.ChannelKey{},
 		&model.ChannelModel{},
 		&model.ChannelGrant{},
+		&model.GroupCategory{},
 		&model.Group{},
 		&model.GroupItem{},
 		&model.LLMInfo{},

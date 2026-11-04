@@ -70,6 +70,13 @@ func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 		ExportedAt:      time.Now().UTC(),
 		GroupCategories: []model.BackupGroupCategory{},
 	}
+	var categories []model.GroupCategory
+	if err := conn.Order("id").Find(&categories).Error; err != nil {
+		return nil, fmt.Errorf("export group_categories: %w", err)
+	}
+	for _, category := range categories {
+		d.GroupCategories = append(d.GroupCategories, model.BackupGroupCategory{ID: category.ID, Name: category.Name})
+	}
 
 	if err := conn.Find(&d.Channels).Error; err != nil {
 		return nil, fmt.Errorf("export channels: %w", err)
@@ -203,6 +210,15 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 	}
 	err := conn.Transaction(func(tx *gorm.DB) error {
 		// base tables
+		categoryMapping, categoryCount, err := importGroupCategories(tx, dump.GroupCategories)
+		if err != nil {
+			return fmt.Errorf("import group_categories: %w", err)
+		}
+		res.RowsAffected["group_categories"] = categoryCount
+		groups, err := mapBackupGroupCategories(dump.Groups, categoryMapping)
+		if err != nil {
+			return err
+		}
 		if n, err := createDoNothing(tx, channels); err != nil {
 			return fmt.Errorf("import channels: %w", err)
 		} else {
@@ -217,7 +233,7 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 				return fmt.Errorf("import channel stats: %w", err)
 			}
 		}
-		if n, err := createDoNothing(tx, dump.Groups); err != nil {
+		if n, err := createDoNothing(tx, groups); err != nil {
 			return fmt.Errorf("import groups: %w", err)
 		} else {
 			res.RowsAffected["groups"] = n
@@ -296,10 +312,10 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 }
 
 func validateBackupFeatureFields(dump *model.DBDump) error {
-	if dump.HasExplicitNullCooldownRules() {
+	if dump.Version == dbDumpVersion && dump.HasExplicitNullCooldownRules() {
 		return fmt.Errorf("cooldown_rules cannot be null")
 	}
-	if dump.HasExplicitNullGroupCategories() {
+	if dump.Version == dbDumpVersion && dump.HasExplicitNullGroupCategories() {
 		return fmt.Errorf("group_categories cannot be null")
 	}
 	for i := range dump.Channels {
@@ -318,10 +334,7 @@ func validateBackupFeatureFields(dump *model.DBDump) error {
 		}
 		return nil
 	}
-	if len(dump.GroupCategories) > 0 || dump.HasNonNullGroupCategoryReference() {
-		return fmt.Errorf("platform categories are reserved for a later work package")
-	}
-	return nil
+	return validateBackupCategories(dump)
 }
 
 func validateBackupSettings(settings []model.Setting) error {

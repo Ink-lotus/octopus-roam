@@ -36,9 +36,8 @@ type DBDump struct {
 	StatsHourly []StatsHourly `json:"stats_hourly,omitempty"`
 	StatsAPIKey []StatsAPIKey `json:"stats_api_key,omitempty"`
 
-	explicitNullCooldownRules     bool `json:"-"`
-	explicitNullGroupCategories   bool `json:"-"`
-	nonNullGroupCategoryReference bool `json:"-"`
+	explicitNullCooldownRules   bool `json:"-"`
+	explicitNullGroupCategories bool `json:"-"`
 }
 
 func (dump *DBDump) UnmarshalJSON(data []byte) error {
@@ -76,27 +75,10 @@ func (dump *DBDump) UnmarshalJSON(data []byte) error {
 	if raw, ok := fields["group_categories"]; ok && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		explicitNullGroupCategories = true
 	}
-	nonNullGroupCategoryReference := false
-	if raw, ok := fields["groups"]; ok && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		var groups []json.RawMessage
-		if err := json.Unmarshal(raw, &groups); err != nil {
-			return err
-		}
-		for _, groupRaw := range groups {
-			var groupFields map[string]json.RawMessage
-			if err := json.Unmarshal(groupRaw, &groupFields); err != nil {
-				return err
-			}
-			if categoryRaw, ok := groupFields["category_id"]; ok && !bytes.Equal(bytes.TrimSpace(categoryRaw), []byte("null")) {
-				nonNullGroupCategoryReference = true
-			}
-		}
-	}
 
 	*dump = DBDump(decoded)
 	dump.explicitNullCooldownRules = explicitNullCooldownRules
 	dump.explicitNullGroupCategories = explicitNullGroupCategories
-	dump.nonNullGroupCategoryReference = nonNullGroupCategoryReference
 	return nil
 }
 
@@ -125,7 +107,14 @@ func (dump *DBDump) HasExplicitNullGroupCategories() bool {
 }
 
 func (dump *DBDump) HasNonNullGroupCategoryReference() bool {
-	return dump != nil && dump.nonNullGroupCategoryReference
+	if dump != nil {
+		for _, group := range dump.Groups {
+			if group.CategoryID != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type DBImportResult struct {

@@ -108,7 +108,8 @@ func GroupRouteDefaultsSet(config model.GroupRelayConfig, applyToExisting bool, 
 	}
 	settingCache.Set(model.SettingKeyGroupRouteDefaults, string(raw))
 	for i := range changes {
-		groupCache.Set(changes[i].After.ID, changes[i].After)
+		changes[i].After = setGroupCacheLocked(changes[i].After)
+		changes[i].Before.MetadataVersion = changes[i].After.MetadataVersion
 		changes[i].Before = groupSnapshot(changes[i].Before)
 		changes[i].After = groupSnapshot(changes[i].After)
 	}
