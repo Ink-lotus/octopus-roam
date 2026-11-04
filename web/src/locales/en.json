@@ -78,6 +78,9 @@
         "setting": "Setting"
     },
     "toolbar": {
+        "search": "Search",
+        "closeSearch": "Close search",
+        "create": "Create",
         "hideChannelName": "Blur channel names",
         "share": "Share",
         "popover": {
@@ -440,6 +443,44 @@
         }
     },
     "group": {
+        "category": {
+            "label": "Platform category",
+            "filter": "Filter platform categories",
+            "all": "All categories",
+            "uncategorized": "Uncategorized",
+            "manage": "Manage categories",
+            "hint": "Create categories and assign model groups manually. Deleting a category moves its groups to Uncategorized and keeps every group and member.",
+            "manualHint": "Assign manually. Routing and cooldowns are preserved.",
+            "countHint": "Counts reflect name and member filters. Collapsing a category does not change its count.",
+            "count": "{count, plural, one {# group} other {# groups}}",
+            "collapse": "Collapse {name}, {count} groups",
+            "expand": "Expand {name}, {count} groups",
+            "browse": "Browse model groups by platform category",
+            "noMatches": "No groups match the current filters.",
+            "none": "No platform categories yet. Create one above.",
+            "list": "Platform categories",
+            "newName": "New category name",
+            "renameName": "Rename {name}",
+            "nameHint": "1–64 characters. Leading and trailing spaces are ignored; control characters and duplicate names are not allowed.",
+            "invalidName": "Enter 1–64 characters without control characters.",
+            "duplicate": "A category with this name already exists. Names are case insensitive.",
+            "missing": "This category no longer exists. Choose another category.",
+            "saveFailed": "Could not save. Your changes have not been saved; please try again.",
+            "loadFailed": "Could not load categories or groups. Please try again.",
+            "loading": "Loading categories and groups…",
+            "retry": "Retry",
+            "create": "Create category",
+            "rename": "Rename category {name}",
+            "delete": "Delete category {name}",
+            "deleteHint": "Deleting {name} moves its model groups to Uncategorized. Members, selection, and cooldowns are preserved.",
+            "confirmDelete": "Delete category",
+            "deleted": "Category deleted. Its groups are now Uncategorized.",
+            "saved": "Category saved.",
+            "save": "Save name",
+            "saving": "Saving…",
+            "cancel": "Cancel",
+            "close": "Close category manager"
+        },
         "toast": {
             "createFailed": "Create failed",
             "updated": "Updated successfully",
@@ -447,6 +488,7 @@
             "deleted": "Deleted successfully"
         },
         "create": {
+            "title": "Create model group",
             "submit": "Create",
             "submitting": "Creating...",
             "defaultsLoading": "Loading default routing policy…",
@@ -454,6 +496,7 @@
             "retry": "Retry"
         },
         "card": {
+            "edit": "Edit group {name}",
             "empty": "No rules",
             "activate": "Set as active",
             "current": "Current member",

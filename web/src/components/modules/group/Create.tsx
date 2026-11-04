@@ -1,5 +1,6 @@
 import {
     MorphingDialogDescription,
+    MorphingDialogTitle,
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
 import { useState } from 'react';
@@ -23,6 +24,7 @@ export function CreateDialogContent() {
 
     return (
         <div className="w-screen max-w-full md:max-w-4xl h-[calc(100vh-2rem)] min-h-0 flex flex-col">
+            <MorphingDialogTitle className="sr-only">{t('create.title')}</MorphingDialogTitle>
             <MorphingDialogDescription className="flex-1 min-h-0 overflow-hidden">
                 {initialConfig === null ? (
                     <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
@@ -42,10 +44,11 @@ export function CreateDialogContent() {
                     submittingText={t('create.submitting')}
                     isSubmitting={createGroup.isPending}
                     onCancel={() => setIsOpen(false)}
-                    onSubmit={({ name, mode, model_match_mode, relay_config, members }) => {
+                    onSubmit={({ name, category_id, mode, model_match_mode, relay_config, members }) => {
                         createGroup.mutate(
                             {
                                 name,
+                                category_id,
                                 mode,
                                 model_match_mode,
                                 relay_config,

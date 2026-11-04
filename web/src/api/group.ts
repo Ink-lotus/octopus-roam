@@ -5,6 +5,7 @@ import { groupListQueryOptions, groupRouteDefaultsQueryOptions } from './queries
 import { readGroup, removeGroupCache, shareGroupSnapshot, writeGroupCache } from './group-cache';
 import { useLiveEvents } from './live-events';
 import type { CooldownHit } from './cooldown';
+import { invalidateGroupCategories } from './group-category';
 
 // GroupGrantCandidate 是分组编辑器可新增的一条渠道授权。
 // 后端只返回当前渠道和凭据都可用的授权; 已有不可用成员仍随 Group.items 返回。
@@ -74,6 +75,8 @@ export interface GroupRuntime {
 export interface Group {
     id: number;
     name: string;
+    category_id: number | null;
+    metadata_version: string;
     mode: GroupMode;
     model_match_mode: GroupModelMatchMode;
     relay_config: GroupRelayConfig;
@@ -89,6 +92,7 @@ export interface GroupItemInput {
 // GroupCreateRequest 是创建分组的请求。
 export interface GroupCreateRequest {
     name: string;
+    category_id?: number | null;
     mode: GroupMode;
     model_match_mode: GroupModelMatchMode;
     relay_config: GroupRelayConfig;
@@ -99,6 +103,7 @@ export interface GroupCreateRequest {
 // 只提交发生变化的字段；当前成员是分组的普通字段，与其余变更共用本请求。
 export interface GroupUpdateRequest {
     name?: string;
+    category_id?: number | null; // 省略保留，null 移入未分类，正 ID 指定分类。
     mode?: GroupMode;
     model_match_mode?: GroupModelMatchMode;
     relay_config?: GroupRelayConfig;
@@ -144,6 +149,9 @@ export function useUpdateGroup() {
         mutationFn: ({ id, ...data }: GroupUpdateRequest & { id: number }) =>
             apiRequest<Group>(`/api/v1/group/update/${id}`, { method: 'POST', body: data }),
         onSuccess: writeGroupCache,
+        onError: (_error, request) => {
+            if ('category_id' in request) void invalidateGroupCategories();
+        },
     });
 }
 

@@ -7,6 +7,8 @@ import type { LLMInfo } from './model';
 import type { StatsDailyResponse, StatsHourly, StatsTotal } from './stats';
 import { apiRequest } from './client';
 
+export { groupCategoryListQueryOptions } from './group-category';
+
 // apiKeyDashboardStatsQueryOptions 供页面查询和启动预取共享 API Key 统计定义。
 export const apiKeyDashboardStatsQueryOptions = queryOptions({
     queryKey: ['apikey', 'dashboard', 'stats'],

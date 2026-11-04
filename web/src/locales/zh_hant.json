@@ -78,6 +78,9 @@
         "setting": "設定"
     },
     "toolbar": {
+        "search": "搜尋",
+        "closeSearch": "關閉搜尋",
+        "create": "建立",
         "hideChannelName": "模糊渠道名稱",
         "share": "分享",
         "popover": {
@@ -440,6 +443,44 @@
         }
     },
     "group": {
+        "category": {
+            "label": "平台分類",
+            "filter": "篩選平台分類",
+            "all": "全部分類",
+            "uncategorized": "未分類",
+            "manage": "管理分類",
+            "hint": "分類由你手動建立和選擇。刪除分類會將其中的模型分組移入「未分類」，保留分組和成員。",
+            "manualHint": "手動歸類，不影響路由或冷卻。",
+            "countHint": "計數為名稱和成員篩選後的分組數；摺疊不改變計數。",
+            "count": "{count} 個分組",
+            "collapse": "收合 {name}，{count} 個分組",
+            "expand": "展開 {name}，{count} 個分組",
+            "browse": "依平台分類瀏覽模型分組",
+            "noMatches": "目前篩選下沒有分組。",
+            "none": "尚無平台分類，可在上方建立。",
+            "list": "平台分類清單",
+            "newName": "新分類名稱",
+            "renameName": "重新命名「{name}」",
+            "nameHint": "1～64 個字元，忽略前後空白；不允許控制字元或同名分類。",
+            "invalidName": "請輸入 1～64 個字元的名稱，且不包含控制字元。",
+            "duplicate": "已有同名分類，名稱不區分大小寫。",
+            "missing": "此分類已不存在，請重新選擇。",
+            "saveFailed": "儲存失敗，請重試；目前修改尚未儲存。",
+            "loadFailed": "分類或分組讀取失敗，請重試。",
+            "loading": "正在讀取分類與分組…",
+            "retry": "重試",
+            "create": "建立分類",
+            "rename": "重新命名分類 {name}",
+            "delete": "刪除分類 {name}",
+            "deleteHint": "刪除「{name}」後，其中的模型分組將移入「未分類」，成員、選擇和冷卻狀態保留。",
+            "confirmDelete": "確認刪除分類",
+            "deleted": "分類已刪除，分組已移入未分類。",
+            "saved": "分類已儲存。",
+            "save": "儲存名稱",
+            "saving": "儲存中…",
+            "cancel": "取消",
+            "close": "關閉分類管理"
+        },
         "toast": {
             "createFailed": "建立失敗",
             "updated": "更新成功",
@@ -447,6 +488,7 @@
             "deleted": "刪除成功"
         },
         "create": {
+            "title": "新增模型分組",
             "submit": "建立",
             "submitting": "建立中...",
             "defaultsLoading": "正在讀取預設路由策略…",
@@ -454,6 +496,7 @@
             "retry": "重試"
         },
         "card": {
+            "edit": "編輯分組 {name}",
             "empty": "暫無規則",
             "activate": "設為活動項",
             "current": "目前成員",

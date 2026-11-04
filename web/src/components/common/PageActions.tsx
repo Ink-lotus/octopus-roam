@@ -124,6 +124,7 @@ export function PageActions({
                 >
                     <button
                         type="button"
+                        aria-label={t('search')}
                         onClick={() => {
                             if (searchExpanded) return;
                             setSearchExpanded(true);
@@ -139,6 +140,7 @@ export function PageActions({
                     <input
                         ref={searchInputRef}
                         type="text"
+                        aria-label={t('search')}
                         value={searchTerm}
                         onChange={(event) => onSearchTermChange(event.target.value)}
                         tabIndex={searchExpanded ? 0 : -1}
@@ -146,6 +148,7 @@ export function PageActions({
                     />
                     <button
                         type="button"
+                        aria-label={t('closeSearch')}
                         tabIndex={searchExpanded ? 0 : -1}
                         onClick={() => {
                             onSearchTermChange('');
@@ -266,7 +269,7 @@ export function PageActions({
 
             {/* 创建按钮 */}
             <MorphingDialog>
-                <MorphingDialogTrigger className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground' })}>
+                <MorphingDialogTrigger aria-label={t('create')} className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground' })}>
                     <Plus className="size-4 transition-colors duration-300" />
                 </MorphingDialogTrigger>
                 <MorphingDialogContainer>

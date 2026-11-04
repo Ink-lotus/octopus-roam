@@ -4,6 +4,7 @@ import type { ChannelStats } from './channel';
 import type { ChannelCooldownState } from './cooldown';
 import type { Group, GroupRuntime } from './group';
 import { clearPendingGroupRuntimes, removeGroupCache, writeGroupCache, writeGroupRuntime } from './group-cache';
+import { invalidateGroupCategories, writeGroupCategories, type GroupCategorySnapshot } from './group-category';
 
 // 分组和渠道页共用一条认证 SSE 连接；引用计数归零后才关闭连接。
 let liveEventSource: EventSource | null = null;
@@ -49,6 +50,7 @@ function invalidateLiveSnapshots() {
     void queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
     void queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] });
     void queryClient.invalidateQueries({ queryKey: ['channels', 'stats'] });
+    void invalidateGroupCategories();
 }
 
 function ensureLiveEventSource() {
@@ -67,6 +69,9 @@ function ensureLiveEventSource() {
     });
     source.addEventListener('channel-cooldown', (event) => {
         writeChannelCooldown(JSON.parse((event as MessageEvent<string>).data) as ChannelCooldownState);
+    });
+    source.addEventListener('categories', (event) => {
+        writeGroupCategories(JSON.parse((event as MessageEvent<string>).data) as GroupCategorySnapshot);
     });
     // SSE 没有事件历史；连接恢复后重新读取所有当前快照，覆盖断线期间的规则到期、删除与清空。
     source.onopen = invalidateLiveSnapshots;

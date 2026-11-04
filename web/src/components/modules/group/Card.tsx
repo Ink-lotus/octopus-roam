@@ -17,6 +17,7 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
     MorphingDialogDescription,
+    MorphingDialogTitle,
     MorphingDialogTrigger,
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
@@ -25,28 +26,33 @@ interface EditDialogContentProps {
     group: Group;
     displayMembers: SelectedMember[];
     isSubmitting: boolean;
-    onSubmit: (values: GroupEditorValues, onDone?: () => void) => void;
+    onSubmit: (values: GroupEditorValues, original: Group, onDone?: () => void) => void;
 }
 
 function EditDialogContent({ group, displayMembers, isSubmitting, onSubmit }: EditDialogContentProps) {
     const { setIsOpen } = useMorphingDialog();
     const t = useTranslations('group');
+    // 草稿按打开时的配置计算变更，避免只移动分类时写回实时刷新后的旧成员。
+    const [original] = useState(group);
+    const [originalMembers] = useState(displayMembers);
     return (
         <MorphingDialogDescription className="flex-1 min-h-0 overflow-hidden">
+            <MorphingDialogTitle className="sr-only">{t('card.edit', { name: original.name })}</MorphingDialogTitle>
             <GroupEditor
                 key={`edit-group-${group.id}`}
                 initial={{
-                    name: group.name,
-                    mode: group.mode,
-                    model_match_mode: group.model_match_mode,
-                    relay_config: group.relay_config,
-                    members: displayMembers,
+                    name: original.name,
+                    category_id: original.category_id,
+                    mode: original.mode,
+                    model_match_mode: original.model_match_mode,
+                    relay_config: original.relay_config,
+                    members: originalMembers,
                 }}
                 submitText={t('detail.actions.save')}
                 submittingText={t('create.submitting')}
                 isSubmitting={isSubmitting}
                 onCancel={() => setIsOpen(false)}
-                onSubmit={(v) => onSubmit(v, () => setIsOpen(false))}
+                onSubmit={(v) => onSubmit(v, original, () => setIsOpen(false))}
             />
         </MorphingDialogDescription>
     );
@@ -107,27 +113,28 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
         submitMembers(members.filter((m) => m.id !== id));
     }, [members, submitMembers]);
 
-    const handleSubmitEdit = useCallback((values: GroupEditorValues, onDone?: () => void) => {
-        const payload: GroupUpdateRequest & { id: number } = { id: group.id };
+    const handleSubmitEdit = useCallback((values: GroupEditorValues, original: Group, onDone?: () => void) => {
+        const payload: GroupUpdateRequest & { id: number } = { id: original.id };
 
-        if (values.name !== group.name) payload.name = values.name;
-        if (values.mode !== group.mode) payload.mode = values.mode;
-        if (values.model_match_mode !== group.model_match_mode) payload.model_match_mode = values.model_match_mode;
+        if (values.name !== original.name) payload.name = values.name;
+        if (values.category_id !== original.category_id) payload.category_id = values.category_id;
+        if (values.mode !== original.mode) payload.mode = values.mode;
+        if (values.model_match_mode !== original.model_match_mode) payload.model_match_mode = values.model_match_mode;
         // 亲和时间已不再由界面提供配置，故不参与变更判定；编辑器状态始终沿用分组上的原值。
         if (
-            values.relay_config.member_max_attempts !== group.relay_config.member_max_attempts ||
-            values.relay_config.member_retry_interval_seconds !== group.relay_config.member_retry_interval_seconds ||
-            values.relay_config.member_non_stream_response_timeout_seconds !== group.relay_config.member_non_stream_response_timeout_seconds ||
-            values.relay_config.member_stream_first_event_timeout_seconds !== group.relay_config.member_stream_first_event_timeout_seconds ||
-            values.relay_config.member_cooldown_seconds !== group.relay_config.member_cooldown_seconds ||
-            values.relay_config.retry_mode !== group.relay_config.retry_mode ||
-            values.relay_config.retry_initial_interval_seconds !== group.relay_config.retry_initial_interval_seconds ||
-            values.relay_config.retry_max_interval_seconds !== group.relay_config.retry_max_interval_seconds ||
-            values.relay_config.manual_max_attempts !== group.relay_config.manual_max_attempts
+            values.relay_config.member_max_attempts !== original.relay_config.member_max_attempts ||
+            values.relay_config.member_retry_interval_seconds !== original.relay_config.member_retry_interval_seconds ||
+            values.relay_config.member_non_stream_response_timeout_seconds !== original.relay_config.member_non_stream_response_timeout_seconds ||
+            values.relay_config.member_stream_first_event_timeout_seconds !== original.relay_config.member_stream_first_event_timeout_seconds ||
+            values.relay_config.member_cooldown_seconds !== original.relay_config.member_cooldown_seconds ||
+            values.relay_config.retry_mode !== original.relay_config.retry_mode ||
+            values.relay_config.retry_initial_interval_seconds !== original.relay_config.retry_initial_interval_seconds ||
+            values.relay_config.retry_max_interval_seconds !== original.relay_config.retry_max_interval_seconds ||
+            values.relay_config.manual_max_attempts !== original.relay_config.manual_max_attempts
         ) payload.relay_config = values.relay_config;
         // 成员集合与顺序有任一处不同就整体提交; 后端按授权主键匹配, 已有成员保留其主键与统计。
         const nextGrantIDs = values.members.map((m) => m.channel_grant_id);
-        const currentGrantIDs = (group.items || []).map((item) => item.channel_grant_id);
+        const currentGrantIDs = original.items.map((item) => item.channel_grant_id);
         if (nextGrantIDs.length !== currentGrantIDs.length || nextGrantIDs.some((id, i) => id !== currentGrantIDs[i])) {
             payload.items = nextGrantIDs.map((channel_grant_id) => ({ channel_grant_id }));
         }
@@ -144,10 +151,10 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
             },
             onError,
         });
-    }, [group.id, group.items, group.mode, group.model_match_mode, group.name, group.relay_config, onSuccess, onError, updateGroup]);
+    }, [onSuccess, onError, updateGroup]);
 
     return (
-        <article className="flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4">
+        <article data-group-id={group.id} className="flex flex-col rounded-3xl border border-border bg-card text-card-foreground p-4">
             <header className="flex items-start justify-between mb-3 relative overflow-visible rounded-xl -mx-1 px-1 -my-1 py-1">
                 <div className="relative flex-1 mr-2 min-w-0 group/title">
                     <Tooltip>
@@ -170,7 +177,7 @@ export const GroupCard = memo(function GroupCard({ group, now }: { group: Group;
                     <MorphingDialog>
                         {/* trigger 自身渲染 motion.div 承担弹窗形变, 故由它出元素, IconButton 只补样式。 */}
                         <IconButton asChild className="size-7">
-                            <MorphingDialogTrigger>
+                            <MorphingDialogTrigger aria-label={t('card.edit', { name: group.name })}>
                                 <Pencil className="size-4" />
                             </MorphingDialogTrigger>
                         </IconButton>

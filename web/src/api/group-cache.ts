@@ -26,15 +26,17 @@ export function compareRouteVersions(left: string, right: string): number {
 }
 
 function mergeGroup(current: Group | undefined, incoming: Group): Group {
-    incoming = { ...incoming, runtime: normalizeRuntime(incoming.runtime) };
+    incoming = { ...incoming, category_id: incoming.category_id ?? null, metadata_version: incoming.metadata_version ?? '0:0', runtime: normalizeRuntime(incoming.runtime) };
     if (!current) return incoming;
     current = { ...current, runtime: normalizeRuntime(current.runtime) };
     const configOrder = compareRouteVersions(incoming.runtime.config_version, current.runtime.config_version);
-    if (configOrder < 0) return current;
-    if (configOrder === 0 && compareRouteVersions(incoming.runtime.version, current.runtime.version) < 0) {
-        return { ...incoming, runtime: current.runtime };
-    }
-    return incoming;
+    const config = configOrder < 0 ? current : incoming;
+    const runtime = configOrder === 0 && compareRouteVersions(incoming.runtime.version, current.runtime.version) < 0
+        ? current.runtime : config.runtime;
+    // 分类移动不推进路由版本；三个维度必须分别合并，包含旧 GET / 新 SSE 的交错。
+    const metadata = compareRouteVersions(incoming.metadata_version, current.metadata_version ?? '0:0') < 0
+        ? current : incoming;
+    return { ...config, runtime, category_id: metadata.category_id ?? null, metadata_version: metadata.metadata_version ?? '0:0' };
 }
 
 function latestGroup(incoming: Group, previous?: Group): Group {
@@ -82,7 +84,10 @@ export function removeGroupCache(id: number) {
 export function writeGroupRuntime(update: GroupRuntime) {
     update = normalizeRuntime(update);
     const pending = pendingRuntimes.get(update.group_id);
-    if (pending && compareRouteVersions(update.version, pending.version) <= 0) return;
+    if (pending) {
+        const order = compareRouteVersions(update.config_version, pending.config_version);
+        if (order < 0 || (order === 0 && compareRouteVersions(update.version, pending.version) <= 0)) return;
+    }
     pendingRuntimes.set(update.group_id, update);
     const current = queryClient.getQueryData<Group>(detailKey(update.group_id))
         ?? queryClient.getQueryData<Group[]>(listKey)?.find((group) => group.id === update.group_id);
@@ -101,8 +106,8 @@ export function clearPendingGroupRuntimes() {
 }
 
 export async function readGroupList(signal?: AbortSignal): Promise<Group[]> {
-    const groups = await apiRequest<Group[]>('/api/v1/group/list', { signal });
-    return groups.map(writeGroupCache);
+    // 在查询提交时统一合并；不要为每个分组重写、排序整张列表。
+    return apiRequest<Group[]>('/api/v1/group/list', { signal });
 }
 
 export async function readGroup(id: number, signal?: AbortSignal): Promise<Group> {

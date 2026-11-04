@@ -17,10 +17,13 @@ import type { SelectedMember } from './ItemList';
 import { MemberList } from './ItemList';
 import { RelayConfigFields } from './RelayConfigFields';
 import { matchesGroupName, memberKey, normalizeKey } from './utils';
+import { useGroupCategories } from '@/api/group-category';
+import { CategorySelect } from './CategorySelect';
 
 
 export type GroupEditorValues = {
     name: string;
+    category_id: number | null;
     mode: GroupMode;
     model_match_mode: GroupModelMatchMode;
     relay_config: GroupRelayConfig;
@@ -303,6 +306,7 @@ export function GroupEditor({
 }: {
     initial: {
         name?: string;
+        category_id?: number | null;
         mode?: GroupMode;
         model_match_mode?: GroupModelMatchMode;
         relay_config: GroupRelayConfig;
@@ -315,6 +319,7 @@ export function GroupEditor({
     onCancel?: () => void;
 }) {
     const t = useTranslations('group');
+    const categories = useGroupCategories();
     const { data: grantCandidates = [] } = useGroupGrantCandidates();
     const grantMembers = useMemo<SelectedMember[]>(() => grantCandidates.map((grant) => ({
         id: String(grant.id),
@@ -328,6 +333,7 @@ export function GroupEditor({
     })), [grantCandidates]);
 
     const [groupName, setGroupName] = useState(initial?.name ?? '');
+    const [categoryId, setCategoryId] = useState(initial.category_id ?? null);
     const [mode, setMode] = useState<GroupMode>(initial?.mode ?? 'manual');
     const [modelMatchMode, setModelMatchMode] = useState<GroupModelMatchMode>(initial?.model_match_mode ?? 'keyword');
     const [relayConfig, setRelayConfig] = useState<GroupRelayConfig>(() => ({ ...initial.relay_config, member_affinity_seconds: 0 }));
@@ -393,13 +399,15 @@ export function GroupEditor({
     }, []);
 
     // 编辑已有分组可以清空全部成员后保存；创建分组仍要求至少选择一个成员。
-    const isValid = groupKey.length > 0 && (initial.members !== undefined || selectedMembers.length > 0);
+    const categoryValid = categoryId === null || !!categories.data?.items.some((category) => category.id === categoryId);
+    const isValid = groupKey.length > 0 && categoryValid && (initial.members !== undefined || selectedMembers.length > 0);
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (!isValid || isSubmitting) return;
         onSubmit({
             name: groupName,
+            category_id: categoryId,
             mode,
             model_match_mode: modelMatchMode,
             relay_config: { ...relayConfig, member_affinity_seconds: 0 },
@@ -412,7 +420,7 @@ export function GroupEditor({
         <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0 ">
             <div className="flex-1 min-h-0 overflow-hidden px-1">
                 <FieldGroup className="gap-4 flex flex-col min-h-0 h-full">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                         <Field>
                             <FieldLabel htmlFor="group-name">{t('form.name')}</FieldLabel>
                             <Input
@@ -421,6 +429,20 @@ export function GroupEditor({
                                 onChange={(e) => setGroupName(e.target.value)}
                                 className="rounded-xl"
                             />
+                        </Field>
+                        <Field>
+                            <FieldLabel htmlFor="group-category">{t('category.label')}</FieldLabel>
+                            <CategorySelect id="group-category" value={categoryId === null ? 'uncategorized' : String(categoryId)}
+                                onChange={(value) => setCategoryId(value === 'uncategorized' ? null : Number(value))}
+                                categories={categories.data?.items ?? []} disabled={isSubmitting || categories.isPending}
+                                invalid={!categoryValid} describedBy="group-category-hint" />
+                            <p id="group-category-hint" role={categoryValid ? undefined : 'alert'}
+                                className={`text-xs ${categoryValid ? 'text-muted-foreground' : 'text-destructive'}`}>
+                                {!categoryValid ? t('category.missing') : t('category.manualHint')}
+                            </p>
+                            {categories.isError && <div role="alert" className="text-xs text-destructive">
+                                {t('category.loadFailed')} <Button type="button" variant="outline" onClick={() => void categories.refetch()}>{t('category.retry')}</Button>
+                            </div>}
                         </Field>
                         <Field>
                             <FieldLabel htmlFor="group-model-match-mode">
