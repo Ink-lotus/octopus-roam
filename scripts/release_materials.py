@@ -51,11 +51,7 @@ def target(version, commit, exact_checkout=True):
                          'Material checkout has unreviewed tracked or untracked files')
         subprocess.run(['git', 'diff', '--quiet'], check=True)
         subprocess.run(['git', 'diff', '--cached', '--quiet'], check=True)
-    main = contract.run('git', 'show', commit + ':main.go')
-    contract.require(re.findall(r'^// Version (\S+)\s*$', main, re.M) == [version],
-                     'Material version differs from main.go')
-    contract.reviewed_notes(contract.run('git', 'show',
-                                         commit + ':plan/release-notes-v0.1.0.md'), version)
+    contract.read_release_notes(version, commit)
     epoch = contract.run('git', 'show', '-s', '--format=%ct', commit)
     contract.require(re.fullmatch('[1-9][0-9]*', epoch), 'Invalid material commit epoch')
     return int(epoch)
@@ -74,6 +70,8 @@ def resolve(args):
     require_hash(args.materials_sha)
     with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
         output.write(f'version={args.version}\ncommit={args.commit}\n')
+        for key, value in contract.notes_binding(contract.read_release_notes(args.version, args.commit)).items():
+            output.write(f'{key}={value}\n')
 
 
 def input_file(root, record, extra_keys=()):
@@ -176,10 +174,15 @@ def source_production(source, version, commit, epoch):
         names = contract.zip_checksums(archive)
         record = json.loads(archive.read(PRODUCTION_RECORD))
         contract.require(set(record) == {'schema', 'version', 'commit', 'source_date_epoch',
-                         'inputs_sha256', 'inputs', 'tools', 'frontend', 'scripts'}
+                         'inputs_sha256', 'inputs', 'tools', 'frontend', 'scripts',
+                         'release_notes_path', 'release_notes_sha256'}
                          and record['schema'] == 1 and record['version'] == version
                          and record['commit'] == commit and record['source_date_epoch'] == epoch,
                          'Material production identity differs')
+        notes = contract.read_release_notes(version, commit)
+        contract.check_notes_binding(record, notes)
+        contract.require(archive.read('application/' + contract.RELEASE_NOTES_PATH) == notes,
+                         'Material production Release Notes differ')
         require_hash(record['inputs_sha256'])
         required = {'source', 'license_report', 'tool_inputs',
                     *('documents/' + name for name in contract.DOCS),
@@ -218,6 +221,7 @@ def source_production(source, version, commit, epoch):
 
 def produce(args):
     epoch = target(args.version, args.commit)
+    binding = contract.notes_binding(contract.read_release_notes(args.version, args.commit))
     spec_path = Path(args.inputs_json).resolve()
     require_hash(args.inputs_sha)
     contract.require(contract.digest(spec_path) == args.inputs_sha, 'Reviewed input manifest differs')
@@ -268,6 +272,7 @@ def produce(args):
                 **{'documents/' + name: row['sha256'] for name, row in spec['documents'].items()},
                 **{'alpine/' + arch: row['sha256'] for arch, row in spec['alpine'].items()}}
     production = {'schema': 1, 'version': args.version, 'commit': args.commit,
+                  **binding,
                   'source_date_epoch': epoch, 'inputs_sha256': args.inputs_sha, 'inputs': reviewed,
                   'tools': actual_tools, 'frontend': frontend,
                   'scripts': {name: committed[name] for name in
@@ -308,6 +313,7 @@ def produce(args):
         info.compress_type = zipfile.ZIP_DEFLATED
         archive.writestr(info, ''.join(f'{value}  {name}\n' for name, value in sorted(checksums.items())))
     data = {'schema': 1, 'version': args.version, 'commit': args.commit,
+            **binding,
             'source_date_epoch': epoch, 'platforms': list(contract.TARGETS),
             'alpine': {arch: {'base_image': row['base_image']} for arch, row in spec['alpine'].items()},
             'files': contract.tree(output)}
@@ -324,7 +330,7 @@ def produce(args):
     for record in spec['alpine'].values():
         input_file(spec_path.parent, record, ('base_image',))
     print(json.dumps({'materials_sha256': material_sha, 'files': len(data['files']),
-                      'source_date_epoch': epoch}))
+                      'source_date_epoch': epoch, **binding}))
 
 
 def template_name(version):
@@ -348,6 +354,7 @@ def audit(args):
                      'Actual rebuilt frontend differs from the material production record')
     print(json.dumps({'version': args.version, 'commit': args.commit,
                       'materials_sha256': args.materials_sha, 'source_date_epoch': epoch,
+                      **contract.notes_binding(contract.read_release_notes(args.version, args.commit)),
                       'production_tools': production['tools']['versions'],
                       'frontend_files': len(production['frontend'])}))
 

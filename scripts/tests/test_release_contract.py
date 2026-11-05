@@ -19,8 +19,16 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import release_contract as contract
 
-VERSION = 'v0.1.0-rc.1'
+VERSION = 'v0.1.1-rc.1'
 COMMIT = 'a' * 40
+NOTES = f'# Octopus Roam {VERSION}\r\nReviewed synthetic notes.\r\n\r\n'.encode()
+
+
+def fixture_notes(version, commit):
+    """Synthetic Git boundary for full-matrix fixtures; real Git tests are separate."""
+    contract.identity(version, commit)
+    contract.require((version, commit) == (VERSION, COMMIT), 'Synthetic release identity differs')
+    return NOTES
 
 
 def new_directory():
@@ -77,6 +85,7 @@ def material_fixture(root):
     report = b'ecosystem,name,version,license\ngo,fixture,1.0,MIT\n'
     source = {**docs, 'release-source.json': json.dumps({'schema': 1, 'version': VERSION, 'commit': COMMIT,
                'platforms': list(contract.TARGETS)}).encode(),
+              'application/' + contract.RELEASE_NOTES_PATH: NOTES,
               'go-cache/module.zip': b'synthetic module bytes', 'npm-packages/fixture/source.js': b'synthetic source',
               'licenses/THIRD_PARTY_LICENSES.csv': report}
     for name in ('AGPL-3.0.txt', 'LGPL-3.0.txt', 'GPL-3.0.txt', 'MPL-2.0.txt'):
@@ -90,6 +99,7 @@ def material_fixture(root):
     for arch in contract.LINUX:
         raw_packages[arch] = os_source(root / f'alpine/{arch}.zip', arch)
     data = {'schema': 1, 'version': VERSION, 'commit': COMMIT, 'platforms': list(contract.TARGETS),
+            **contract.notes_binding(NOTES),
             'source_date_epoch': 1, 'alpine': {arch: {'base_image': 'alpine@sha256:' + 'c' * 64}
                                              for arch in contract.LINUX}, 'files': contract.tree(root)}
     contract.write_json(root / 'materials.json', data)
@@ -131,7 +141,7 @@ def fixture_go(*args):
     raise AssertionError(f'Unexpected Go fixture invocation: {args}')
 
 
-def release_fixture(root):
+def release_fixture(root, missing_archive=None, missing_image=None):
     materials_sha, packages = material_fixture(root / 'materials')
     for name in ('archives', 'bin', 'docker-context/build/release-notices', 'docker-context/scripts/dockerfile'):
         (root / name).mkdir(parents=True, exist_ok=True)
@@ -151,10 +161,12 @@ def release_fixture(root):
                    'THIRD_PARTY_LICENSES.csv': (report, 0o644)}
         if target.startswith('windows-'):
             entries[contract.APP + '.cmd'] = (b'synthetic helper', 0o644)
-        contract.archive_write(root / 'archives' / f'{contract.APP}-{target}.zip', entries)
+        if target != missing_archive:
+            contract.archive_write(root / 'archives' / f'{contract.APP}-{target}.zip', entries)
     (root / 'archives/SHA256SUMS').write_text(''.join(f'{contract.digest(p)}  {p.name}\n'
         for p in sorted((root / 'archives').glob('*.zip'))), encoding='utf-8')
     contract.write_json(root / 'build.json', {'schema': contract.BUILD_SCHEMA, 'version': VERSION, 'commit': COMMIT,
+        **contract.notes_binding(NOTES),
         'platforms': list(contract.TARGETS), 'binaries': binaries,
         'go_versions': {target: contract.GO_VERSION for target in contract.TARGETS}})
     for arch, (raw, os_files) in packages.items():
@@ -166,7 +178,8 @@ def release_fixture(root):
                  'app/LICENSE': b'synthetic app license', 'app/THIRD_PARTY_LICENSES.csv': report,
                  'entrypoint.sh': b'synthetic entrypoint', 'app/SOURCE-OFFER.md': b'synthetic offer',
                  'app/alpine/ALPINE-PACKAGES.json': os_files['ALPINE-PACKAGES.json']}
-        image_fixture(root / f'images/{arch}.tar', arch, files)
+        if arch != missing_image:
+            image_fixture(root / f'images/{arch}.tar', arch, files)
     return argparse.Namespace(command='seal', output=str(root), version=VERSION, commit=COMMIT, materials_sha=materials_sha)
 
 
@@ -177,21 +190,27 @@ class ContractTests(unittest.TestCase):
         self.env.start()
         self.go = patch.object(contract, 'go_run', side_effect=fixture_go)
         self.go.start()
+        self.enterContext(patch.object(contract, 'read_release_notes', side_effect=fixture_notes))
 
     def tearDown(self):
         self.go.stop()
         self.env.stop()
 
-    def test_identity_accepts_only_full_sha_and_first_release(self):
+    def test_identity_accepts_only_full_sha_and_target_release(self):
         contract.identity(VERSION, COMMIT)
-        contract.identity('v0.1.0', COMMIT)
-        for version, commit in [('dev', COMMIT), ('v0.13.6', COMMIT), ('v0.1.0-local.x', COMMIT),
-                                ('v0.1.0-rc.0', COMMIT), (VERSION, 'abcdef1')]:
+        contract.identity('v0.1.1', COMMIT)
+        contract.identity('v0.1.1-rc.123', COMMIT)
+        for version, commit in [('dev', COMMIT), ('v0.0.0-ci', COMMIT), ('v0.13.6', COMMIT),
+                                ('v0.1.0', COMMIT), ('v0.1.0-rc.1', COMMIT), ('v0.1.2', COMMIT),
+                                ('v0.1.1-local.x', COMMIT), ('v0.1.1-rc.0', COMMIT),
+                                ('v0.1.1-rc.01', COMMIT), ('v0.1.1\n', COMMIT),
+                                ('V0.1.1', COMMIT), (VERSION, 'abcdef1'), (VERSION, 'A' * 40)]:
             with self.subTest(version=version, commit=commit), self.assertRaises(contract.Invalid):
                 contract.identity(version, commit)
 
     def test_notes_version_must_match_exactly(self):
-        for title, version in [('# Release v0.1.0-rc.10', VERSION), ('# Release v0.1.0-rc.1', 'v0.1.0')]:
+        for title, version in [('# Release v0.1.1-rc.10', VERSION), ('# Release v0.1.1-rc.1', 'v0.1.1'),
+                               ('# Release v0.1.1+local', 'v0.1.1'), ('# Release v0.1.1beta', 'v0.1.1')]:
             with self.assertRaises(contract.Invalid):
                 contract.reviewed_notes(title, version)
 
@@ -212,6 +231,21 @@ class ContractTests(unittest.TestCase):
              patch.object(contract.urllib.request, 'urlopen', return_value=io.BytesIO(b'')), \
              self.assertRaises(contract.Invalid):
             contract.remote_check(args)
+
+    def test_remote_preflight_rejects_existing_release_or_any_version_image(self):
+        args = argparse.Namespace(version=VERSION, commit=COMMIT)
+        def missing():
+            return urllib.error.HTTPError('https://fixture.invalid', 404, 'synthetic absent', {}, None)
+        for position in (1, 3, 4, 5, 6, 7):
+            responses = [missing(), missing(), io.BytesIO(b'{"token":"synthetic-registry-token"}'),
+                         *(missing() for _ in range(5))]
+            responses[position] = io.BytesIO(b'existing synthetic object')
+            with self.subTest(position=position), \
+                 patch.dict(os.environ, {'GITHUB_ACTOR': 'fixture', 'GH_TOKEN': 'synthetic-credential'}), \
+                 patch.object(contract.urllib.request, 'urlopen', side_effect=responses) as request, \
+                 self.assertRaisesRegex(contract.Invalid, 'exists; do not overwrite'):
+                contract.remote_check(args)
+            self.assertEqual(request.call_count, position + 1)
 
     def test_remote_preflight_rejects_auth_or_network_failure(self):
         args = argparse.Namespace(version=VERSION, commit=COMMIT)
@@ -235,6 +269,18 @@ class ContractTests(unittest.TestCase):
             with patch.object(contract.subprocess, 'run', side_effect=failed_build), self.assertRaises(subprocess.CalledProcessError):
                 contract.frontend(argparse.Namespace(version=VERSION))
             self.assertEqual(sentinel.read_bytes(), b'original sentinel\r\n')
+        finally:
+            os.chdir(previous)
+
+    def test_development_ci_frontend_does_not_require_release_inputs(self):
+        previous = Path.cwd()
+        os.chdir(self.root)
+        try:
+            with patch.object(contract.subprocess, 'run') as build, \
+                 patch.object(contract, 'read_release_notes') as notes:
+                contract.frontend(argparse.Namespace(version='v0.0.0-ci', commit=COMMIT))
+            self.assertEqual(build.call_args.kwargs['env']['VITE_APP_VERSION'], 'v0.0.0-ci')
+            notes.assert_not_called()
         finally:
             os.chdir(previous)
 
@@ -272,7 +318,7 @@ class ContractTests(unittest.TestCase):
     def test_stale_materials_fail(self):
         expected, _ = material_fixture(self.root / 'materials')
         with self.assertRaises(contract.Invalid):
-            contract.materials(self.root / 'materials', 'v0.1.0-rc.2', COMMIT, expected)
+            contract.materials(self.root / 'materials', 'v0.1.1-rc.2', COMMIT, expected)
 
     def test_material_root_hash_fail(self):
         material_fixture(self.root / 'materials')
@@ -343,7 +389,7 @@ class ContractTests(unittest.TestCase):
     def test_wrong_image_version_and_arch_fail(self):
         path = self.root / 'image.tar'
         image_fixture(path, 'amd64', {'app/payload': b'fixture'})
-        for arch, version in [('arm64', VERSION), ('amd64', 'v0.1.0-rc.2')]:
+        for arch, version in [('arm64', VERSION), ('amd64', 'v0.1.1-rc.2')]:
             with self.assertRaises(contract.Invalid):
                 contract.image_files(path, ['app/payload'], arch, version, COMMIT)
 
@@ -384,19 +430,49 @@ class ContractTests(unittest.TestCase):
 
     def test_prepare_requires_main_and_reviewed_notes(self):
         args = argparse.Namespace(version=VERSION, commit=COMMIT, materials_run='123', materials_sha='d' * 64)
-        values = [COMMIT, f'// Version {VERSION}', f'# Release {VERSION}\nReviewed notes', '']
         output = self.root / 'outputs'
         with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main', 'GITHUB_OUTPUT': str(output)}), \
-             patch.object(contract, 'run', side_effect=values), patch.object(contract.subprocess, 'run'):
+             patch.object(contract, 'run', return_value=''), patch.object(contract.subprocess, 'run'):
             contract.prepare(args)
         self.assertIn('prerelease=true', output.read_text())
+        self.assertIn('release_notes_path=' + contract.RELEASE_NOTES_PATH, output.read_text())
+        self.assertIn('release_notes_sha256=' + contract.sha(NOTES), output.read_text())
         with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/test'}), self.assertRaises(contract.Invalid):
             contract.prepare(args)
-        for note in (f'# Release {VERSION}\n草稿', '# Release v0.1.0\nReviewed'):
+        for note in (f'# Release {VERSION}\n草稿', '# Release v0.1.1\nReviewed'):
             with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main'}), \
-                 patch.object(contract, 'run', side_effect=[COMMIT, f'// Version {VERSION}', note]), \
+                 patch.object(contract, 'read_release_notes', side_effect=lambda v, c: contract.reviewed_notes(note, v)), \
                  patch.object(contract.subprocess, 'run'), self.assertRaises(contract.Invalid):
                 contract.prepare(args)
+
+    def test_prepare_rejects_an_existing_local_tag(self):
+        args = argparse.Namespace(version=VERSION, commit=COMMIT)
+        with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main'}), \
+             patch.object(contract, 'run', return_value=VERSION), patch.object(contract.subprocess, 'run'), \
+             self.assertRaisesRegex(contract.Invalid, 'Tag already exists'):
+            contract.prepare(args)
+
+    def test_seal_rejects_an_existing_artifact(self):
+        args = release_fixture(self.root / 'artifact')
+        contract.seal_or_verify(args)
+        original = contract.tree(Path(args.output))
+        with self.assertRaisesRegex(contract.Invalid, 'already sealed'):
+            contract.seal_or_verify(args)
+        self.assertEqual(contract.tree(Path(args.output)), original)
+
+    def test_one_missing_zip_or_image_is_rejected(self):
+        for name, options in [('zip', {'missing_archive': 'android-386'}),
+                              ('image', {'missing_image': '386'})]:
+            args = release_fixture(self.root / name, **options)
+            with self.subTest(name=name), self.assertRaisesRegex(contract.Invalid, 'allowlist differs'):
+                contract.seal_or_verify(args)
+            self.assertFalse((Path(args.output) / 'artifact.json').exists())
+
+    def test_an_extra_image_is_rejected(self):
+        args = release_fixture(self.root / 'artifact')
+        (Path(args.output) / 'images/extra.tar').write_bytes(b'synthetic unexpected image')
+        with self.assertRaisesRegex(contract.Invalid, 'Image allowlist'):
+            contract.seal_or_verify(args)
 
 
 if __name__ == '__main__':

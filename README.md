@@ -10,10 +10,12 @@
 
 </div>
 
-Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected v0.13.8 changes. Its independent version line starts at **v0.1.0**. The first stable release is **v0.1.0**; its [release notes](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0) describe the validated scope and known limitations. See the [changelog](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/CHANGELOG.md), [upgrade and backup guide](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md), and [release plan](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/plan/release-plan-v0.1.0.md).
+Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected upstream changes. Its independent version line starts at **v0.1.0**, which remains the latest released stable version. Current source targets **v0.1.1 (not yet released)**. See the [v0.1.1 notes](docs/releases/v0.1.1.md), [changelog](CHANGELOG.md), and [upgrade and backup guide](docs/upgrade-r1.md).
 
 
 The current development source for **v0.1.1 (not yet released)** removes privacy rules, diagnostic redaction and fixed credential masking throughout the application. Configuration editing and forwarding use the actual saved values. Legacy privacy settings are ignored and excluded from new exports; compatible older backups can still be restored. Existing historical diagnostics are not rewritten. Login/API key authentication and encrypted backups retain their existing behavior. See the [current upgrade guide](docs/upgrade-r1.md).
+
+This source also adds shared bulk model refresh, optional channel cooldown rules, and manually assigned platform categories for model groups. Rules default to an empty list; categories and rule configuration are included in backup content version **1001**, with encrypted container version **1** unchanged. Full release regression, final materials and real v0.1.0 upgrades on the two supported deployment combinations remain pending.
 
 ## ✨ Features
 
@@ -21,6 +23,9 @@ The current development source for **v0.1.1 (not yet released)** removes privacy
 - 🔄 **Protocol Conversion** - Seamless conversion between OpenAI Chat / OpenAI Responses / Anthropic API formats
 - 💰 **Price Sync** - Automatic model pricing updates
 - 🔃 **Model Sync** - Automatic synchronization of available model lists with channels
+- 🔃 **Shared Bulk Refresh** - One task across the channel and group pages, covering enabled channels regardless of display filters
+- ⏱️ **Custom Cooldown Rules** - Optional model or channel cooldowns based on upstream errors
+- 📁 **Platform Categories** - Persisted, manually assigned categories with filtering and collapsible group lists
 - 🛡️ **Automatic Failover** - Automatically switches to an available channel when an upstream channel fails
 - 🔍 **Real-Time End-to-End Request Visualization** - Watch the complete request path in the frontend from the moment the client sends it
 - 🛡️ **Retry and Health Protection** - Protect cross-request retries and channel health; a stream that has already sent data may still end when its upstream fails
@@ -30,13 +35,15 @@ The current development source for **v0.1.1 (not yet released)** removes privacy
 - 🗄️ **Database Drivers** - SQLite, MySQL and PostgreSQL; supported first-release deployments use SQLite
 
 
-## First-release support scope
+## Support scope
 
-The `v0.1.0` support scope covers the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on Windows using WSL Containers 3.0.3.0.
+The v0.1.1 target support scope remains the same as v0.1.0: the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on Windows using WSL Containers 3.0.3.0. The final v0.1.1 artifacts still require their own upgrade acceptance.
 
-Other native Linux, macOS and Android builds, other image architectures, and Docker Engine/Compose examples are experimental or reference deployments outside this scope. All 11 program ZIPs, four image architectures and corresponding source remain available. MySQL/PostgreSQL functionality and its existing test records are retained; the supported first-release database combinations use SQLite. See the [support matrix](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/support-v0.1.0.md).
+Other native Linux, macOS and Android builds, other image architectures, and Docker Engine/Compose examples are experimental or reference deployments outside this scope. All 11 program ZIPs, four image architectures and corresponding source remain available. MySQL/PostgreSQL functionality and its existing test records are retained; the supported database combinations use SQLite. See the [support matrix](docs/support-v0.1.0.md).
 
 ## 🚀 Quick Start
+
+The download links and image tags below use the released **v0.1.0**. For a future move to v0.1.1, follow the [current upgrade guide](docs/upgrade-r1.md); current development source is not a published release.
 
 ### WSL Containers 3.0.3.0 / Linux amd64
 
@@ -48,7 +55,7 @@ New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
 & 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.0-amd64
 ```
 
-Data persists in the host directory. Change the default password after first login; follow the [WSLc upgrade and recovery steps](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md). Other WSLc versions and external database combinations require separate acceptance.
+Data persists in the host directory. Change the default password after first login; follow the [WSLc upgrade and recovery steps](docs/upgrade-r1.md). Other WSLc versions and external database combinations require separate acceptance.
 
 ### 🐳 Docker Engine / Compose (reference deployment)
 
@@ -65,7 +72,7 @@ $env:OCTOPUS_ROAM_VERSION = 'v0.1.0'
 docker compose up -d
 ```
 
-The stable release updates `latest`; RC releases do not. Use the exact version tag or a verified digest and follow the [upgrade and backup instructions](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md) when replacing an existing container.
+The stable release updates `latest`; RC releases do not. Use the exact version tag or a verified digest and follow the [upgrade and backup instructions](docs/upgrade-r1.md) when replacing an existing container.
 
 
 ### 📦 Download from Release
@@ -106,9 +113,9 @@ go run . start
 
 > 💡 **Tip**: The frontend build artifacts are embedded into the Go binary, so you must build the frontend before starting the backend.
 
-For an offline local release candidate, use `powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File scripts/build-local.ps1 -Version v0.1.0-local.<id>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable.
+For an offline local build, use `pwsh -NoProfile -File scripts/build-local.ps1`. The default version is `v0.1.1-local.<timestamp>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable. Reviewed release materials use the separate [release contract](docs/release-ci.md).
 
-For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/local-deployment.md).
+For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](docs/local-deployment.md).
 
 **Development Mode**
 
@@ -285,9 +292,15 @@ Global channel updates default to off; the interval defaults to 1440 minutes and
 
 All keys must refresh successfully before model changes commit. A successful empty response removes obsolete models and group members while preserving the channel and group. Keyword matching is the default; exact matching excludes suffix variants. Applying global routing defaults preserves each group's manual/failover mode, members, order, and active selection.
 
-Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts must use authenticated `POST /api/v1/setting/export` with a password in the JSON body; the former GET returns 405. Import supports encrypted backups and audited upstream formats 0/5; unmarked pre-release format 6 is rejected. Save the old database and executable before upgrading—new backups cannot be restored by old builds.
+The channel and group pages share one bulk refresh task and progress display. It selects enabled channels, rechecks before probing, and normally skips channels disabled or deleted while waiting, or already being refreshed. Switching pages does not stop it and repeated clicks do not start another task. Group search and category filters do not narrow its targets. Explicit single-channel refresh keeps its existing behavior; requests already sent cannot be recalled, and reloading the browser does not resume the task.
 
-The [upgrade guide](https://github.com/Ink-lotus/octopus-roam/blob/v0.1.0/docs/upgrade-r1.md) lists defaults, incremental import rules, status definitions, rollback steps, and troubleshooting for failed keys, empty models, queued requests, and Webhooks.
+In channel advanced settings, add cooldown rules only when needed. Each rule has an exact HTTP status/upstream code or type, a plain-text keyword, an integer duration in seconds (`1..2147483647`), and a model or channel scope. At least one matching condition is required; filling both uses AND. Keywords ignore English letter case and inspect the bounded upstream error message (up to 4096 UTF-8 bytes), without regex or scripts. Empty rules preserve existing retry and member backoff behavior.
+
+Model scope covers the actual upstream model on that channel across keys, protocol grants and groups; channel scope covers the whole channel. Multiple cooldown sources use the latest deadline. Only actual Relay upstream failures trigger rules, including streamed errors within HTTP 200; normal output, prompts, client cancellation and model-list probes do not. Success and refresh do not clear a rule cooldown. Waiting releases channel capacity, and the existing member-cooldown release action does not clear shared rule cooldowns. Rules persist, while active timers reset on process restart and are not backed up. Rule or outbound connection/credential changes invalidate old rule state; display names and categories do not.
+
+Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts use authenticated `POST /api/v1/setting/export` with the password in the JSON body; the former GET returns 405. v0.1.1 exports `octopus-roam` content **1001**, including rules, categories and group assignments, in encrypted container **1**. It accepts product content 1000/1001 and audited unmarked upstream formats 0/5; unmarked 6 and unknown identities remain rejected. Incremental import preserves an existing channel's rules and an existing group's category; use an empty instance for complete restoration.
+
+Save the old executable, configuration and complete database snapshot before upgrading. Content 1001 cannot be restored into v0.1.0, and the old program is not promised to read the migrated database. Rollback restores the pre-upgrade snapshot and loses data added after that snapshot. The [upgrade guide](docs/upgrade-r1.md) explains the first Windows migration, incremental import, defaults and troubleshooting.
 
 The Settings page checks only the Octopus Roam release source. Stable builds update only to a higher stable version; an official RC may update to a later RC or the corresponding stable version. Development and local builds show their status without inferring an upgrade order. A candidate is downloaded into an isolated directory and must match the same release's `SHA256SUMS` before replacement. The running program, configuration, database, and backup directories are kept separate. Container deployments are upgraded by replacing the image and restarting the container; the program is not replaced from inside the container.
 
@@ -296,6 +309,8 @@ The Settings page checks only the Octopus Roam release source. Stable builds upd
 ### 📁 Group Management
 
 Groups aggregate multiple channels into a unified external model name.
+
+Current source supports one level of custom platform categories. Create, rename or delete categories, then assign each group manually to a category or Uncategorized. Deleting a category only removes assignments. Categories and assignments are stored on the server; category filters and collapsed sections are browser preferences. Name search, sorting, filtered counts, empty categories and virtualization remain available. Category changes preserve routing, member order, manual selection, failure counts and cooldowns.
 
 **Core Concepts:**
 

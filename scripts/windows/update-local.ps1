@@ -41,7 +41,7 @@ try {
             Copy-Item -LiteralPath (Join-Path $sourceDirectory $entry) -Destination $buildSource -Recurse
         }
         Copy-Item -LiteralPath (Join-Path $sourceDirectory 'static\static.go') -Destination $staticDirectory
-        $version = 'v0.1.0-local.' + (Get-Date -Format 'yyyyMMddHHmmss')
+        $version = 'v0.1.1-local.' + (Get-Date -Format 'yyyyMMddHHmmss')
         $savedFrontendVersion = $env:VITE_APP_VERSION
         $savedGoCache = $env:GOCACHE
         $savedGoModCache = $env:GOMODCACHE

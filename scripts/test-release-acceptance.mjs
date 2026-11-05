@@ -21,7 +21,7 @@ const derived = candidateMetadata.role === 'derived-acceptance-layout';
 let artifactBinding = null;
 if (derived) {
     const [version, commit, artifactSha, materialsSha] = process.argv.slice(4);
-    assert(process.argv.length === 8 && /^v0\.1\.0(?:-rc\.[1-9][0-9]*)?$/.test(version)
+    assert(process.argv.length === 8 && /^v0\.1\.1(?:-rc\.[1-9][0-9]*)?$/.test(version) && !/[\r\n\u2028\u2029]/.test(version)
         && /^[0-9a-f]{40}$/.test(commit) && /^[0-9a-f]{64}$/.test(artifactSha)
         && /^[0-9a-f]{64}$/.test(materialsSha), 'Derived artifacts require four explicit reviewed identity arguments.');
     const result = spawnSync(process.env.PYTHON || 'python', ['-B', path.join(repository, 'scripts', 'release_acceptance.py'),
@@ -158,7 +158,7 @@ const fixture = createServer(async (req, res) => {
         const scenario = url.pathname.split('/')[1];
         if (url.pathname.endsWith('/releases')) {
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify([{ tag_name: 'v0.1.0-rc.2', prerelease: true, draft: false, body: 'Loopback acceptance only' }]));
+            res.end(JSON.stringify([{ tag_name: 'v0.1.1-rc.2', prerelease: true, draft: false, body: 'Loopback acceptance only' }]));
         } else {
             const pkg = packages.get(scenario);
             if (url.pathname.endsWith('/SHA256SUMS')) res.end(sha(pkg) + '  ./octopus-roam-windows-amd64.zip\n');
@@ -270,7 +270,7 @@ func init() {
 `);
         const overlay = path.join(overlayRoot, 'overlay.json');
         await fs.writeFile(overlay, JSON.stringify({ Replace: { [original]: replacement } }));
-        for (const [name, version] of [['old', 'v0.1.0-rc.1'], ['next', 'v0.1.0-rc.2']]) {
+        for (const [name, version] of [['old', 'v0.1.1-rc.1'], ['next', 'v0.1.1-rc.2']]) {
             const template = path.join(runRoot, name + '-package');
             await fs.cp(path.join(runRoot, 'frozen-package'), template, { recursive: true, errorOnExist: true, force: false });
             // The copied binary is an acceptance input, replaced only in this new directory.
@@ -303,7 +303,7 @@ func init() {
     await until(async () => { await fs.access(path.join(runRoot, 'browser-done.json')); return true; }, 'browser acceptance completion', 2700000);
     for (const runtime of updateRuntimes) {
         await check('windows_production_update_' + runtime.name, async () => {
-            const expectedVersion = runtime.name === 'success' ? 'v0.1.0-rc.2' : 'v0.1.0-rc.1';
+            const expectedVersion = runtime.name === 'success' ? 'v0.1.1-rc.2' : 'v0.1.1-rc.1';
             await until(async () => { const state = await status(runtime, '-' + Date.now()); return state.ids.length === 1 && state.ids[0] !== runtime.originalPID; }, runtime.name + ' new process', 25000);
             await until(async () => await request(runtime, '/api/v1/update/now-version') === expectedVersion, runtime.name + ' backend version');
             const info = await request(runtime, '/api/v1/update');
@@ -313,7 +313,7 @@ func init() {
             const expectedBinary = path.join(runRoot, runtime.name === 'success' ? 'next-package' : 'old-package', 'octopus-roam.exe');
             assert.equal(actualHash, sha(await fs.readFile(expectedBinary)));
             assert((await fs.readdir(path.join(runtime.directory, 'backups'))).some(name => name.startsWith('before-update-')));
-            for (const asset of ['octopus-roam-windows-amd64.zip', 'SHA256SUMS']) assert(sourceCalls.some(item => item.path === '/' + runtime.name + '/download/v0.1.0-rc.2/' + asset));
+            for (const asset of ['octopus-roam-windows-amd64.zip', 'SHA256SUMS']) assert(sourceCalls.some(item => item.path === '/' + runtime.name + '/download/v0.1.1-rc.2/' + asset));
             return { expected_version: expectedVersion, status: info.status, executable_sha256: actualHash, chinese_directory_and_config: true, real_process_replaced: true, setting_persisted: true };
         });
     }

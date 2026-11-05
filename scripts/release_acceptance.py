@@ -82,6 +82,8 @@ def metadata(args, artifact, build, source, files):
             'source_artifact': str(artifact), 'source_artifact_manifest_sha256': args.artifact_sha,
             'source_build_json_sha256': contract.digest(artifact / 'build.json'),
             'source_materials_sha256': args.materials_sha, 'source_zip_sha256': contract.digest(source),
+            'release_notes_path': build['release_notes_path'],
+            'release_notes_sha256': build['release_notes_sha256'],
             'go_versions': build['go_versions'], 'source_files': files,
             'binaries': [{'target': target.replace('-', '/'),
                           'path': f'bin/{contract.APP}-{target}' + ('.exe' if target.startswith('windows-') else ''),
@@ -126,6 +128,8 @@ def prepare(args):
                      'Artifact bytes changed during layout preparation')
     print(json.dumps({'status': 'layout_prepared', 'version': args.version, 'commit': args.commit,
                       'artifact_sha256': args.artifact_sha, 'materials_sha256': args.materials_sha,
+                      'release_notes_path': build['release_notes_path'],
+                      'release_notes_sha256': build['release_notes_sha256'],
                       'source_files': len(files), 'database_connected': False, 'product_started': False}))
 
 
@@ -175,6 +179,8 @@ def verify_layout(args):
     contract.require(set(actual) == expected_names, 'Unexpected derived acceptance file')
     print(json.dumps({'status': 'layout_verified', 'version': args.version, 'commit': args.commit,
                       'artifact_sha256': args.artifact_sha, 'materials_sha256': args.materials_sha,
+                      'release_notes_path': build['release_notes_path'],
+                      'release_notes_sha256': build['release_notes_sha256'],
                       'product_sha256': build['binaries']['windows-amd64'], 'source_files': len(files)}))
 
 

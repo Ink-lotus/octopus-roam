@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Exact reviewed version: v0.1.0-rc.N or v0.1.0'
+        description: 'Exact reviewed version: v0.1.1-rc.N (positive N, no leading zero) or v0.1.1'
         required: true
         type: string
       commit:
@@ -42,6 +42,8 @@ jobs:
       artifact: ${{ steps.prepare.outputs.artifact }}
       materials_run: ${{ steps.prepare.outputs.materials_run }}
       materials_sha: ${{ steps.prepare.outputs.materials_sha }}
+      release_notes_path: ${{ steps.prepare.outputs.release_notes_path }}
+      release_notes_sha256: ${{ steps.prepare.outputs.release_notes_sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -81,6 +83,8 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       COMMIT: ${{ needs.prepare.outputs.commit }}
       MATERIALS_SHA: ${{ needs.prepare.outputs.materials_sha }}
+      RELEASE_NOTES_PATH: ${{ needs.prepare.outputs.release_notes_path }}
+      RELEASE_NOTES_SHA256: ${{ needs.prepare.outputs.release_notes_sha256 }}
       ARTIFACT_ROOT: ${{ github.workspace }}/build/release-artifact
       MATERIALS_ROOT: ${{ github.workspace }}/build/release-materials
     steps:
@@ -166,6 +170,8 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       COMMIT: ${{ needs.prepare.outputs.commit }}
       MATERIALS_SHA: ${{ needs.prepare.outputs.materials_sha }}
+      RELEASE_NOTES_PATH: ${{ needs.prepare.outputs.release_notes_path }}
+      RELEASE_NOTES_SHA256: ${{ needs.prepare.outputs.release_notes_sha256 }}
       PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
       ARTIFACT_ROOT: ${{ github.workspace }}/build/release-artifact
       GH_TOKEN: ${{ github.token }}

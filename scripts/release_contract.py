@@ -21,13 +21,15 @@ APP = 'octopus-roam'
 MODULE = 'github.com/Ink-lotus/octopus-roam'
 GO_VERSION = 'go1.27.3'
 BUILD_SCHEMA = 2
+RELEASE_VERSION = r'v0\.1\.1(?:-rc\.[1-9][0-9]*)?'
+RELEASE_NOTES_PATH = 'docs/releases/v0.1.1.md'
 TARGETS = ('linux-amd64', 'linux-arm64', 'linux-arm', 'linux-386',
            'windows-amd64', 'darwin-arm64', 'darwin-amd64',
            'android-amd64', 'android-arm64', 'android-arm', 'android-386')
 LINUX = {'amd64': 'x86_64', 'arm64': 'aarch64', 'arm': 'armv7', '386': 'x86'}
 DOCS = ('THIRD-PARTY-NOTICES.md', 'SOURCE-OFFER.md', 'source-offer.html', 'REBUILD.md', 'INSTALL.md')
 ROOT_INPUTS = {'main.go', 'go.mod', 'go.sum', 'LICENSE', 'README.md', 'README_zh.md',
-               'docker-compose.yml', '.dockerignore'}
+               'docker-compose.yml', '.dockerignore', RELEASE_NOTES_PATH}
 
 
 class Invalid(ValueError):
@@ -109,27 +111,50 @@ def binary_metadata(binary, target, version, commit):
 
 
 def identity(version, commit):
-    require(re.fullmatch(r'v0\.1\.0(?:-rc\.[1-9][0-9]*)?', version),
-            'This first-release contract accepts v0.1.0 or v0.1.0-rc.N only')
-    require(re.fullmatch('[0-9a-f]{40}', commit), 'A full lowercase commit SHA is required')
+    require(isinstance(version, str) and re.fullmatch(RELEASE_VERSION, version),
+            'This release contract accepts v0.1.1 or v0.1.1-rc.N only')
+    require(isinstance(commit, str) and re.fullmatch('[0-9a-f]{40}', commit),
+            'A full lowercase commit SHA is required')
 
 
 def reviewed_notes(notes, version):
     require(notes.strip(), 'Release Notes are empty')
-    versions = re.findall(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', notes.splitlines()[0])
+    versions = re.findall(r'(?<![A-Za-z0-9])v[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.+-]*', notes.splitlines()[0])
     require(versions == [version], 'Release Notes title must name the exact version')
     require(not any(marker in notes for marker in ('草稿', '待发布', '尚未发布')), 'Release Notes need review')
+
+
+def read_release_notes(version, commit):
+    """Validate committed release metadata and return the exact reviewed blob bytes."""
+    identity(version, commit)
+    require(run('git', 'rev-parse', commit + '^{commit}') == commit, 'Commit differs')
+    main = subprocess.check_output(['git', 'show', commit + ':main.go']).decode('utf-8')
+    require(re.findall(r'^// Version (\S+)\s*$', main, re.M) == [version], 'main.go version differs')
+    frontend = json.loads(subprocess.check_output(['git', 'show', commit + ':web/package.json']))
+    require(isinstance(frontend, dict) and frontend.get('version') == version.removeprefix('v'),
+            'Frontend package version differs')
+    notes = subprocess.check_output(['git', 'show', commit + ':' + RELEASE_NOTES_PATH])
+    reviewed_notes(notes.decode('utf-8'), version)
+    for key, value in notes_binding(notes).items():
+        expected = os.environ.get(key.upper())
+        require(expected is None or expected == value, 'Prepared Release Notes binding differs')
+    return notes
+
+
+def notes_binding(notes):
+    return {'release_notes_path': RELEASE_NOTES_PATH, 'release_notes_sha256': sha(notes)}
+
+
+def check_notes_binding(record, notes):
+    require(all(record.get(key) == value for key, value in notes_binding(notes).items()),
+            'Release Notes path/hash differs')
 
 
 def prepare(args):
     identity(args.version, args.commit)
     require(os.environ.get('GITHUB_REF') == 'refs/heads/main', 'Dispatch must use main')
-    require(run('git', 'rev-parse', args.commit + '^{commit}') == args.commit, 'Commit differs')
+    notes = read_release_notes(args.version, args.commit)
     subprocess.run(['git', 'merge-base', '--is-ancestor', args.commit, 'origin/main'], check=True)
-    text = run('git', 'show', args.commit + ':main.go')
-    require(re.findall(r'^// Version (\S+)\s*$', text, re.M) == [args.version], 'main.go version differs')
-    notes = run('git', 'show', args.commit + ':plan/release-notes-v0.1.0.md')
-    reviewed_notes(notes, args.version)
     tags = run('git', 'tag', '--list', args.version)
     require(not tags, 'Tag already exists; do not overwrite')
     require(re.fullmatch('[1-9][0-9]*', args.materials_run), 'Invalid materials run ID')
@@ -137,7 +162,8 @@ def prepare(args):
     outputs = {'version': args.version, 'commit': args.commit,
                'prerelease': str('-rc.' in args.version).lower(),
                'artifact': f'release-{args.version}-{args.commit}',
-               'materials_run': args.materials_run, 'materials_sha': args.materials_sha}
+               'materials_run': args.materials_run, 'materials_sha': args.materials_sha,
+               **notes_binding(notes)}
     with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
         for key, value in outputs.items():
             output.write(f'{key}={value}\n')
@@ -253,6 +279,8 @@ def materials(root, version, commit, expected_sha):
     require(digest(root / 'materials.json') == expected_sha, 'Materials root hash differs')
     data = read_json(root / 'materials.json')
     require(data['schema'] == 1 and data['version'] == version and data['commit'] == commit, 'Stale materials')
+    notes = read_release_notes(version, commit)
+    check_notes_binding(data, notes)
     require(data['platforms'] == list(TARGETS), 'Materials must cover all eleven targets')
     require(isinstance(data['source_date_epoch'], int) and data['source_date_epoch'] > 0, 'Invalid build epoch')
     actual = tree(root)
@@ -275,6 +303,9 @@ def materials(root, version, commit, expected_sha):
         binding = json.loads(archive.read('release-source.json'))
         require(binding == {'schema': 1, 'version': version, 'commit': commit, 'platforms': list(TARGETS)},
                 'Application source binding differs')
+        require('application/' + RELEASE_NOTES_PATH in names
+                and archive.read('application/' + RELEASE_NOTES_PATH) == notes,
+                'Corresponding Release Notes differ from the reviewed commit')
         require({'REBUILD.md', 'INSTALL.md', 'licenses/AGPL-3.0.txt', 'licenses/LGPL-3.0.txt',
                  'licenses/GPL-3.0.txt', 'licenses/MPL-2.0.txt'} <= names, 'Source/license instructions missing')
         require(any(n.startswith('go-cache/') and n.endswith('.zip') for n in names), 'Go corresponding source missing')
@@ -363,6 +394,10 @@ def package(args):
     delivery = out / 'archives'
     require(not any(delivery.iterdir()), 'Archive output must be empty')
     data = None
+    binding = {'release_notes_path': None, 'release_notes_sha256': None}
+    # Unbound local/dev builds remain usable, but cannot pass release seal/verify.
+    if args.materials or re.fullmatch(RELEASE_VERSION, args.version):
+        binding = notes_binding(read_release_notes(args.version, args.commit))
     if args.materials:
         data = materials(args.materials, args.version, args.commit, args.materials_sha)
         require(run('git', 'rev-parse', 'HEAD') == args.commit, 'Build checkout differs')
@@ -396,7 +431,8 @@ def package(args):
     sums = ''.join(f'{digest(path)}  {path.name}\n' for path in sorted(delivery.glob('*.zip')))
     (delivery / 'SHA256SUMS').write_text(sums, encoding='utf-8')
     write_json(out / 'build.json', {'schema': BUILD_SCHEMA, 'version': args.version, 'commit': args.commit,
-                                  'platforms': list(targets), 'binaries': binaries, 'go_versions': go_versions})
+                                  'platforms': list(targets), 'binaries': binaries, 'go_versions': go_versions,
+                                  **binding})
     if data:
         context = out / 'docker-context'
         context.mkdir()
@@ -476,6 +512,8 @@ def image_files(path, wanted, arch, version, commit):
 
 
 def verify_images(root, material_root, version, commit):
+    require({path.name for path in (root / 'images').iterdir()} == {arch + '.tar' for arch in LINUX},
+            'Image allowlist differs')
     result = {}
     for arch in LINUX:
         context = root / 'docker-context'
@@ -507,9 +545,11 @@ def verify_archives(root, version, commit):
     require_go_toolchain()
     build = read_json(root / 'build.json')
     require(isinstance(build, dict) and set(build) ==
-            {'schema', 'version', 'commit', 'platforms', 'binaries', 'go_versions'}, 'Build record fields differ')
+            {'schema', 'version', 'commit', 'platforms', 'binaries', 'go_versions',
+             'release_notes_path', 'release_notes_sha256'}, 'Build record fields differ')
     require(build['schema'] == BUILD_SCHEMA and build['version'] == version and build['commit'] == commit,
             'Artifact schema/version/commit differs')
+    check_notes_binding(build, read_release_notes(version, commit))
     require(build['platforms'] == list(TARGETS) and isinstance(build['binaries'], dict)
             and isinstance(build['go_versions'], dict) and set(build['binaries']) == set(TARGETS)
             and set(build['go_versions']) == set(TARGETS), 'Incomplete release matrix')
@@ -542,6 +582,7 @@ def verify_archives(root, version, commit):
 def seal_or_verify(args):
     root = Path(args.output).resolve()
     identity(args.version, args.commit)
+    notes = read_release_notes(args.version, args.commit)
     material_root = root / 'materials'
     materials(material_root, args.version, args.commit, args.materials_sha)
     verify_archives(root, args.version, args.commit)
@@ -555,21 +596,23 @@ def seal_or_verify(args):
                 shutil.copyfile(path, delivery / path.name)
         for arch in LINUX:
             shutil.copyfile(material_root / f'alpine/{arch}.zip', delivery / f'{APP}-alpine-source-{arch}-{args.version}.zip')
-        shutil.copyfile('plan/release-notes-v0.1.0.md', delivery / 'RELEASE-NOTES.md')
+        (delivery / 'RELEASE-NOTES.md').write_bytes(notes)
         shutil.copyfile(root / 'build.json', delivery / 'BUILD.json')
         shutil.copyfile(material_root / 'materials.json', delivery / 'MATERIALS.json')
         write_json(delivery / 'IMAGE-MANIFEST.json', images)
         (delivery / 'SHA256SUMS').write_text(''.join(f'{digest(p)}  {p.name}\n' for p in sorted(delivery.iterdir())
                                                   if p.name != 'SHA256SUMS'), encoding='utf-8')
         write_json(root / 'artifact.json', {'schema': 1, 'version': args.version, 'commit': args.commit,
-                                          'materials_sha256': args.materials_sha, 'files': tree(root)})
+                                          'materials_sha256': args.materials_sha,
+                                          **notes_binding(notes), 'files': tree(root)})
     else:
         manifest = read_json(root / 'artifact.json')
         actual = tree(root)
         actual.pop('artifact.json')
         require(manifest == {'schema': 1, 'version': args.version, 'commit': args.commit,
-                             'materials_sha256': args.materials_sha, 'files': actual}, 'Artifact file set/hash differs')
-        require((root / 'delivery/RELEASE-NOTES.md').read_bytes() == Path('plan/release-notes-v0.1.0.md').read_bytes(),
+                             'materials_sha256': args.materials_sha,
+                             **notes_binding(notes), 'files': actual}, 'Artifact file set/hash differs')
+        require((root / 'delivery/RELEASE-NOTES.md').read_bytes() == notes,
                 'Reviewed Release Notes differ')
         require(read_json(root / 'delivery/IMAGE-MANIFEST.json') == images, 'Published image/source mapping differs')
     # Public copies are what users download; a self-consistent file manifest is
@@ -577,6 +620,8 @@ def seal_or_verify(args):
     delivery = root / 'delivery'
     require((delivery / 'BUILD.json').read_bytes() == (root / 'build.json').read_bytes(),
             'Published build record differs')
+    require((delivery / 'MATERIALS.json').read_bytes() == (material_root / 'materials.json').read_bytes(),
+            'Published material record differs')
     for target in TARGETS:
         name = f'{APP}-{target}.zip'
         require(digest(delivery / name) == digest(root / 'archives' / name), 'Published program archive differs')

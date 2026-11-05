@@ -42,6 +42,7 @@ class GoGateTests(unittest.TestCase):
         self.go = patch.object(contract, 'go_run', side_effect=fixtures.fixture_go)
         self.mock_go = self.go.start()
         self.addCleanup(self.go.stop)
+        self.enterContext(patch.object(contract, 'read_release_notes', side_effect=fixtures.fixture_notes))
 
     def phase(self, command, name):
         root = self.root / name
@@ -217,7 +218,7 @@ class RealGoMetadataTests(unittest.TestCase):
 
     def test_actual_program_cannot_be_relabelled_as_another_target_or_release(self):
         binary = self.binaries['windows-amd64']
-        for target, version in (('linux-amd64', fixtures.VERSION), ('windows-amd64', 'v0.1.0-rc.2')):
+        for target, version in (('linux-amd64', fixtures.VERSION), ('windows-amd64', 'v0.1.1-rc.2')):
             with self.subTest(target=target, version=version), self.assertRaises(contract.Invalid):
                 contract.binary_metadata(binary, target, version, fixtures.COMMIT)
 

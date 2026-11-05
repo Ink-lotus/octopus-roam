@@ -53,8 +53,6 @@ class AcceptanceTests(unittest.TestCase):
             path = self.checkout / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-        (self.checkout / 'plan').mkdir()
-        (self.checkout / 'plan/release-notes-v0.1.0.md').write_text(f'# Octopus Roam {VERSION}\nSynthetic reviewed notes\n')
         stack = self.enterContext(ExitStack())
         previous = Path.cwd()
         os.chdir(self.checkout)
@@ -62,6 +60,7 @@ class AcceptanceTests(unittest.TestCase):
         stack.enter_context(patch.object(acceptance, 'REPOSITORY', self.checkout))
         stack.enter_context(patch.dict(os.environ, {'GITHUB_REPOSITORY': materials.REPOSITORY}))
         stack.enter_context(patch.object(materials, 'target', return_value=1))
+        stack.enter_context(patch.object(contract, 'read_release_notes', side_effect=fixtures.fixture_notes))
         stack.enter_context(patch.object(contract.subprocess, 'check_output',
             return_value=('\0'.join(sorted(self.application)) + '\0').encode()))
         def go(*args):
@@ -98,6 +97,8 @@ class AcceptanceTests(unittest.TestCase):
         record = contract.read_json(self.layout / 'build-info.json')
         self.assertEqual(record['source_artifact_manifest_sha256'], self.args.artifact_sha)
         self.assertEqual(record['source_materials_sha256'], self.args.materials_sha)
+        self.assertEqual(record['release_notes_path'], contract.RELEASE_NOTES_PATH)
+        self.assertEqual(record['release_notes_sha256'], contract.sha(fixtures.NOTES))
         self.assertEqual(record['go_versions'], {target: 'go1.27.3' for target in contract.TARGETS})
         self.assertFalse(record['database_connected'])
         self.assertFalse(record['product_started'])
@@ -109,7 +110,7 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(self.layout.exists())
 
     def test_wrong_version_commit_or_material_hash_cannot_derive_layout(self):
-        for field, bad in [('version', 'v0.1.0-rc.2'), ('commit', 'b' * 40), ('materials_sha', 'c' * 64)]:
+        for field, bad in [('version', 'v0.1.1-rc.2'), ('commit', 'b' * 40), ('materials_sha', 'c' * 64)]:
             args = argparse.Namespace(**{**vars(self.args), field: bad})
             with self.subTest(field=field), self.assertRaises(contract.Invalid):
                 acceptance.prepare(args)

@@ -18,7 +18,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import release_materials as materials
 import release_contract as contract
-from test_release_contract import VERSION, COMMIT, material_fixture
+from test_release_contract import VERSION, COMMIT, NOTES, fixture_notes, material_fixture
 
 
 def fixture_tools():
@@ -35,6 +35,8 @@ def fixture_tool_inputs():
 
 def fixture_application():
     return {'main.go': f'package main\n// Version {VERSION}\nfunc main() {{}}\n'.encode(),
+            'web/package.json': json.dumps({'version': VERSION.removeprefix('v')}).encode(),
+            contract.RELEASE_NOTES_PATH: NOTES,
             'go.mod': b'module example.invalid/fixture\n\ngo 1.27.3\n', 'go.sum': b'',
             'scripts/release_materials.py': b'# synthetic material producer\n',
             'scripts/release_contract.py': b'# synthetic artifact contract\n',
@@ -55,6 +57,7 @@ def production_source_files(root, original, application):
               **{'documents/' + name: contract.sha(original[name]) for name in contract.DOCS},
               **{'alpine/' + arch: contract.digest(root / f'alpine/{arch}.zip') for arch in contract.LINUX}}
     production = {'schema': 1, 'version': VERSION, 'commit': COMMIT, 'source_date_epoch': 1,
+                  **contract.notes_binding(NOTES),
                   'inputs_sha256': 'c' * 64, 'inputs': inputs, 'tools': fixture_tools(),
                   'frontend': {name: contract.sha(data) for name, data in frontend.items()},
                   'scripts': {name: contract.sha(application[name]) for name in
@@ -71,6 +74,7 @@ class Response(io.BytesIO):
 
 class MaterialsTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.object(contract, 'read_release_notes', side_effect=fixture_notes))
         self.root = Path(tempfile.mkdtemp(prefix='materials-entry-',
                                         dir=os.environ.get('RELEASE_TEST_ROOT')))
         self.inputs = self.root / 'inputs'
@@ -243,10 +247,34 @@ class MaterialsTests(unittest.TestCase):
         production = materials.source_production(source, VERSION, COMMIT, 1)
         self.assertEqual(production['tools']['versions']['go'], '1.27.3')
         self.assertEqual(production['inputs_sha256'], self.args.inputs_sha)
+        for key, value in contract.notes_binding(NOTES).items():
+            self.assertEqual(production[key], value)
         with zipfile.ZipFile(source) as archive:
+            self.assertEqual(archive.read('application/' + contract.RELEASE_NOTES_PATH), NOTES)
             self.assertNotIn('application/static/out/obsolete.js', contract.zip_checksums(archive))
             self.assertEqual(archive.read('application/static/out/app.js'),
                              (self.checkout / 'static/out/app.js').read_bytes())
+
+    def test_production_record_cannot_change_notes_binding_even_with_new_zip_hashes(self):
+        self.assemble()
+        with zipfile.ZipFile(self.output / materials.template_name(VERSION)) as archive:
+            original = {name: archive.read(name) for name in contract.zip_files(archive) if name != 'SHA256SUMS'}
+        changes = [('release_notes_path', 'plan/release-notes-v0.1.0.md'),
+                   ('release_notes_sha256', '0' * 64),
+                   ('release_notes_path', None), ('release_notes_sha256', None)]
+        for index, (key, value) in enumerate(changes):
+            record = json.loads(original[materials.PRODUCTION_RECORD])
+            if value is None:
+                record.pop(key)
+            else:
+                record[key] = value
+            entries = {**original, materials.PRODUCTION_RECORD: json.dumps(record).encode()}
+            entries['SHA256SUMS'] = ''.join(f'{contract.sha(raw)}  {name}\n' for name, raw in sorted(entries.items())).encode()
+            changed = self.root / f'changed-production-{index}.zip'
+            contract.archive_write(changed, {name: (raw, 0o644) for name, raw in entries.items()})
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(
+                    contract.Invalid, 'Material production identity|Release Notes path/hash'):
+                materials.source_production(changed, VERSION, COMMIT, 1)
 
     def test_production_rejects_stale_manifest_and_committed_source(self):
         self.args.inputs_sha = '0' * 64
@@ -420,7 +448,8 @@ class MaterialsTests(unittest.TestCase):
             materials.target(VERSION, COMMIT)
 
     def test_target_refuses_the_upstream_version_comment(self):
-        with patch.object(contract, 'run', side_effect=[COMMIT, COMMIT, '', '// Version v0.13.6']), \
+        with patch.object(contract, 'run', side_effect=[COMMIT, COMMIT, '']), \
+             patch.object(contract, 'read_release_notes', side_effect=contract.Invalid('main.go version differs')), \
              patch.object(materials.subprocess, 'run'), self.assertRaises(contract.Invalid):
             materials.target(VERSION, COMMIT)
 
