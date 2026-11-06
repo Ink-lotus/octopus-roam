@@ -20,6 +20,9 @@ func TestCooldownRelayFailureDirections(t *testing.T) {
 	for _, direction := range upstreamFailureDirections() {
 		for _, phase := range []string{"ordinary-http", "ordinary-200", "stream-http", "stream-first", "stream-startup", "stream-later"} {
 			t.Run(direction.name()+"/"+phase, func(t *testing.T) {
+				// Keep expiry callbacks inside this fixture; later tests replace the
+				// runtime engine and subscribe to the same process-wide streams.
+				useCooldownRuntimeClock(t)
 				var calls atomic.Int32
 				streaming := strings.HasPrefix(phase, "stream-")
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
