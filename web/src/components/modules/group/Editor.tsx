@@ -435,11 +435,11 @@ export function GroupEditor({
                             <CategorySelect id="group-category" value={categoryId === null ? 'uncategorized' : String(categoryId)}
                                 onChange={(value) => setCategoryId(value === 'uncategorized' ? null : Number(value))}
                                 categories={categories.data?.items ?? []} disabled={isSubmitting || categories.isPending}
-                                invalid={!categoryValid} describedBy="group-category-hint" />
-                            <p id="group-category-hint" role={categoryValid ? undefined : 'alert'}
-                                className={`text-xs ${categoryValid ? 'text-muted-foreground' : 'text-destructive'}`}>
-                                {!categoryValid ? t('category.missing') : t('category.manualHint')}
-                            </p>
+                                allowCreate={initial.members === undefined}
+                                invalid={!categoryValid} describedBy={categoryValid ? undefined : 'group-category-hint'} />
+                            {!categoryValid && <p id="group-category-hint" role="alert" className="text-xs text-destructive">
+                                {t('category.missing')}
+                            </p>}
                             {categories.isError && <div role="alert" className="text-xs text-destructive">
                                 {t('category.loadFailed')} <Button type="button" variant="outline" onClick={() => void categories.refetch()}>{t('category.retry')}</Button>
                             </div>}

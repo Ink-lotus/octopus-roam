@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Dialog } from 'radix-ui';
-import { FolderCog, Pencil, Trash2, X } from 'lucide-react';
+import { Pencil, Trash2, X } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { ApiError } from '@/api/client';
 import { useCreateGroupCategory, useDeleteGroupCategory, useGroupCategories, useUpdateGroupCategory, type GroupCategory } from '@/api/group-category';
@@ -21,13 +21,16 @@ function validName(name: string) {
     return [...value].length >= 1 && [...value].length <= 64 && !/\p{Cc}/u.test(value);
 }
 
-export function CategoryManager() {
+export function CategoryManager({ open, onOpenChange, onCloseAutoFocus }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onCloseAutoFocus: (event: Event) => void;
+}) {
     const t = useTranslations('group.category');
     const query = useGroupCategories();
     const create = useCreateGroupCategory();
     const update = useUpdateGroupCategory();
     const remove = useDeleteGroupCategory();
-    const [open, setOpen] = useState(false);
     const [name, setName] = useState('');
     const [editing, setEditing] = useState<GroupCategory | null>(null);
     const [deleting, setDeleting] = useState<GroupCategory | null>(null);
@@ -44,6 +47,8 @@ export function CategoryManager() {
     };
     const save = (event: FormEvent) => {
         event.preventDefault();
+        // Portal 仍沿 React 树冒泡，分类提交不能触发外层分组表单。
+        event.stopPropagation();
         if (busy) return;
         setMessage('');
         if (!validName(name)) { setError(t('invalidName')); input.current?.focus(); return; }
@@ -58,18 +63,15 @@ export function CategoryManager() {
     return (
         <Dialog.Root open={open} onOpenChange={(value) => {
             if (busy) return;
-            setOpen(value);
+            onOpenChange(value);
             reset();
             setMessage('');
         }}>
-            <Dialog.Trigger asChild>
-                <Button type="button" variant="outline" className="shrink-0 rounded-xl">
-                    <FolderCog className="size-4" aria-hidden="true" />{t('manage')}
-                </Button>
-            </Dialog.Trigger>
             <Dialog.Portal>
                 <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-                <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-3xl border bg-card p-5 text-card-foreground shadow-xl">
+                <Dialog.Content onEscapeKeyDown={(event) => event.stopPropagation()} onCloseAutoFocus={onCloseAutoFocus}
+                    onOpenAutoFocus={(event) => { event.preventDefault(); input.current?.focus(); }}
+                    className="fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-3xl border bg-card p-5 text-card-foreground shadow-xl">
                     <div className="flex items-center justify-between gap-3">
                         <Dialog.Title className="text-lg font-semibold">{t('manage')}</Dialog.Title>
                         <Dialog.Close asChild><Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t('close')}><X aria-hidden="true" /></Button></Dialog.Close>

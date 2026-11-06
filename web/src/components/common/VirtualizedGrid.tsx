@@ -182,7 +182,7 @@ export function VirtualizedGrid<T>({
                 ref={containerRef}
                 tabIndex={ariaLabel ? 0 : undefined}
                 aria-label={ariaLabel}
-                className="relative h-full w-full overflow-y-auto overscroll-contain rounded-t-3xl focus-visible:outline-2 focus-visible:outline-ring"
+                className={`relative h-full w-full overflow-y-auto overscroll-contain ${sections ? 'rounded-t-2xl' : 'rounded-t-3xl'} focus-visible:outline-2 focus-visible:outline-ring`}
             >
                 {rowCount === 0 ? null : (
                     <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>

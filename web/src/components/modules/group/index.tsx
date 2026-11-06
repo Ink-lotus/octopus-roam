@@ -11,12 +11,17 @@ import { RefreshAllButton } from '@/components/modules/channel/RefreshAllButton'
 import { useGroupCategories } from '@/api/group-category';
 import { useGroupViewStore } from '@/stores/group';
 import { Button } from '@/components/ui/button';
-import { CategoryManager } from './CategoryManager';
 import { CategorySelect } from './CategorySelect';
 
 // GroupActions 向稳定顶栏提供分组页面的搜索、视图选项和创建入口。
 export function GroupActions() {
     const t = useTranslations('toolbar');
+    const categoryT = useTranslations('group.category');
+    const categories = useGroupCategories();
+    const category = useGroupViewStore((state) => state.category);
+    const setCategory = useGroupViewStore((state) => state.setCategory);
+    const selectedCategory = category === 'all' || category === 'uncategorized'
+        || categories.data?.items.some((item) => String(item.id) === category) ? category : 'all';
     const searchTerm = usePageActionsStore((state) => state.searchTerms.group || '');
     const sortOrder = usePageActionsStore((state) => state.sortOrders.group === 'desc' ? 'desc' : 'asc');
     const filter = usePageActionsStore((state) => state.groupFilter);
@@ -45,6 +50,13 @@ export function GroupActions() {
             onFilterChange={(value) => {
                 if (value === 'all' || value === 'with-members' || value === 'empty') setFilter(value);
             }}
+            additionalFilters={
+                <div className="grid gap-2">
+                    <label htmlFor="category-filter" className="text-xs font-medium text-muted-foreground">{categoryT('label')}</label>
+                    <CategorySelect id="category-filter" value={selectedCategory} onChange={setCategory}
+                        categories={categories.data?.items ?? []} includeAll disabled={categories.isPending} />
+                </div>
+            }
             actions={<RefreshAllButton />}
         >
             <CreateDialogContent />
@@ -129,21 +141,12 @@ export function Group() {
 
     return (
         <div className="flex h-full min-h-0 flex-col gap-3">
-            <div className="shrink-0 space-y-2 px-1">
-                <div className="flex flex-wrap items-end gap-2">
-                    <div className="min-w-0 flex-1 basis-40 max-w-sm space-y-1">
-                        <label htmlFor="category-filter" className="text-xs font-medium text-muted-foreground">{t('label')}</label>
-                        <CategorySelect id="category-filter" value={selectedCategory} onChange={setCategory}
-                            categories={categories.data?.items ?? []} includeAll disabled={categories.isPending} />
-                    </div>
-                    <CategoryManager />
-                </div>
-                <p className="text-xs text-muted-foreground">{t('countHint')}</p>
+            {(categories.isError || groupQuery.isError || categories.isPending || groupQuery.isPending) && <div className="shrink-0 space-y-2 px-1">
                 {(categories.isError || groupQuery.isError) && <p role="alert" className="text-sm text-destructive">
                     {t('loadFailed')} <Button type="button" variant="outline" onClick={() => { void categories.refetch(); void groupQuery.refetch(); }}>{t('retry')}</Button>
                 </p>}
                 {(categories.isPending || groupQuery.isPending) && <p role="status" className="text-sm text-muted-foreground">{t('loading')}</p>}
-            </div>
+            </div>}
             <div className="min-h-0 flex-1">
                 <VirtualizedGrid
                     items={visibleGroups}

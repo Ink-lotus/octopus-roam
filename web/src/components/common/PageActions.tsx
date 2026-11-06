@@ -89,6 +89,7 @@ interface PageActionsProps {
     filterOptions: PageActionOption[]; // 当前页面支持的筛选选项。
     filterValue: string; // 当前页面选中的筛选标识。
     onFilterChange: (value: string) => void; // 更新当前页面的筛选条件。
+    additionalFilters?: ReactNode; // 视图选项面板中的页面专用筛选。
     actions?: ReactNode; // 筛选之后、创建之前的页面专用操作。
     children: ReactNode; // 当前页面提供的创建表单内容。
 }
@@ -105,6 +106,7 @@ export function PageActions({
     filterOptions,
     filterValue,
     onFilterChange,
+    additionalFilters,
     actions,
     children,
 }: PageActionsProps) {
@@ -261,6 +263,7 @@ export function PageActions({
                                 ))}
                             </div>
                         </div>
+                        {additionalFilters}
                     </div>
                 </PopoverContent>
             </Popover>
