@@ -35,7 +35,17 @@ type TaskStore interface {
 	Delete(name string) error
 }
 
-type Scheduler struct{}
+type Scheduler struct {
+	// Tests replace the command boundary so they cannot register real tasks.
+	run func(args ...string) ([]byte, error)
+}
+
+func (s Scheduler) command(args ...string) ([]byte, error) {
+	if s.run != nil {
+		return s.run(args...)
+	}
+	return schedulerCommand(args...)
+}
 
 func schedulerCommand(args ...string) ([]byte, error) {
 	system, err := windows.GetSystemDirectory()
@@ -47,16 +57,24 @@ func schedulerCommand(args ...string) ([]byte, error) {
 	return command.CombinedOutput()
 }
 
-func (Scheduler) Read(name string) ([]byte, bool, error) {
-	data, queryErr := schedulerCommand("/Query", "/TN", name, "/XML")
+func schedulerError(message string, output []byte, err error) error {
+	detail := strings.TrimSpace(string(decodeTaskXML(output)))
+	if detail == "" {
+		return fmt.Errorf("%s: %w", message, err)
+	}
+	return fmt.Errorf("%s: %w\n%s", message, err, detail)
+}
+
+func (s Scheduler) Read(name string) ([]byte, bool, error) {
+	data, queryErr := s.command("/Query", "/TN", name, "/XML")
 	if queryErr == nil {
 		return decodeTaskXML(data), true, nil
 	}
 	// A failed named query can mean access denied, not just a missing task.
 	// Check the task list before reporting Disabled; do not parse localized errors.
-	list, err := schedulerCommand("/Query", "/FO", "CSV", "/NH")
+	list, err := s.command("/Query", "/FO", "CSV", "/NH")
 	if err != nil {
-		return nil, false, fmt.Errorf("无法查询计划任务，请检查 Windows 任务计划程序权限")
+		return nil, false, schedulerError("无法查询计划任务", list, err)
 	}
 	reader := csv.NewReader(bytes.NewReader(list))
 	reader.FieldsPerRecord = -1
@@ -66,22 +84,22 @@ func (Scheduler) Read(name string) ([]byte, bool, error) {
 			break
 		}
 		if err != nil {
-			return nil, false, fmt.Errorf("无法读取计划任务列表")
+			return nil, false, fmt.Errorf("无法读取计划任务列表: %w", err)
 		}
 		if len(row) > 0 && strings.EqualFold(strings.TrimPrefix(row[0], `\`), strings.TrimPrefix(name, `\`)) {
-			return nil, false, fmt.Errorf("计划任务存在但无法读取，请检查权限")
+			return nil, false, schedulerError("计划任务存在但无法读取", data, queryErr)
 		}
 	}
 	return nil, false, nil
 }
 
-func (Scheduler) Create(name string, definition []byte) error {
+func (s Scheduler) Create(name string, definition []byte) error {
 	file, err := os.CreateTemp("", "octopus-task-*.xml")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(file.Name())
-	if _, err = file.Write(definition); err != nil {
+	if _, err = file.Write(encodeTaskXML(definition)); err != nil {
 		file.Close()
 		return err
 	}
@@ -89,22 +107,36 @@ func (Scheduler) Create(name string, definition []byte) error {
 		return err
 	}
 	// Never force-overwrite a task created between the ownership check and Create.
-	if _, err := schedulerCommand("/Create", "/TN", name, "/XML", file.Name()); err != nil {
-		return fmt.Errorf("无法创建登录计划任务，请检查 Windows 任务计划程序权限")
+	if output, err := s.command("/Create", "/TN", name, "/XML", file.Name()); err != nil {
+		return schedulerError("无法创建登录计划任务", output, err)
 	}
 	return nil
 }
-func (Scheduler) Enable(name string) error {
-	if _, err := schedulerCommand("/Change", "/TN", name, "/ENABLE"); err != nil {
-		return fmt.Errorf("无法启用登录计划任务")
+func (s Scheduler) Enable(name string) error {
+	if output, err := s.command("/Change", "/TN", name, "/ENABLE"); err != nil {
+		return schedulerError("无法启用登录计划任务", output, err)
 	}
 	return nil
 }
-func (Scheduler) Delete(name string) error {
-	if _, err := schedulerCommand("/Delete", "/TN", name, "/F"); err != nil {
-		return fmt.Errorf("无法移除登录计划任务")
+func (s Scheduler) Delete(name string) error {
+	if output, err := s.command("/Delete", "/TN", name, "/F"); err != nil {
+		return schedulerError("无法移除登录计划任务", output, err)
 	}
 	return nil
+}
+
+func encodeTaskXML(definition []byte) []byte {
+	// schtasks imports XML through a UTF-16 string. The file's declaration,
+	// byte encoding and BOM must agree, including paths outside the BMP.
+	const header = "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n"
+	document := header + strings.TrimPrefix(string(definition), xml.Header)
+	units := utf16.Encode([]rune(document))
+	data := make([]byte, 2+2*len(units))
+	data[0], data[1] = 0xff, 0xfe
+	for i, unit := range units {
+		data[2+2*i], data[3+2*i] = byte(unit), byte(unit>>8)
+	}
+	return data
 }
 
 func decodeTaskXML(data []byte) []byte {
@@ -124,7 +156,7 @@ func decodeTaskXML(data []byte) []byte {
 type taskTrigger struct {
 	XMLName xml.Name
 	UserID  string `xml:"UserId"`
-	Enabled bool   `xml:"Enabled"`
+	Enabled *bool  `xml:"Enabled"`
 }
 type taskAction struct {
 	XMLName   xml.Name
@@ -135,7 +167,7 @@ type taskAction struct {
 type taskPrincipal struct {
 	UserID string `xml:"UserId"`
 	Logon  string `xml:"LogonType"`
-	Level  string `xml:"RunLevel"`
+	Level  string `xml:"RunLevel"` // Omitted means the schema default, LeastPrivilege.
 }
 type taskDocument struct {
 	XMLName  xml.Name `xml:"Task"`
@@ -146,7 +178,25 @@ type taskDocument struct {
 		Items []taskAction `xml:",any"`
 	} `xml:"Actions"`
 	Principals []taskPrincipal `xml:"Principals>Principal"`
-	Enabled    bool            `xml:"Settings>Enabled"`
+	Enabled    *bool           `xml:"Settings>Enabled"`
+}
+
+func taskEnabled(value *bool) bool {
+	// Task Scheduler omits Enabled when it has the schema default of true.
+	return value == nil || *value
+}
+
+func taskUserMatches(value, userID string) bool {
+	if value == "" {
+		return false // An omitted logon user would trigger for every user.
+	}
+	sid, err := windows.StringToSid(value)
+	if err != nil {
+		// Windows can export DOMAIN\user instead of the submitted SID. Resolve
+		// the identity rather than accepting an unverified account-name match.
+		sid, _, _, err = windows.LookupSID("", value)
+	}
+	return err == nil && sid.String() == userID
 }
 
 type Autostart struct {
@@ -210,10 +260,11 @@ func (a *Autostart) inspect() (TaskState, bool, error) {
 	if action.XMLName.Local != "Exec" || trigger.XMLName.Local != "LogonTrigger" ||
 		!strings.EqualFold(action.Command, filepath.Join(a.directory, "octopus-roam.exe")) ||
 		action.Arguments != a.arguments() || !strings.EqualFold(action.Directory, a.directory) ||
-		!trigger.Enabled || trigger.UserID != a.userID || principal.UserID != a.userID || principal.Logon != "InteractiveToken" || principal.Level != "LeastPrivilege" {
+		!taskEnabled(trigger.Enabled) || !taskUserMatches(trigger.UserID, a.userID) || !taskUserMatches(principal.UserID, a.userID) ||
+		principal.Logon != "InteractiveToken" || (principal.Level != "" && principal.Level != "LeastPrivilege") {
 		return TaskConflict, true, nil
 	}
-	if !document.Enabled || !trigger.Enabled {
+	if !taskEnabled(document.Enabled) {
 		return TaskDisabled, true, nil
 	}
 	return TaskEnabled, true, nil
