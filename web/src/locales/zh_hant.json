@@ -7,8 +7,8 @@
         "intervalHint": "1–10080 分鐘。開啟或修改設定後，從目前時間重新計時。",
         "autoAdd": "自動加入現有分組",
         "autoAddHint": "依分組的嚴格或關鍵字比對規則加入新模型，不建立分組。",
-        "follow": "跟隨全域自動更新",
-        "followHint": "全域更新開啟且渠道啟用時參與自動重新整理。",
+        "follow": "跟隨全域更新",
+        "followHint": "參與全域更新。",
         "maxConcurrency": "最大並行請求數",
         "concurrencyHint": "0 表示不限。額度已滿時排隊，串流請求結束後釋放額度。",
         "following": "跟隨全域更新",
@@ -681,7 +681,7 @@
     "channel": {
         "refreshAll": {
             "button": "重新整理全部渠道模型",
-            "noEnabled": "沒有已啟用的渠道可供重新整理。",
+            "noEnabled": "沒有已啟用且跟隨全域更新的渠道可供重新整理。",
             "pending": "正在重新整理全部渠道模型…",
             "progress": "正在重新整理渠道模型：{completed}/{total}",
             "finished": "全域渠道模型重新整理完成",
@@ -691,7 +691,7 @@
             "empty": "其中 {count} 個渠道返回空模型清單",
             "warnings": "其中 {count} 個渠道有模型探測或維護警告",
             "details": "可在渠道卡片的重新整理詳情中查看具體結果。",
-            "skipped": "已略過：停用 {disabled} 個，已刪除 {deleted} 個，正在重新整理 {in_progress} 個。"
+            "skipped": "已略過：停用 {disabled} 個，退出全域更新 {not_following} 個，已刪除 {deleted} 個，正在重新整理 {in_progress} 個。"
         },
         "card": {
             "concurrency": "並行",

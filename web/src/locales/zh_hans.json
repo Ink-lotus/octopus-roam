@@ -7,8 +7,8 @@
         "intervalHint": "1–10080 分钟。开启或修改设置后，从当前时间重新计时。",
         "autoAdd": "自动添加到已有分组",
         "autoAddHint": "按分组的严格或关键词匹配规则追加新模型，不创建分组。",
-        "follow": "跟随全局自动更新",
-        "followHint": "全局更新开启且渠道启用时参与自动刷新。",
+        "follow": "跟随全局更新",
+        "followHint": "参与全局更新。",
         "maxConcurrency": "最大并发请求数",
         "concurrencyHint": "0 表示不限。额度已满时排队，流式请求结束后释放额度。",
         "following": "跟随全局更新",
@@ -681,7 +681,7 @@
     "channel": {
         "refreshAll": {
             "button": "刷新全部渠道模型",
-            "noEnabled": "没有已启用的渠道可供刷新。",
+            "noEnabled": "没有已启用且跟随全局更新的渠道可供刷新。",
             "pending": "正在刷新全部渠道模型…",
             "progress": "正在刷新渠道模型：{completed}/{total}",
             "finished": "全局渠道模型刷新完成",
@@ -691,7 +691,7 @@
             "empty": "其中 {count} 个渠道返回空模型列表",
             "warnings": "其中 {count} 个渠道有模型探测或维护警告",
             "details": "可在渠道卡片的刷新详情中查看具体结果。",
-            "skipped": "已跳过：禁用 {disabled} 个，已删除 {deleted} 个，正在刷新 {in_progress} 个。"
+            "skipped": "已跳过：禁用 {disabled} 个，退出全局更新 {not_following} 个，已删除 {deleted} 个，正在刷新 {in_progress} 个。"
         },
         "card": {
             "concurrency": "并发",

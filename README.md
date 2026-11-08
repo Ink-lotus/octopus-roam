@@ -29,7 +29,7 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 
 ### Added Features
 
-- 🔃 **Shared Bulk Refresh** - One task across the channel and group pages, covering enabled channels regardless of display filters
+- 🔃 **Shared Bulk Refresh** - One task across the channel and group pages, covering enabled channels that follow global updates regardless of display filters
 - ⏱️ **Custom Cooldown Rules** - Optional model or channel cooldowns based on upstream errors
 - 📁 **Platform Categories** - Persisted, manually assigned categories with filtering and collapsible group lists
 - 🛡️ **Retry and Health Protection** - Fixed intervals or exponential backoff and health tracking across requests; streaming requests are not replayed after the response has started
@@ -291,11 +291,11 @@ Protocol paths are editable per channel. Gemini providers must expose an OpenAI-
 
 ### Independent routing, automation, and backups
 
-Global channel updates default to off; the interval defaults to 1440 minutes and automatic group additions to off. Channels follow the global switch unless explicitly opted out. A concurrency limit of `0` is unlimited; positive limits share capacity across keys and groups, including the full lifetime of a stream.
+Global channel updates default to off; the interval defaults to 1440 minutes and automatic group additions to off. Channels follow global updates unless explicitly opted out; opted-out channels are excluded from automatic updates and bulk refresh. A concurrency limit of `0` is unlimited; positive limits share capacity across keys and groups, including the full lifetime of a stream.
 
 All keys must refresh successfully before model changes commit. A successful empty response removes obsolete models and group members while preserving the channel and group. Keyword matching is the default; exact matching excludes suffix variants. Applying global routing defaults preserves each group's manual/failover mode, members, order, and active selection.
 
-The channel and group pages share one bulk refresh task and progress display. It selects enabled channels, rechecks before probing, and normally skips channels disabled or deleted while waiting, or already being refreshed. Switching pages does not stop it and repeated clicks do not start another task. Group search and category filters do not narrow its targets. Explicit single-channel refresh keeps its existing behavior; requests already sent cannot be recalled, and reloading the browser does not resume the task.
+The channel and group pages share one bulk refresh task and progress display. It selects enabled channels that follow global updates, rechecks before probing, and normally skips channels disabled, deleted, opted out, or already being refreshed while waiting. Switching pages does not stop it and repeated clicks do not start another task. Group search and category filters do not narrow its targets. Explicit single-channel refresh keeps its existing behavior; requests already sent cannot be recalled, and reloading the browser does not resume the task.
 
 In channel advanced settings, add cooldown rules only when needed. Each rule has an exact HTTP status/upstream code or type, a plain-text keyword, an integer duration in seconds (`1..2147483647`), and a model or channel scope. At least one matching condition is required; filling both uses AND. Keywords ignore English letter case and inspect the bounded upstream error message (up to 4096 UTF-8 bytes), without regex or scripts. Empty rules preserve existing retry and member backoff behavior.
 

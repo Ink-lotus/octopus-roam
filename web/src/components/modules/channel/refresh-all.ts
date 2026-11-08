@@ -8,7 +8,8 @@ import { useChannelPreferences } from '@/stores/channel';
 export const refreshAllMutationKey = ['channels', 'refresh-all'] as const;
 const toastId = 'channel-refresh-all';
 
-type RefreshAllTarget = Pick<ChannelStats, 'channel_id' | 'channel_name' | 'enabled'>;
+type RefreshAllTarget = Pick<ChannelStats, 'channel_id' | 'channel_name' | 'enabled' | 'follow_global_auto_update'>;
+type RefreshAllSkipReason = ChannelModelRefreshSkipReason | 'not_following';
 type RefreshAllMessage = 'progress' | 'summary' | 'channelFailed' | 'empty' | 'warnings' | 'details' | 'skipped' | 'finished' | 'failed';
 type Translate = (key: RefreshAllMessage, values?: Record<string, number>) => string;
 
@@ -21,7 +22,7 @@ export const useRefreshAllProgress = create<{ pending: boolean; completed: numbe
 
 export function startChannelRefreshAll(queryClient: QueryClient, channels: readonly RefreshAllTarget[], t: Translate) {
     if (queryClient.isMutating({ mutationKey: refreshAllMutationKey }) || useRefreshAllProgress.getState().pending) return;
-    const targets = channels.filter((channel) => channel.enabled);
+    const targets = channels.filter((channel) => channel.enabled && channel.follow_global_auto_update);
     if (!targets.length) return;
 
     // 在首次 await 之前占用任务，阻止两入口或快速重复点击同时创建第二轮。
@@ -31,9 +32,9 @@ export function startChannelRefreshAll(queryClient: QueryClient, channels: reado
         retry: false,
         mutationFn: async (targets: RefreshAllTarget[]) => {
             const summary = { success: 0, failed: 0, skipped: 0, warnings: 0, empty: 0 };
-            const skipReasons: Record<ChannelModelRefreshSkipReason, number> = { disabled: 0, deleted: 0, in_progress: 0 };
+            const skipReasons: Record<RefreshAllSkipReason, number> = { disabled: 0, deleted: 0, in_progress: 0, not_following: 0 };
             const failures: string[] = [];
-            const skip = (reason?: ChannelModelRefreshSkipReason) => {
+            const skip = (reason?: RefreshAllSkipReason) => {
                 summary.skipped++;
                 if (reason) skipReasons[reason]++;
             };
@@ -54,6 +55,8 @@ export function startChannelRefreshAll(queryClient: QueryClient, channels: reado
                         skip('deleted');
                     } else if (!latest.enabled) {
                         skip('disabled');
+                    } else if (!latest.follow_global_auto_update) {
+                        skip('not_following');
                     } else if (latest.refresh?.running) {
                         skip('in_progress');
                     } else {

@@ -7,8 +7,8 @@
         "intervalHint": "1–10080 minutes. Enabling or changing these settings starts a new interval.",
         "autoAdd": "Add to existing groups automatically",
         "autoAddHint": "Append new models using each group's strict or keyword matching rule. No groups are created.",
-        "follow": "Follow global automatic updates",
-        "followHint": "Refresh this channel when both the global schedule and the channel are enabled.",
+        "follow": "Follow global updates",
+        "followHint": "Include this channel in global updates.",
         "maxConcurrency": "Maximum concurrent requests",
         "concurrencyHint": "0 means unlimited. Requests queue when full; streaming requests hold capacity until the stream ends.",
         "following": "Following global updates",
@@ -681,7 +681,7 @@
     "channel": {
         "refreshAll": {
             "button": "Refresh all channel models",
-            "noEnabled": "No enabled channels are available to refresh.",
+            "noEnabled": "No enabled channels following global updates are available to refresh.",
             "pending": "Refreshing all channel models…",
             "progress": "Refreshing channel models: {completed}/{total}",
             "finished": "All-channel model refresh completed",
@@ -691,7 +691,7 @@
             "empty": "{count} channels returned no models",
             "warnings": "{count} channels have model probe or maintenance warnings",
             "details": "See the refresh details on each channel card for results.",
-            "skipped": "Skipped: {disabled} disabled, {deleted} deleted, {in_progress} already refreshing."
+            "skipped": "Skipped: {disabled} disabled, {not_following} excluded from global updates, {deleted} deleted, {in_progress} already refreshing."
         },
         "card": {
             "concurrency": "Concurrency",

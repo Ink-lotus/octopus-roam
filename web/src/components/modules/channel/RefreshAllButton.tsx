@@ -14,28 +14,28 @@ export function RefreshAllButton() {
     const progress = useRefreshAllProgress();
     const mutating = useIsMutating({ mutationKey: refreshAllMutationKey }) > 0;
     const pending = progress.pending || mutating;
-    const hasEnabled = channels?.some((channel) => channel.enabled) ?? false;
-    const noEnabled = !pending && !isError && channels !== undefined && !hasEnabled;
+    const hasEligible = channels?.some((channel) => channel.enabled && channel.follow_global_auto_update) ?? false;
+    const noEligible = !pending && !isError && channels !== undefined && !hasEligible;
     const descriptionId = useId();
     const description = pending
         ? t('progress', { completed: progress.completed, total: progress.total })
-        : noEnabled ? t('noEnabled') : t('button');
+        : noEligible ? t('noEnabled') : t('button');
 
     return (
         <Tooltip>
             <TooltipTrigger asChild>
                 <span
                     className="inline-flex shrink-0 rounded-xl"
-                    tabIndex={noEnabled ? 0 : undefined}
-                    role={noEnabled ? 'group' : undefined}
-                    aria-label={noEnabled ? t('button') : undefined}
-                    aria-describedby={noEnabled ? descriptionId : undefined}
+                    tabIndex={noEligible ? 0 : undefined}
+                    role={noEligible ? 'group' : undefined}
+                    aria-label={noEligible ? t('button') : undefined}
+                    aria-describedby={noEligible ? descriptionId : undefined}
                 >
                     <IconButton
                         aria-label={t('button')}
                         aria-busy={pending}
                         aria-describedby={descriptionId}
-                        disabled={pending || isError || !hasEnabled}
+                        disabled={pending || isError || !hasEligible}
                         className="size-9 shrink-0 rounded-xl"
                         onClick={() => {
                             if (isError || !channels) return;
