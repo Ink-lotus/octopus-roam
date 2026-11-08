@@ -2,6 +2,15 @@
 
 普通 push / pull_request 只运行测试。release workflow 仅接受 main 上的手动触发，`publish` 默认 false；即便开启，也必须经过 `prepare → test → build → publish`。publish 使用 `release` environment，其远端保护规则需另行核实和授权配置，文件本身不会替仓库创建审批规则。
 
+普通 CI 保留同名必需检查 `test`，按完整变更范围选择检查，不使用会令必需检查缺席的 workflow 路径过滤：
+
+- 仅修改根目录 `README.md`、`README_zh.md`、`CHANGELOG.md`、`web/README.md` 或 `docs/` 下的 Markdown（不含归档）时，使用 Python 标准库检查 UTF-8、代码围栏、行尾空白和本地链接目标。删除或改名文档时同时检查其他维护中文档的引用。此路径不安装 Go、Node.js、pnpm 或项目依赖，不执行产品全量测试。
+- 任意代码、依赖、脚本、workflow、运行时资源、其他路径或文档文件模式变更，均执行现有完整测试。没有差异、缺少比较基线或无法可靠判断时也执行完整测试。
+- main 的 push 比较事件中的前后提交；其他工作分支从与 main 的共同祖先比较全部待合入变更，首次 push 同样适用。PR 比较目标基线与实际受测合并提交，避免仅因最新提交改文档就漏测此前的代码变更。
+- release 调用始终执行完整测试；可复用 workflow 的 `force_full_test` 默认 true，指定准确 `commit` 时也强制全量。普通文档检查通过仍会产生成功的 `test` 结果，失败会阻止主分支门禁通过。
+
+日常改动使用工作分支验证后合入 main，再删除该分支；无需另建一个仅用于验证同一提交的分支。主分支的必需检查保护仍适用，文档分流本身不会允许未经检查的直接推送。
+
 版本合同仅接受 `v0.1.1` 和 `v0.1.1-rc.N`，N 为无前导零正整数。输入 commit 必须是 main 历史中的完整 40 位小写 SHA；该 commit 的 main.go 版本注释、web/package.json 版本（不带 v）和 Release Notes 首行必须精确匹配。旧 0.1.0、其他版本线、local 后缀、非法 RC、错误 commit、未审查说明及已有 tag / Release / 版本镜像均拒绝。普通开发 CI 的 dev / v0.0.0-ci 不进入正式材料合同。
 
 v0.1.1 已于 2026-11-08 发布，准确提交为 `4ebd3590a73e0622dd0726faa44afd1d7d927e3f`；完整回归、材料、产物及双平台升级验收已完成。实际结果见 [Release](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.1) 和 [发布 workflow](https://github.com/Ink-lotus/octopus-roam/actions/runs/42442769302)。本页保留本次发布使用的合同及执行步骤，已有标签、Release 和版本镜像的拒绝检查继续生效。材料生产和验收布局命令见[材料与验收入口](release-materials.md)，产品变化见 [v0.1.1 说明](releases/v0.1.1.md)。

@@ -17,3 +17,4 @@ for script in scripts/build.sh scripts/ci-test.sh scripts/release-images.sh; do
     bash -n "$script"
 done
 python3 -B -m unittest discover -s scripts/tests -p 'test_release_*.py' -v
+python3 -B -m unittest discover -s scripts/tests -p 'test_ci_*.py' -v
