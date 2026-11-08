@@ -10,40 +10,43 @@
 
 </div>
 
-Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus), based on v0.13.6 with selected upstream changes. Its independent version line starts at **v0.1.0**, which remains the latest released stable version. Current source targets **v0.1.1 (not yet released)**. See the [v0.1.1 notes](docs/releases/v0.1.1.md), [changelog](CHANGELOG.md), and [upgrade and backup guide](docs/upgrade-r1.md).
-
-
-The current development source for **v0.1.1 (not yet released)** removes privacy rules, diagnostic redaction and fixed credential masking throughout the application. Configuration editing and forwarding use the actual saved values. Legacy privacy settings are ignored and excluded from new exports; compatible older backups can still be restored. Existing historical diagnostics are not rewritten. Login/API key authentication and encrypted backups retain their existing behavior. See the [current upgrade guide](docs/upgrade-r1.md).
-
-This source also adds shared bulk model refresh, optional channel cooldown rules, and manually assigned platform categories for model groups. Rules default to an empty list; categories and rule configuration are included in backup content version **1001**, with encrypted container version **1** unchanged. Full release regression, final materials and real v0.1.0 upgrades on the two supported deployment combinations remain pending.
+Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6.
 
 ## ✨ Features
+
+### Retained Upstream Features
 
 - 🔀 **Multi-Channel Aggregation** - Connect multiple LLM provider channels with unified management
 - 🔄 **Protocol Conversion** - Seamless conversion between OpenAI Chat / OpenAI Responses / Anthropic API formats
 - 💰 **Price Sync** - Automatic model pricing updates
 - 🔃 **Model Sync** - Automatic synchronization of available model lists with channels
-- 🔃 **Shared Bulk Refresh** - One task across the channel and group pages, covering enabled channels regardless of display filters
-- ⏱️ **Custom Cooldown Rules** - Optional model or channel cooldowns based on upstream errors
-- 📁 **Platform Categories** - Persisted, manually assigned categories with filtering and collapsible group lists
 - 🛡️ **Automatic Failover** - Automatically switches to an available channel when an upstream channel fails
 - 🔍 **Real-Time End-to-End Request Visualization** - Watch the complete request path in the frontend from the moment the client sends it
-- 🛡️ **Retry and Health Protection** - Protect cross-request retries and channel health; a stream that has already sent data may still end when its upstream fails
 - 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
 - 🗄️ **Database Drivers** - SQLite, MySQL and PostgreSQL; supported first-release deployments use SQLite
 
+### Added Features
+
+- 🔃 **Shared Bulk Refresh** - One task across the channel and group pages, covering enabled channels regardless of display filters
+- ⏱️ **Custom Cooldown Rules** - Optional model or channel cooldowns based on upstream errors
+- 📁 **Platform Categories** - Persisted, manually assigned categories with filtering and collapsible group lists
+- 🛡️ **Retry and Health Protection** - Fixed intervals or exponential backoff and health tracking across requests; streaming requests are not replayed after the response has started
+- 🚦 **Channel Concurrency Control** - Per-channel concurrency limits and a request queue shared across groups
+- 🔔 **Webhook Notifications** - Group failure and recovery notifications with customizable templates
+- 🔐 **Encrypted Backups** - Protect backups with a separate passphrase and export or restore channels, groups, cooldown rules, categories and other data
+- 🪟 **Native Windows Management** - Menu-based start and stop, automatic startup at login and a native update helper
 
 ## Support scope
 
-The v0.1.1 target support scope remains the same as v0.1.0: the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on Windows using WSL Containers 3.0.3.0. The final v0.1.1 artifacts still require their own upgrade acceptance.
+The v0.1.1 support scope remains the same as v0.1.0: the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on Windows using WSL Containers 3.0.3.0.
 
 Other native Linux, macOS and Android builds, other image architectures, and Docker Engine/Compose examples are experimental or reference deployments outside this scope. All 11 program ZIPs, four image architectures and corresponding source remain available. MySQL/PostgreSQL functionality and its existing test records are retained; the supported database combinations use SQLite. See the [support matrix](docs/support-v0.1.0.md).
 
 ## 🚀 Quick Start
 
-The download links and image tags below use the released **v0.1.0**. For a future move to v0.1.1, follow the [current upgrade guide](docs/upgrade-r1.md); current development source is not a published release.
+The download links and image tags below use the released **v0.1.1**. When upgrading from v0.1.0, follow the [current upgrade guide](docs/upgrade-r1.md). The first Windows migration from the old layout requires manually updating both the executable and cmd entry.
 
 ### WSL Containers 3.0.3.0 / Linux amd64
 
@@ -52,23 +55,23 @@ With WSLc already installed, choose a data directory for a new instance and run 
 ```powershell
 $dataPath = 'C:\octopus-roam\data'
 New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
-& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.0-amd64
+& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.1-amd64
 ```
 
 Data persists in the host directory. Change the default password after first login; follow the [WSLc upgrade and recovery steps](docs/upgrade-r1.md). Other WSLc versions and external database combinations require separate acceptance.
 
 ### 🐳 Docker Engine / Compose (reference deployment)
 
-These examples are outside the first-release support scope. Use the exact stable **v0.1.0** tag:
+These examples are outside the first-release support scope. Use the exact stable **v0.1.1** tag:
 
 ```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.1
 ```
 
 `docker-compose.yml` requires an explicit version. Run in PowerShell 7:
 
 ```powershell
-$env:OCTOPUS_ROAM_VERSION = 'v0.1.0'
+$env:OCTOPUS_ROAM_VERSION = 'v0.1.1'
 docker compose up -d
 ```
 
@@ -77,7 +80,7 @@ The stable release updates `latest`; RC releases do not. Use the exact version t
 
 ### 📦 Download from Release
 
-Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-windows-amd64.zip), or an experimental ZIP for another platform, and [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/SHA256SUMS) from [v0.1.0](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0), verify the checksum, and extract the entire archive into a permanent folder. The same release includes [corresponding source](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-source-v0.1.0.zip), original notices and rebuild instructions.
+Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.1/octopus-roam-windows-amd64.zip), or an experimental ZIP for another platform, and [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.1/SHA256SUMS) from [v0.1.1](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.1), verify the checksum, and extract the entire archive into a permanent folder. The same release includes [corresponding source](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.1/octopus-roam-source-v0.1.1.zip), original notices and rebuild instructions.
 
 **Windows:** double-click `octopus-roam.cmd` and choose a numbered option:
 
@@ -86,7 +89,7 @@ Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/relea
 3. Stop the service.
 4. Stop the service and disable automatic startup.
 
-The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Closing the menu leaves the service running; choose `3` or `4` to stop it. Current source builds use one cmd entry and native executable commands, with a per-user scheduled logon task. Published v0.1.0 packages still require their `windows` support folder. The first migration to the native layout requires manually updating both the executable and cmd entry; see the [migration instructions](docs/local-deployment.md#从旧脚本布局迁移).
+The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Closing the menu leaves the service running; choose `3` or `4` to stop it. v0.1.1 uses one cmd entry and native executable commands, with a per-user scheduled logon task. Published v0.1.0 packages still require their `windows` support folder. The first migration to the native layout requires manually updating both the executable and cmd entry; see the [migration instructions](docs/local-deployment.md#从旧脚本布局迁移).
 
 **Experimental native Linux / macOS and other builds:** run in the extracted directory; native process upgrade and recovery remain unvalidated:
 
@@ -427,9 +430,12 @@ Edit `~/.codex/auth.json`
 
 ---
 
+## 📝 Changelog
+
+[Read the detailed changelog](CHANGELOG.md)
+
 ## 🤝 Acknowledgments
 
 - 🙏 [looplj/axonhub](https://github.com/looplj/axonhub) - The LLM API adaptation module in this project is directly derived from this repository
 - 📊 [sst/models.dev](https://github.com/sst/models.dev) - AI model database providing model pricing data
-- 🇨🇳 [Upstream AtomGit](https://atomgit.com/bestruirui/octopus) - China-based hosting for the original project
 - 💬 [Linux.do](https://linux.do/)

@@ -10,40 +10,43 @@
 
 </div>
 
-Octopus Roam 从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 分叉，选择性吸收上游改动。独立版本线从 **v0.1.0** 起算，该版本仍是最近已发布的正式版本；当前源码目标为 **v0.1.1（尚未发布）**。参见 [v0.1.1 说明](docs/releases/v0.1.1.md)、[变更日志](CHANGELOG.md)和[升级与备份说明](docs/upgrade-r1.md)。
-
-
-当前 **v0.1.1 开发源码（尚未发布）**已整体移除隐私规则、诊断脱敏和固定凭据掩码。配置编辑与转发使用实际保存值；遗留隐私设置被忽略，新导出不再包含它们，兼容的旧备份仍可恢复。历史诊断不重写。登录/API Key 鉴权和加密备份保持原有行为，详见[当前升级说明](docs/upgrade-r1.md)。
-
-当前源码同时包含共享批量模型刷新、按需配置的渠道冷却规则和模型分组的平台分类。规则默认空列表；规则配置、分类及归属共同进入内容版本 **1001**，加密容器仍为 **1**。全版回归、正式材料及两个支持组合上的真实 v0.1.0 升级仍需完成。
+Octopus Roam 是从 [bestruirui/octopus](https://github.com/bestruirui/octopus) v0.13.6 的分叉。
 
 ## ✨ 特性
+
+### 保留的上游特性
 
 - 🔀 **多渠道聚合** - 支持接入多个 LLM 供应商渠道，统一管理
 - 🔄 **协议互转** - 支持 OpenAI Chat / OpenAI Responses / Anthropic 三种 API 格式互相转换
 - 💰 **价格同步** - 自动更新模型价格
 - 🔃 **模型同步** - 自动与渠道同步可用模型列表，省心省力
-- 🔃 **共享批量刷新** - 渠道页和分组页共用一个任务，刷新全部启用渠道，不受展示筛选影响
-- ⏱️ **自定义冷却规则** - 按上游错误手动配置模型级或渠道级冷却
-- 📁 **平台分类** - 手动归类并持久化，支持分类筛选和分组列表折叠
 - 🛡️ **自动故障转移** - 上游渠道发生故障时自动切换到可用渠道
 - 🔍 **请求全链路实时可视化** - 客户端发起请求后，即可在前端实时查看完整请求链路
-- 🛡️ **重试与健康保护** - 保护跨请求重试和渠道健康状态；流式响应已经发送数据后，上游故障仍可能结束本次响应
 - 📊 **数据统计** - 全面的请求统计、Token 消耗、费用追踪
 - 🎨 **优雅界面** - 简洁美观的 Web 管理面板
 - 📦 **轻量单文件部署** - 单个二进制文件即可运行，无需额外运行时依赖
 - 🗄️ **数据库驱动** - 提供 SQLite、MySQL、PostgreSQL；首发正式支持组合使用 SQLite
 
+### 新增特性
+
+- 🔃 **共享批量刷新** - 渠道页和分组页共用一个任务，刷新全部启用渠道，不受展示筛选影响
+- ⏱️ **自定义冷却规则** - 按上游错误手动配置模型级或渠道级冷却
+- 📁 **平台分类** - 手动归类并持久化，支持分类筛选和分组列表折叠
+- 🛡️ **重试与健康保护** - 支持固定间隔或指数退避、跨请求健康状态；流式响应已开始后不重放请求
+- 🚦 **渠道并发控制** - 按渠道设置并发上限，跨分组共享请求队列
+- 🔔 **Webhook 通知** - 通知分组故障与恢复，支持自定义通知模板
+- 🔐 **加密备份** - 使用独立口令保护备份，支持渠道、分组、冷却规则和分类等数据的导出与恢复
+- 🪟 **Windows 原生管理** - 双击菜单启停、登录自启及原生更新助手
 
 ## 支持范围
 
-v0.1.1 的目标支持范围沿用 v0.1.0：Windows amd64 原生程序 + SQLite，以及 Windows 主机上的 WSL Containers 3.0.3.0 / Linux amd64 镜像 + SQLite。最终 v0.1.1 产物仍须完成自身的升级验收。
+v0.1.1 的正式支持范围沿用 v0.1.0：Windows amd64 原生程序 + SQLite，以及 Windows 主机上的 WSL Containers 3.0.3.0 / Linux amd64 镜像 + SQLite。两个组合的 v0.1.0 → v0.1.1 升级验收已完成。
 
 其余 Linux 原生程序、macOS、Android、其他架构镜像及 Docker Engine/Compose 示例为实验性构建或参考部署，不在正式支持范围。11 个程序 ZIP、四架构镜像及对应源码继续完整交付。MySQL/PostgreSQL 功能与已有验证记录保留，正式支持的数据库组合限定为 SQLite。完整矩阵见[支持范围](docs/support-v0.1.0.md)。
 
 ## 🚀 快速开始
 
-下列下载链接和镜像标签使用已发布的 **v0.1.0**。后续迁移到 v0.1.1 时按[当前升级说明](docs/upgrade-r1.md)操作；当前开发源码不代表正式版本已发布。
+下列下载链接和镜像标签使用已发布的 **v0.1.1**。从 v0.1.0 升级时按[当前升级说明](docs/upgrade-r1.md)操作，Windows 旧布局首次迁移需要同时手动更新 exe 和 cmd。
 
 ### WSL Containers 3.0.3.0 / Linux amd64
 
@@ -52,23 +55,23 @@ v0.1.1 的目标支持范围沿用 v0.1.0：Windows amd64 原生程序 + SQLite�
 ```powershell
 $dataPath = 'C:\octopus-roam\data'
 New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
-& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.0-amd64
+& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.1-amd64
 ```
 
 数据保存在宿主机目录。首次登录后修改默认密码；版本更新和恢复按[WSLc 升级步骤](docs/upgrade-r1.md)执行。其他 WSLc 版本和外部数据库组合需另行验收。
 
 ### 🐳 Docker Engine / Compose（参考部署）
 
-以下示例不在首发正式支持范围。正式版本为 **v0.1.0**，使用准确标签：
+以下示例不在首发正式支持范围。正式版本为 **v0.1.1**，使用准确标签：
 
 ```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.0
+docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.1
 ```
 
 `docker-compose.yml` 要求显式版本。在 PowerShell 7 中运行：
 
 ```powershell
-$env:OCTOPUS_ROAM_VERSION = 'v0.1.0'
+$env:OCTOPUS_ROAM_VERSION = 'v0.1.1'
 docker compose up -d
 ```
 
@@ -77,7 +80,7 @@ docker compose up -d
 
 ### 📦 从 Release 下载
 
-从 [v0.1.0](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.0) 下载 [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-windows-amd64.zip)（其他平台 ZIP 为实验性）和 [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/SHA256SUMS)，核对哈希后完整解压到固定目录。同一 Release 提供[对应源码](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.0/octopus-roam-source-v0.1.0.zip)、原始声明和重建说明。
+从 [v0.1.1](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.1) 下载 [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.1/octopus-roam-windows-amd64.zip)（其他平台 ZIP 为实验性）和 [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.1/SHA256SUMS)，核对哈希后完整解压到固定目录。同一 Release 提供[对应源码](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.1/octopus-roam-source-v0.1.1.zip)、原始声明和重建说明。
 
 **Windows：**双击 `octopus-roam.cmd`，输入序号即可操作，无需输入命令：
 
@@ -86,7 +89,7 @@ docker compose up -d
 3. 关闭服务。
 4. 关闭服务并关闭开机自启。
 
-首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。登录自启在当前 Windows 用户登录后生效。关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。当前源码使用单 cmd 入口和 exe 原生控制，登录自启通过计划任务实现。已发布的 v0.1.0 仍须保留 `windows` 支持文件；首次迁移到原生布局须同时手动更新 exe 和 cmd，见[迁移说明](docs/local-deployment.md#从旧脚本布局迁移)。
+首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。登录自启在当前 Windows 用户登录后生效。关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。v0.1.1 使用单 cmd 入口和 exe 原生控制，登录自启通过计划任务实现。已发布的 v0.1.0 仍须保留 `windows` 支持文件；首次迁移到原生布局须同时手动更新 exe 和 cmd，见[迁移说明](docs/local-deployment.md#从旧脚本布局迁移)。
 
 **Linux / macOS 等原生实验性构建：**在解压目录运行；原生进程升级与恢复尚未完成正式验收：
 
@@ -429,9 +432,12 @@ experimental_bearer_token = "sk-octopus-roam-"
 
 ---
 
+## 📝 更新日志
+
+[查看详细更新日志](CHANGELOG.md)
+
 ## 🤝 致谢
 
 - 🙏 [looplj/axonhub](https://github.com/looplj/axonhub) - 本项目的 LLM API 适配模块直接源自该仓库的实现
 - 📊 [sst/models.dev](https://github.com/sst/models.dev) - AI 模型数据库，提供模型价格数据
-- 🇨🇳 [上游 AtomGit](https://atomgit.com/bestruirui/octopus) - 原项目的国内代码托管
 - 💬 [Linux.do](https://linux.do/)

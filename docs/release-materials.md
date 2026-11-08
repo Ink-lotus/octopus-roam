@@ -1,6 +1,6 @@
 # v0.1.1 材料生产与验收目录入口
 
-本入口只接受 `v0.1.1` / `v0.1.1-rc.N`（N 为无前导零的正整数）、main 历史中的完整小写 40 位 commit SHA 和该 commit 的 Unix 时间戳。先完成全版回归并冻结准确源码，再收集真实来源、审核许可证、验证 Go 1.27.3 复建/LGPL 再链接，生产材料和全部 11 个产品 ZIP、四架构镜像。当前合同测试与文档适配不代表这些真实材料、产物或双平台升级已经验收，也没有创建 v0.1.1 Release。
+本入口只接受 `v0.1.1` / `v0.1.1-rc.N`（N 为无前导零的正整数）、main 历史中的完整小写 40 位 commit SHA 和该 commit 的 Unix 时间戳。先完成全版回归并冻结准确源码，再收集真实来源、审核许可证、验证 Go 1.27.3 复建/LGPL 再链接，生产材料和全部 11 个产品 ZIP、四架构镜像。v0.1.1 的正式材料、完整产物和双平台升级验收已完成，并于 2026-11-08 [正式发布](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.1)；准确提交为 `4ebd3590a73e0622dd0726faa44afd1d7d927e3f`，实际构建与发布见 [workflow](https://github.com/Ink-lotus/octopus-roam/actions/runs/42442769302)。以下保留材料生产与验收入口的使用约定。
 
 沿用[既有支持矩阵](support-v0.1.0.md)：正式支持 Windows amd64/SQLite 与 Windows/WSL Containers 3.0.3.0/Linux amd64 镜像/SQLite，其他目标保持原有实验性或范围外状态。产物合同仍要求全部 11 ZIP、四架构镜像、对应源码、编译版本和完整哈希。`INSTALL.md`、源码包 README、Release Notes 须使用一致的支持范围并绑定最终获审查 commit，不能直接改写已封存或公开的 RC 附件。
 

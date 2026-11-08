@@ -4,7 +4,7 @@
 
 版本合同仅接受 `v0.1.1` 和 `v0.1.1-rc.N`，N 为无前导零正整数。输入 commit 必须是 main 历史中的完整 40 位小写 SHA；该 commit 的 main.go 版本注释、web/package.json 版本（不带 v）和 Release Notes 首行必须精确匹配。旧 0.1.0、其他版本线、local 后缀、非法 RC、错误 commit、未审查说明及已有 tag / Release / 版本镜像均拒绝。普通开发 CI 的 dev / v0.0.0-ci 不进入正式材料合同。
 
-当前 v0.1.1 处于发布准备阶段。本页定义合同及执行步骤，不代表完整回归、材料生产、候选构建、双平台升级或实际发布已完成；后续必须使用同一批准确输入取得相应证据。材料生产和验收布局命令见[材料与验收入口](release-materials.md)，产品变化见 [v0.1.1 说明](releases/v0.1.1.md)。
+v0.1.1 已于 2026-11-08 发布，准确提交为 `4ebd3590a73e0622dd0726faa44afd1d7d927e3f`；完整回归、材料、产物及双平台升级验收已完成。实际结果见 [Release](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.1) 和 [发布 workflow](https://github.com/Ink-lotus/octopus-roam/actions/runs/42442769302)。本页保留本次发布使用的合同及执行步骤，已有标签、Release 和版本镜像的拒绝检查继续生效。材料生产和验收布局命令见[材料与验收入口](release-materials.md)，产品变化见 [v0.1.1 说明](releases/v0.1.1.md)。
 
 支持范围沿用[既有支持矩阵](support-v0.1.0.md)：Windows amd64/SQLite 与 Windows/WSL Containers 3.0.3.0/Linux amd64 镜像/SQLite，其他构建按实验性交付。产物合同仍要求全部 11 ZIP、四架构镜像、对应源码、编译版本和完整哈希。正式版 `INSTALL.md`、源码包 README、Release Notes 须从最终获准源码使用一致范围重新生成并绑定准确 SHA，不能直接改写已封存或公开的 RC 附件。
 
