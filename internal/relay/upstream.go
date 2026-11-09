@@ -480,6 +480,9 @@ func (m *conversionMiddleware) OnOutboundRawRequest(ctx context.Context, request
 	preserveClientUserAgent(request, m.clientUserAgent)
 	err := applyChannelConfig(m.channel, request)
 	if err == nil {
+		err = sanitizeResponsesRequestBody(m.channel, m.format, request)
+	}
+	if err == nil {
 		m.failure.requestModel(upstreamRequestModel(request))
 	}
 	return request, err

@@ -78,7 +78,7 @@ func TestBackupCategoriesEncryptedRoundTrip(t *testing.T) {
 		t.Fatalf("encryption container changed: %v", err)
 	}
 	decoded, err := DecryptBackup(raw, "w08-fixture-backup-password")
-	if err != nil || decoded.Product != dumpProduct || decoded.Version != 1001 {
+	if err != nil || decoded.Product != dumpProduct || decoded.Version != 1002 {
 		t.Fatalf("content identity changed: %v", err)
 	}
 	plain, err := json.Marshal(decoded)
@@ -286,10 +286,10 @@ func TestBackupCategoriesVersionDefaultsAndOrigins(t *testing.T) {
 		})
 	}
 	for _, raw := range []string{
-		`{"product":"octopus-roam","version":1001,"group_categories":null}`,
-		`{"product":"octopus-roam","version":1001,"group_categories":[null]}`,
-		`{"product":"octopus-roam","version":1001,"channels":[{"cooldown_rules":null}]}`,
-		`{"version":6}`, `{"version":1000}`, `{"version":1001}`, `{"product":"other","version":1001}`, `{"product":"octopus-roam","version":1002}`,
+		`{"product":"octopus-roam","version":1002,"group_categories":null}`,
+		`{"product":"octopus-roam","version":1002,"group_categories":[null]}`,
+		`{"product":"octopus-roam","version":1002,"channels":[{"cooldown_rules":null}]}`,
+		`{"version":6}`, `{"version":1000}`, `{"version":1001}`, `{"product":"other","version":1001}`, `{"product":"octopus-roam","version":1003}`,
 	} {
 		var dump model.DBDump
 		if err := json.Unmarshal([]byte(raw), &dump); err != nil {

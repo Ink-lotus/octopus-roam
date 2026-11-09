@@ -316,16 +316,19 @@ func (r *RequestState) waitDuration(ctx context.Context, delay time.Duration) bo
 	}
 }
 
-// waitRetry 在同成员退避期间也监听路由变化; 选路版本失效时立即回到循环读取新状态。
+// waitRetry 在同成员退避期间监听路由和渠道配置变化; 选路版本或渠道快照失效时立即回到循环读取新状态。
 func (r *RequestState) waitRetry(ctx context.Context, delay time.Duration, changed <-chan struct{}) bool {
 	r.markRetrying(delay)
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
+	configChanged := op.ChannelConfigChanged()
 	select {
 	case <-ctx.Done():
 		r.markCanceled(ctx.Err(), "", nil)
 		return false
 	case <-changed:
+		return true
+	case <-configChanged:
 		return true
 	case <-timer.C:
 		return true

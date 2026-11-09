@@ -16,12 +16,12 @@ import (
 
 const (
 	dumpProduct   = "octopus-roam"
-	dbDumpVersion = 1001
+	dbDumpVersion = 1002
 )
 
 // 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
 var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
-var roamDumpVersions = map[int]struct{}{1000: {}, dbDumpVersion: {}}
+var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, dbDumpVersion: {}}
 
 var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
 
@@ -325,6 +325,9 @@ func validateBackupFeatureFields(dump *model.DBDump) error {
 		}
 		if dump.Version != dbDumpVersion && len(rules) > 0 {
 			return fmt.Errorf("backup version %d cannot contain cooldown_rules", dump.Version)
+		}
+		if dump.Version != dbDumpVersion && dump.Channels[i].StripResponsesHistory {
+			return fmt.Errorf("backup version %d cannot contain strip_responses_history", dump.Version)
 		}
 		dump.Channels[i].CooldownRules = rules
 	}

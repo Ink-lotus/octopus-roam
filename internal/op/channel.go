@@ -144,12 +144,17 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 	defer channelRefreshCommitMu.Unlock()
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
-	if !options.CooldownRulesPresent {
+	if !options.CooldownRulesPresent || !options.StripResponsesHistoryPresent {
 		current, ok := channelCache.Get(detail.ID)
 		if !ok {
 			return nil, fmt.Errorf("channel not found")
 		}
-		detail.CooldownRules = model.CloneCooldownRules(current.CooldownRules)
+		if !options.CooldownRulesPresent {
+			detail.CooldownRules = model.CloneCooldownRules(current.CooldownRules)
+		}
+		if !options.StripResponsesHistoryPresent {
+			detail.StripResponsesHistory = current.StripResponsesHistory
+		}
 	}
 	if err := normalizeChannelDetail(detail); err != nil {
 		return nil, err
@@ -162,7 +167,7 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 		if err := tx.Model(&model.Channel{}).Where("id = ?", detail.ID).
 			Select("name", "dialect", "enabled", "follow_global_auto_update", "max_concurrency", "allowed_protocols", "base_url",
 				"openai_chat_completion_path", "openai_response_path", "anthropic_message_path",
-				"proxy", "channel_proxy", "custom_header", "cooldown_rules", "param_override", "match_regex").
+				"proxy", "channel_proxy", "custom_header", "cooldown_rules", "strip_responses_history", "param_override", "match_regex").
 			Updates(&model.Channel{ChannelConfig: detail.ChannelConfig}).Error; err != nil {
 			return fmt.Errorf("failed to update channel: %w", err)
 		}

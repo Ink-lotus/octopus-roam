@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-// UnmarshalJSON records whether cooldown_rules was submitted so an update can
-// preserve the stored value when an older caller omits the new field.
+// UnmarshalJSON records whether optional channel fields were submitted so an
+// update can preserve the stored value when an older caller omits a new field.
 func (request *ChannelSaveRequest) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil || fields == nil {
@@ -26,6 +26,10 @@ func (request *ChannelSaveRequest) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
+	stripResponsesHistoryPresent := false
+	if _, ok := fields["strip_responses_history"]; ok {
+		stripResponsesHistoryPresent = true
+	}
 	type plainChannelSaveRequest ChannelSaveRequest
 	var decoded plainChannelSaveRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -33,5 +37,6 @@ func (request *ChannelSaveRequest) UnmarshalJSON(data []byte) error {
 	}
 	*request = ChannelSaveRequest(decoded)
 	request.CooldownRulesPresent = present
+	request.StripResponsesHistoryPresent = stripResponsesHistoryPresent
 	return nil
 }

@@ -75,6 +75,62 @@ func TestChannelCooldownRulesHTTPPresenceAndValidation(t *testing.T) {
 	}
 }
 
+func TestChannelResponsesHistoryHTTPPresenceAndPersistence(t *testing.T) {
+	engine := gin.New()
+	engine.POST("/create", createChannel)
+	engine.POST("/update", updateChannel)
+	payload := model.ChannelSaveRequest{ChannelDetail: model.ChannelDetail{ChannelConfig: model.ChannelConfig{
+		Name:                  "responses-history-handler-channel",
+		Enabled:               true,
+		BaseURL:               "https://fixture.example",
+		StripResponsesHistory: true,
+		CooldownRules:         []model.CooldownRule{},
+	}}}
+	response := serveCooldownJSON(t, engine, http.MethodPost, "/create", payload)
+	if response.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", response.Code, response.Body.String())
+	}
+	var envelope struct{ Data model.ChannelDetail }
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	detail := envelope.Data
+	t.Cleanup(func() { _ = op.ChannelDel(detail.ID, t.Context()) })
+	if !detail.StripResponsesHistory {
+		t.Fatal("create response did not preserve enabled cleanup")
+	}
+
+	without := map[string]any{}
+	raw, _ := json.Marshal(detail)
+	if err := json.Unmarshal(raw, &without); err != nil {
+		t.Fatal(err)
+	}
+	delete(without, "strip_responses_history")
+	without["name"] = "responses-history-handler-channel-renamed"
+	response = serveCooldownJSON(t, engine, http.MethodPost, "/update", without)
+	if response.Code != http.StatusOK {
+		t.Fatalf("omitted update status=%d body=%s", response.Code, response.Body.String())
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if !envelope.Data.StripResponsesHistory {
+		t.Fatal("omitted update disabled cleanup")
+	}
+
+	without["strip_responses_history"] = false
+	response = serveCooldownJSON(t, engine, http.MethodPost, "/update", without)
+	if response.Code != http.StatusOK {
+		t.Fatalf("explicit disable status=%d body=%s", response.Code, response.Body.String())
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.StripResponsesHistory {
+		t.Fatal("explicit false update did not disable cleanup")
+	}
+}
+
 func serveCooldownJSON(t *testing.T, engine *gin.Engine, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	raw, err := json.Marshal(body)

@@ -3,6 +3,7 @@ package op
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,20 +19,21 @@ func TestValidateDumpOrigin(t *testing.T) {
 		wantError string
 	}{
 		{"roam legacy", &model.DBDump{Product: "octopus-roam", Version: 1000}, ""},
-		{"roam current", &model.DBDump{Product: "octopus-roam", Version: 1001}, ""},
+		{"roam legacy", &model.DBDump{Product: "octopus-roam", Version: 1001}, ""},
+		{"roam current", &model.DBDump{Product: "octopus-roam", Version: 1002}, ""},
 		{"upstream zero", &model.DBDump{Version: 0}, ""},
 		{"upstream five", &model.DBDump{Version: 5}, ""},
 		{"nil", nil, "empty dump"},
 		{"ambiguous six", &model.DBDump{Version: 6}, "re-export"},
 		{"upstream four", &model.DBDump{Version: 4}, "no product marker"},
 		{"future upstream", &model.DBDump{Version: 7}, "no product marker"},
-		{"missing identity", &model.DBDump{Version: 1001}, "no product marker"},
+		{"missing identity", &model.DBDump{Version: 1002}, "no product marker"},
 		{"foreign", &model.DBDump{Product: "foreign-product", Version: 5}, "product"},
-		{"case", &model.DBDump{Product: "Octopus-Roam", Version: 1001}, "product"},
-		{"whitespace", &model.DBDump{Product: " octopus-roam ", Version: 1001}, "product"},
+		{"case", &model.DBDump{Product: "Octopus-Roam", Version: 1002}, "product"},
+		{"whitespace", &model.DBDump{Product: " octopus-roam ", Version: 1002}, "product"},
 		{"roam zero", &model.DBDump{Product: "octopus-roam", Version: 0}, "unsupported octopus-roam"},
 		{"roam six", &model.DBDump{Product: "octopus-roam", Version: 6}, "unsupported octopus-roam"},
-		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1002}, "unsupported octopus-roam"},
+		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1003}, "unsupported octopus-roam"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateDumpOrigin(tc.dump)
@@ -48,7 +50,7 @@ func TestValidateDumpOrigin(t *testing.T) {
 
 func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 	// 后续上游同步不能带入其版本或扩大接受白名单，否则重新引入备份撞号。
-	if dumpProduct != "octopus-roam" || dbDumpVersion != 1001 {
+	if dumpProduct != "octopus-roam" || dbDumpVersion != 1002 {
 		t.Fatal("backup identity changed")
 	}
 	if len(upstreamDumpVersions) != 2 {
@@ -59,13 +61,36 @@ func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 			t.Fatalf("missing upstream %d", version)
 		}
 	}
-	if len(roamDumpVersions) != 2 {
+	if len(roamDumpVersions) != 3 {
 		t.Fatal("roam whitelist changed")
 	}
-	for _, version := range []int{1000, 1001} {
+	for _, version := range []int{1000, 1001, 1002} {
 		if _, ok := roamDumpVersions[version]; !ok {
 			t.Fatalf("missing roam %d", version)
 		}
+	}
+}
+
+func TestBackupRejectsResponsesHistoryFromLegacyRoamVersions(t *testing.T) {
+	for _, version := range []int{1000, 1001} {
+		t.Run(fmt.Sprintf("version-%d", version), func(t *testing.T) {
+			id := 810050 + version
+			dump := &model.DBDump{
+				Product:  dumpProduct,
+				Version:  version,
+				Channels: []model.Channel{{ID: id, ChannelConfig: model.ChannelConfig{Name: t.Name(), BaseURL: "https://example.invalid", StripResponsesHistory: true}}},
+			}
+			if _, err := DBImportIncremental(t.Context(), dump); err == nil || !strings.Contains(err.Error(), "strip_responses_history") {
+				t.Fatalf("legacy backup accepted new field: %v", err)
+			}
+			var count int64
+			if err := db.GetDB().Model(&model.Channel{}).Where("id = ?", id).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatal("rejected backup wrote a channel")
+			}
+		})
 	}
 }
 
@@ -133,7 +158,7 @@ func TestBackupDisabledStateAndConflictSemantics(t *testing.T) {
 
 func TestBackupRejectsBeforeWriteAndRollsBackInvalidMember(t *testing.T) {
 	const id = 810002
-	for _, version := range []int{6, 7, 1002} {
+	for _, version := range []int{6, 7, 1003} {
 		if _, err := DBImportIncremental(t.Context(), &model.DBDump{Version: version, Groups: []model.Group{{ID: id, Name: t.Name()}}}); err == nil {
 			t.Fatalf("accepted version %d", version)
 		}
@@ -174,7 +199,7 @@ func TestBackupExportJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dump.Product != "octopus-roam" || dump.Version != 1001 {
+	if dump.Product != "octopus-roam" || dump.Version != 1002 {
 		t.Fatal("export lacks roam identity")
 	}
 	raw, err := json.Marshal(dump)
@@ -234,7 +259,7 @@ func TestBackupRestoresExplicitConfiguration(t *testing.T) {
 	policy.RetryMode = model.RetryModeExponential
 	policy.RetryInitialIntervalSeconds = 2
 	dump := &model.DBDump{Product: dumpProduct, Version: dbDumpVersion,
-		Channels:         []model.Channel{{ID: id, ChannelConfig: model.ChannelConfig{Name: t.Name(), BaseURL: "https://example.invalid", Enabled: false, FollowGlobalAutoUpdate: &no, MaxConcurrency: 3, AllowedProtocols: model.ProtocolOpenAIResponse}}},
+		Channels:         []model.Channel{{ID: id, ChannelConfig: model.ChannelConfig{Name: t.Name(), BaseURL: "https://example.invalid", Enabled: false, FollowGlobalAutoUpdate: &no, MaxConcurrency: 3, AllowedProtocols: model.ProtocolOpenAIResponse, StripResponsesHistory: true}}},
 		ChannelKeys:      []model.ChannelKey{{ID: id, ChannelID: id, ChannelKeyConfig: model.ChannelKeyConfig{Name: "key", Key: "config-fixture-key", Enabled: false}}},
 		ChannelModels:    []model.ChannelModel{{ID: id, ChannelID: id, Name: "exact-model"}},
 		ChannelGrants:    []model.ChannelGrant{{ID: id, ChannelModelID: id, ChannelKeyID: id, Protocols: model.ProtocolOpenAIResponse}},
@@ -269,7 +294,7 @@ func TestBackupRestoresExplicitConfiguration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if channel.Enabled || channel.FollowsGlobalAutoUpdate() || channel.MaxConcurrency != 3 || channel.AllowedProtocols != model.ProtocolOpenAIResponse {
+	if channel.Enabled || channel.FollowsGlobalAutoUpdate() || channel.MaxConcurrency != 3 || channel.AllowedProtocols != model.ProtocolOpenAIResponse || !channel.StripResponsesHistory {
 		t.Fatal("channel configuration lost")
 	}
 	if group.Mode != model.GroupModeFailover || group.ModelMatchMode != model.GroupModelMatchModeExact || group.RelayConfig != policy {

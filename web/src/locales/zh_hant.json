@@ -791,6 +791,8 @@
             "cooldownRuleConditionError": "請輸入錯誤碼、關鍵詞，或兩者都填寫。",
             "cooldownRuleSecondsError": "請輸入 1 到 2147483647 之間的整數秒數。",
             "cooldownRuleScopeError": "請選擇模型級或渠道級範圍。",
+            "stripResponsesHistory": "清理 OpenAI Responses 歷史",
+            "stripResponsesHistoryHint": "傳送到 OpenAI Responses 上游前，移除歷史回應引用和加密推理項目。",
             "edit": "編輯",
             "delete": "刪除",
             "submit": "建立",

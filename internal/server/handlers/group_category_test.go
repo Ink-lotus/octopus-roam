@@ -377,7 +377,7 @@ func TestGroupCategoryHTTPImportPublishesSnapshots(t *testing.T) {
 	})
 	const categoryID, groupID = 886071, 886501
 	ref := categoryID
-	dump := &model.DBDump{Product: "octopus-roam", Version: 1001, GroupCategories: []model.BackupGroupCategory{{ID: categoryID, Name: "W08 HTTP Imported"}}, Groups: []model.Group{{ID: groupID, Name: "w08-http-imported", CategoryID: &ref}}}
+	dump := &model.DBDump{Product: "octopus-roam", Version: 1002, GroupCategories: []model.BackupGroupCategory{{ID: categoryID, Name: "W08 HTTP Imported"}}, Groups: []model.Group{{ID: groupID, Name: "w08-http-imported", CategoryID: &ref}}}
 	t.Cleanup(func() {
 		_ = op.GroupDel(groupID, context.Background())
 		relay.ResetRouteState(groupID)

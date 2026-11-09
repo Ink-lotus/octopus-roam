@@ -77,7 +77,7 @@ func TestGroupCategoryRequestThreeStates(t *testing.T) {
 
 func TestGroupCategoryBackupWireExcludesRuntimeAndInternalKey(t *testing.T) {
 	id := 71
-	dump := DBDump{Product: "octopus-roam", Version: 1001,
+	dump := DBDump{Product: "octopus-roam", Version: 1002,
 		GroupCategories: []BackupGroupCategory{{ID: id, Name: "Fixture"}},
 		Groups:          []Group{{ID: 501, Name: "fixture", CategoryID: &id, MetadataVersion: "1:99"}, {ID: 502, Name: "other"}},
 	}

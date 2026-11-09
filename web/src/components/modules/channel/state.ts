@@ -23,6 +23,7 @@ export type ChannelFormState = {
     param_override: string;
     match_regex: string;
     cooldown_rules: CooldownRule[];
+    strip_responses_history: boolean;
 };
 
 // grantKey 生成授权在状态里的键; 分隔符取 \0, 模型名与凭据名都不会含它。
@@ -71,6 +72,7 @@ export const emptyFormState: ChannelFormState = {
     param_override: '',
     match_regex: '',
     cooldown_rules: [],
+    strip_responses_history: false,
 };
 
 // fromChannel 把渠道完整配置还原为表单状态; 授权读写都按名称, 直接建索引即可。
@@ -96,6 +98,7 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         param_override: channel.param_override,
         match_regex: channel.match_regex,
         cooldown_rules: cloneCooldownRules(channel.cooldown_rules),
+        strip_responses_history: channel.strip_responses_history ?? false,
     };
 }
 
@@ -123,6 +126,7 @@ export function toChannelConfig(state: ChannelFormState) {
             error_code: rule.error_code.trim(),
             keyword: rule.keyword.trim(),
         })),
+        strip_responses_history: state.strip_responses_history,
     };
 }
 

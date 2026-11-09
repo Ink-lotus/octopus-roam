@@ -69,6 +69,7 @@ export type ChannelDetail = {
     channel_proxy: string;
     match_regex: string;
     cooldown_rules: CooldownRule[];
+    strip_responses_history: boolean;
 };
 
 // 选项只用于本次保存，浏览器单独保存用户偏好。

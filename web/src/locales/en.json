@@ -791,6 +791,8 @@
             "cooldownRuleConditionError": "Enter an error code, a keyword, or both.",
             "cooldownRuleSecondsError": "Enter a whole number of seconds from 1 to 2147483647.",
             "cooldownRuleScopeError": "Choose a model or channel scope.",
+            "stripResponsesHistory": "Clean OpenAI Responses history",
+            "stripResponsesHistoryHint": "Remove previous response references and encrypted reasoning items before sending to an OpenAI Responses upstream.",
             "edit": "Edit",
             "delete": "Delete",
             "submit": "Create",

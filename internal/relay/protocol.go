@@ -57,6 +57,9 @@ func buildPassthroughRequest(format llm.APIFormat, raw *httpclient.Request, chan
 	if err := applyChannelConfig(channel, request); err != nil {
 		return nil, err
 	}
+	if err := sanitizeResponsesRequestBody(channel, outbound.APIFormat(), request); err != nil {
+		return nil, err
+	}
 	return request, nil
 }
 
