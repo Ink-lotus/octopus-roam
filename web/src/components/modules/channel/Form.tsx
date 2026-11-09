@@ -296,7 +296,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     aria-describedby={`${idPrefix}-concurrency-hint`} className="rounded-xl" />
                                 <p id={`${idPrefix}-concurrency-hint`} className="text-xs text-muted-foreground">{tAuto('concurrencyHint')}</p>
                             </div>
-                            <div className="space-y-3 rounded-2xl border border-border/70 bg-background/50 p-3">
+                            <div className="space-y-3">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="space-y-1">
                                         <Label>{t('cooldownRules')}</Label>
@@ -417,7 +417,7 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                     </div>
                                 )}
                             </div>
-                            <div className="space-y-2 rounded-2xl border border-border/70 bg-background/50 p-3">
+                            <div className="space-y-2">
                                 <div className="flex items-center justify-between gap-3">
                                     <Label htmlFor={`${idPrefix}-strip-responses-history`}>{t('stripResponsesHistory')}</Label>
                                     <Switch
