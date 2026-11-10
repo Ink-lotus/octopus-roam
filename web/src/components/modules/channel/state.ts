@@ -19,6 +19,7 @@ export type ChannelFormState = {
     models: string[];
     grants: Map<string, number>; // 键为 grantKey(模型名, 凭据名), 值为 Protocol 位掩码。
     custom_header: ChannelDetail['custom_header'];
+    custom_header_model_only: boolean;
     channel_proxy: string;
     param_override: string;
     match_regex: string;
@@ -68,6 +69,7 @@ export const emptyFormState: ChannelFormState = {
     models: [],
     grants: new Map(),
     custom_header: [],
+    custom_header_model_only: false,
     channel_proxy: '',
     param_override: '',
     match_regex: '',
@@ -94,6 +96,7 @@ export function fromChannel(channel: ChannelDetail): ChannelFormState {
         models: [...channel.models],
         grants: new Map(channel.grants.map((g) => [grantKey(g.model_name, g.key_name), g.protocols])),
         custom_header: channel.custom_header,
+        custom_header_model_only: channel.custom_header_model_only ?? false,
         channel_proxy: channel.channel_proxy,
         param_override: channel.param_override,
         match_regex: channel.match_regex,
@@ -118,6 +121,7 @@ export function toChannelConfig(state: ChannelFormState) {
         anthropic_message_path: state.anthropic_message_path.trim(),
         proxy: state.proxy,
         custom_header: state.custom_header.filter((h) => h.header_key.trim() && h.header_value !== ''),
+        custom_header_model_only: state.custom_header_model_only,
         channel_proxy: state.channel_proxy.trim(),
         param_override: state.param_override.trim(),
         match_regex: state.match_regex.trim(),

@@ -773,6 +773,7 @@
             "saveFailed": "Channel save failed",
             "paramOverride": "Param override",
             "customHeader": "Custom headers",
+            "customHeaderModelOnly": "Model fetching only",
             "customHeaderKey": "Header key",
             "customHeaderValue": "Header value",
             "customHeaderAdd": "Add header",

@@ -333,7 +333,7 @@ func (s *suite) seed() error {
 		if e != nil {
 			return e
 		}
-		if e = require(dump.Product == "octopus-roam" && dump.Version == 1002); e != nil {
+		if e = require(dump.Product == "octopus-roam" && dump.Version == 1003); e != nil {
 			return e
 		}
 		encrypted, e := op.EncryptBackup(dump, backupPassword)

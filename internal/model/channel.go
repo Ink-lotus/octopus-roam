@@ -54,6 +54,7 @@ type ChannelConfig struct {
 	Proxy                    bool           `json:"proxy" gorm:"default:false"`                                                                         // 是否使用代理。
 	ChannelProxy             string         `json:"channel_proxy"`                                                                                      // 渠道专用代理地址; 留空表示不用渠道专用代理。
 	CustomHeader             []CustomHeader `json:"custom_header" gorm:"serializer:json"`                                                               // 追加到上游请求的 Header。
+	CustomHeaderModelOnly    bool           `json:"custom_header_model_only" gorm:"not null;default:false"`                                             // 自定义 Header 是否仅用于获取或刷新模型。
 	CooldownRules            []CooldownRule `json:"cooldown_rules" gorm:"serializer:json;not null;default:'[]'"`                                        // 渠道自定义冷却规则。
 	StripResponsesHistory    bool           `json:"strip_responses_history" gorm:"default:false"`                                                       // 是否清理 OpenAI Responses 请求中的历史项。
 	ParamOverride            string         `json:"param_override"`                                                                                     // 请求参数覆盖配置; 留空表示不覆盖。
@@ -121,6 +122,7 @@ type ChannelSaveOptions struct {
 	AutoAddGroups                bool `json:"auto_add_groups"`
 	CooldownRulesPresent         bool `json:"-"` // 服务端请求绑定记录；false 表示更新时保留已有规则。
 	StripResponsesHistoryPresent bool `json:"-"` // 服务端请求绑定记录；false 表示更新时保留已有开关。
+	CustomHeaderModelOnlyPresent bool `json:"-"` // 服务端请求绑定记录；false 表示更新时保留已有 Header 开关。
 }
 
 type ChannelSaveRequest struct {

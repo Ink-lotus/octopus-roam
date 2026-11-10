@@ -65,6 +65,7 @@ export type ChannelDetail = {
     grants: ChannelGrant[];
     proxy: boolean;
     custom_header: CustomHeader[];
+    custom_header_model_only: boolean;
     param_override: string;
     channel_proxy: string;
     match_regex: string;

@@ -30,6 +30,7 @@ func (request *ChannelSaveRequest) UnmarshalJSON(data []byte) error {
 	if _, ok := fields["strip_responses_history"]; ok {
 		stripResponsesHistoryPresent = true
 	}
+	_, customHeaderModelOnlyPresent := fields["custom_header_model_only"]
 	type plainChannelSaveRequest ChannelSaveRequest
 	var decoded plainChannelSaveRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -38,5 +39,6 @@ func (request *ChannelSaveRequest) UnmarshalJSON(data []byte) error {
 	*request = ChannelSaveRequest(decoded)
 	request.CooldownRulesPresent = present
 	request.StripResponsesHistoryPresent = stripResponsesHistoryPresent
+	request.CustomHeaderModelOnlyPresent = customHeaderModelOnlyPresent
 	return nil
 }

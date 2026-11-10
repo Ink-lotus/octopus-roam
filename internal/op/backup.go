@@ -16,12 +16,12 @@ import (
 
 const (
 	dumpProduct   = "octopus-roam"
-	dbDumpVersion = 1002
+	dbDumpVersion = 1003
 )
 
 // 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
 var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
-var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, dbDumpVersion: {}}
+var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, 1002: {}, dbDumpVersion: {}}
 
 var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
 
@@ -312,10 +312,14 @@ func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImpo
 }
 
 func validateBackupFeatureFields(dump *model.DBDump) error {
-	if dump.Version == dbDumpVersion && dump.HasExplicitNullCooldownRules() {
+	// 按功能首次出现的内容版本校验，后续版本升级不能使已有备份的功能失效。
+	hasRulesAndCategories := dump.Product == dumpProduct && dump.Version >= 1001
+	hasResponsesHistory := dump.Product == dumpProduct && dump.Version >= 1002
+	hasModelOnlyHeaders := dump.Product == dumpProduct && dump.Version >= 1003
+	if hasRulesAndCategories && dump.HasExplicitNullCooldownRules() {
 		return fmt.Errorf("cooldown_rules cannot be null")
 	}
-	if dump.Version == dbDumpVersion && dump.HasExplicitNullGroupCategories() {
+	if hasRulesAndCategories && dump.HasExplicitNullGroupCategories() {
 		return fmt.Errorf("group_categories cannot be null")
 	}
 	for i := range dump.Channels {
@@ -323,15 +327,18 @@ func validateBackupFeatureFields(dump *model.DBDump) error {
 		if err != nil {
 			return fmt.Errorf("import channel %d: %w", dump.Channels[i].ID, err)
 		}
-		if dump.Version != dbDumpVersion && len(rules) > 0 {
+		if !hasRulesAndCategories && len(rules) > 0 {
 			return fmt.Errorf("backup version %d cannot contain cooldown_rules", dump.Version)
 		}
-		if dump.Version != dbDumpVersion && dump.Channels[i].StripResponsesHistory {
+		if !hasResponsesHistory && dump.Channels[i].StripResponsesHistory {
 			return fmt.Errorf("backup version %d cannot contain strip_responses_history", dump.Version)
+		}
+		if !hasModelOnlyHeaders && dump.Channels[i].CustomHeaderModelOnly {
+			return fmt.Errorf("backup version %d cannot contain custom_header_model_only", dump.Version)
 		}
 		dump.Channels[i].CooldownRules = rules
 	}
-	if dump.Version != dbDumpVersion {
+	if !hasRulesAndCategories {
 		if len(dump.GroupCategories) > 0 || dump.HasNonNullGroupCategoryReference() {
 			return fmt.Errorf("backup version %d cannot contain platform categories", dump.Version)
 		}

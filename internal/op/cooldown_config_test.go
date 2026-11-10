@@ -83,7 +83,7 @@ func TestCooldownRulesBackupVersionAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.Version != 1002 || len(restored.GroupCategories) != 0 || len(restored.Channels) != 1 || len(restored.Channels[0].CooldownRules) != 1 || restored.Channels[0].CooldownRules[0] != rules[0] {
+	if restored.Version != 1003 || len(restored.GroupCategories) != 0 || len(restored.Channels) != 1 || len(restored.Channels[0].CooldownRules) != 1 || restored.Channels[0].CooldownRules[0] != rules[0] {
 		t.Fatalf("backup round trip changed rules: %+v", restored)
 	}
 	if _, err := DBImportIncremental(t.Context(), restored); err != nil {

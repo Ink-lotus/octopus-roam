@@ -773,6 +773,7 @@
             "saveFailed": "渠道保存失败",
             "paramOverride": "参数覆盖",
             "customHeader": "自定义 Header",
+            "customHeaderModelOnly": "仅获取模型",
             "customHeaderKey": "Header Key",
             "customHeaderValue": "Header Value",
             "customHeaderAdd": "添加 Header",

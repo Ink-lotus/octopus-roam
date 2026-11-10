@@ -462,8 +462,20 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                             </div>
 
                             <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <Label>{t('customHeader')}</Label>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                        <Label>{t('customHeader')}</Label>
+                                        <div className="flex items-center gap-2">
+                                            <Label htmlFor={`${idPrefix}-custom-header-model-only`} className="text-muted-foreground">
+                                                {t('customHeaderModelOnly')}
+                                            </Label>
+                                            <Switch
+                                                id={`${idPrefix}-custom-header-model-only`}
+                                                checked={state.custom_header_model_only}
+                                                onCheckedChange={(checked) => setState({ ...state, custom_header_model_only: checked })}
+                                            />
+                                        </div>
+                                    </div>
                                     <IconButton
                                         onClick={() => setState({
                                             ...state,

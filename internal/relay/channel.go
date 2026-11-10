@@ -83,6 +83,11 @@ func applyChannelConfig(channel model.Channel, request *httpclient.Request) erro
 		}
 	}
 
+	// 模型获取专用的 Header 不参与正常调用，参数覆盖仍按上面的配置执行。
+	if channel.CustomHeaderModelOnly {
+		return nil
+	}
+
 	// 转换器已经写入的认证等敏感 Header 不允许被自定义配置覆盖。
 	for _, header := range channel.CustomHeader {
 		if request.Headers.Get(header.HeaderKey) != "" && httpclient.IsSensitiveHeader(header.HeaderKey) {

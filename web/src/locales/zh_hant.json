@@ -773,6 +773,7 @@
             "saveFailed": "供應源儲存失敗",
             "paramOverride": "參數覆寫",
             "customHeader": "自訂 Header",
+            "customHeaderModelOnly": "僅取得模型",
             "customHeaderKey": "Header Key",
             "customHeaderValue": "Header Value",
             "customHeaderAdd": "新增 Header",
