@@ -11,17 +11,17 @@
 
 日常改动使用工作分支验证后合入 main，再删除该分支；无需另建一个仅用于验证同一提交的分支。主分支的必需检查保护仍适用，文档分流本身不会允许未经检查的直接推送。
 
-版本合同仅接受 `v0.1.1` 和 `v0.1.1-rc.N`，N 为无前导零正整数。输入 commit 必须是 main 历史中的完整 40 位小写 SHA；该 commit 的 main.go 版本注释、web/package.json 版本（不带 v）和 Release Notes 首行必须精确匹配。旧 0.1.0、其他版本线、local 后缀、非法 RC、错误 commit、未审查说明及已有 tag / Release / 版本镜像均拒绝。普通开发 CI 的 dev / v0.0.0-ci 不进入正式材料合同。
+版本合同仅接受 `v0.1.2` 和 `v0.1.2-rc.N`，N 为无前导零正整数。输入 commit 必须是 main 历史中的完整 40 位小写 SHA；该 commit 的 main.go 版本注释、web/package.json 版本（不带 v）和 Release Notes 首行必须精确匹配。旧 0.1.0 / 0.1.1、其他版本线、local 后缀、非法 RC、错误 commit、未审查说明及已有 tag / Release / 版本镜像均拒绝。普通开发 CI 的 dev / v0.0.0-ci 不进入正式材料合同。
 
-v0.1.1 已于 2026-11-08 发布，准确提交为 `4ebd3590a73e0622dd0726faa44afd1d7d927e3f`；完整回归、材料、产物及双平台升级验收已完成。实际结果见 [Release](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.1) 和 [发布 workflow](https://github.com/Ink-lotus/octopus-roam/actions/runs/42442769302)。本页保留本次发布使用的合同及执行步骤，已有标签、Release 和版本镜像的拒绝检查继续生效。材料生产和验收布局命令见[材料与验收入口](release-materials.md)，产品变化见 [v0.1.1 说明](releases/v0.1.1.md)。
+本轮正式目标为 v0.1.2。已有标签、Release 和版本镜像的拒绝检查继续生效；v0.1.1 的公开产物保留原样。材料生产和验收命令见[材料与验收入口](release-materials.md)，本轮产品变化和兼容边界见 [v0.1.2 说明](releases/v0.1.2.md)。
 
 支持范围沿用[既有支持矩阵](support-v0.1.0.md)：Windows amd64/SQLite 与 Windows/WSL Containers 3.0.3.0/Linux amd64 镜像/SQLite，其他构建按实验性交付。产物合同仍要求全部 11 ZIP、四架构镜像、对应源码、编译版本和完整哈希。正式版 `INSTALL.md`、源码包 README、Release Notes 须从最终获准源码使用一致范围重新生成并绑定准确 SHA，不能直接改写已封存或公开的 RC 附件。
 
 ## 唯一发布说明来源
 
-`scripts/release_contract.py` 的 `RELEASE_NOTES_PATH` 固定为 `docs/releases/v0.1.1.md`，`read_release_notes(version, commit)` 从准确 commit 的 Git blob 读取原始字节，同时验证 main 和前端版本。prepare、materials、package、seal、verify、材料生产/审核及派生验收复用该入口；不从工作区或已取消跟踪的旧说明路径回退取值。
+`scripts/release_contract.py` 的 `RELEASE_NOTES_PATH` 固定为 `docs/releases/v0.1.2.md`，`read_release_notes(version, commit)` 从准确 commit 的 Git blob 读取原始字节，同时验证 main 和前端版本。prepare、materials、package、seal、verify、材料生产/审核及派生验收复用该入口；不从工作区或已取消跟踪的旧说明路径回退取值。
 
-prepare / resolve 输出 `release_notes_path` 和 `release_notes_sha256`，workflow 将它们传给后续 job 的同名大写环境变量并再次校验。materials.json、material-production.json、build.json、artifact.json 和派生 build-info.json 均记录说明路径及 SHA-256。对应源码包含 `application/docs/releases/v0.1.1.md`，delivery/RELEASE-NOTES.md 必须与同一 blob 逐字节相同，包含原换行和末尾空行。
+prepare / resolve 输出 `release_notes_path` 和 `release_notes_sha256`，workflow 将它们传给后续 job 的同名大写环境变量并再次校验。materials.json、material-production.json、build.json、artifact.json 和派生 build-info.json 均记录说明路径及 SHA-256。对应源码包含 `application/docs/releases/v0.1.2.md`，delivery/RELEASE-NOTES.md 必须与同一 blob 逐字节相同，包含原换行和末尾空行。
 
 新说明须与版本入口一起进入获审查 commit；未提交文案不属于 HEAD。候选同样使用此路径，但首行、main 注释、前端版本及注入值必须使用当批 RC。转正式或改变文案/源码后，重新审查和绑定 commit、材料与产物，重做受影响验收；改文件名或重算清单哈希不能使旧输入合格。`plan/release-notes-v0.1.0.md` 仅保留历史本地字节，不再参与新发布链路。
 
@@ -55,7 +55,7 @@ alpine/386.zip
   "schema": 1,
   "version": "<exact-version>",
   "commit": "<full-commit-sha>",
-  "release_notes_path": "docs/releases/v0.1.1.md",
+  "release_notes_path": "docs/releases/v0.1.2.md",
   "release_notes_sha256": "<sha256-of-exact-committed-blob>",
   "source_date_epoch": 0,
   "platforms": [
@@ -77,7 +77,7 @@ alpine/386.zip
 
 应用源码 ZIP 保留对应源码包布局：`application/`、`go-cache/cache/download/`、`npm-packages/`、`licenses/`、重建/安装/源码获取说明及 `SHA256SUMS`。`release-source.json` 精确包含 `schema`、`version`、`commit`、`platforms` 四项，分别对应以上值。生产入口加入 `tool-inputs.json` 和 `material-production.json`，绑定说明 path/SHA、输入哈希、实际工具/生产脚本及实际前端。SHA256SUMS 必须覆盖除自身外的全部常规文件。保留完整原始声明，包括 AGPLv3、LGPLv3、GPLv3、MPL-2.0 原文；顶层五份说明及 `licenses/THIRD_PARTY_LICENSES.csv` 必须与材料目录的副本逐字节一致。
 
-`application/` 必须包含目标 commit 中 `.github`、cmd、internal、scripts、static、web 下的已跟踪文件，以及 main.go、go.mod、go.sum、LICENSE、两份 README、Compose、.dockerignore 和 `docs/releases/v0.1.1.md`；static/out 以本次实际生成内容为准。不得包含 node_modules、测试 profile、私钥、数据库、日志或工具缓存。新编译程序的实际依赖（含 replace 后的模块）必须有对应模块 ZIP，模块内容 h1 同时匹配实际二进制元数据和对应源码中的 go.sum。源码包内仍需准确的前端来源记录、原始声明和重建工具材料；自动哈希检查不代替材料审核或 LGPL 重新链接演练。
+`application/` 必须包含目标 commit 中 `.github`、cmd、internal、scripts、static、web 下的已跟踪文件，以及 main.go、go.mod、go.sum、LICENSE、两份 README、Compose、.dockerignore 和 `docs/releases/v0.1.2.md`；static/out 以本次实际生成内容为准。不得包含 node_modules、测试 profile、私钥、数据库、日志或工具缓存。新编译程序的实际依赖（含 replace 后的模块）必须有对应模块 ZIP，模块内容 h1 同时匹配实际二进制元数据和对应源码中的 go.sum。源码包内仍需准确的前端来源记录、原始声明和重建工具材料；自动哈希检查不代替材料审核或 LGPL 重新链接演练。
 
 四份 Alpine ZIP 保留既有包格式：ALPINE-PACKAGES.json、FILE-SHA256SUMS.json、SOURCE-BINDINGS.json、GITMODES.json、SOURCE-ARCHIVE-FILES.json、NOTICE-INDEX.json、准确 aports/源文件/原始声明及重建说明。逐项验证文件、Git blob、APKBUILD SHA-512 输入和源归档内文件。清单字段区分大小写，实际镜像的 P/V/A/o/c/L 必须与相应平台材料一致。最终 IMAGE-MANIFEST.json 另将本次实际镜像 ID、镜像 tar 哈希、原始包数据库哈希与 OS 源码 ZIP 绑定；不会把历史镜像 ID 当作本次镜像 ID。
 
@@ -126,10 +126,10 @@ checkout/setup-node/setup-go/setup-python/pnpm/setup-ndk/Docker actions 保留�
 
 固定工具版本、真实程序的编译元数据和产品行为分别留证。发布脚本测试中的合成 11 目标/四镜像及真实小型 PE/ELF/Mach-O 程序只验证合同读取器，不代表完整产品已构建或运行。
 
-1. 用最终源码执行 `scripts/ci-test.sh` 的 default/jsoniter、两种 vet、规定 race、前端及发布脚本检查，并完成 014/015、1000/1001、退役设置、联合恢复及真实旧程序拒绝矩阵。完整 CI 使用独立源码目录，避免默认前端输出影响旧证据。
+1. 用最终源码执行 `scripts/ci-test.sh` 的 default/jsoniter、两种 vet、规定 race、前端及发布脚本检查，并完成 014/015、渠道两个兼容开关、1000～1003、退役设置、联合恢复及真实旧程序拒绝矩阵。完整 CI 使用独立源码目录，避免默认前端输出影响旧证据。
 2. 审查准确 commit、版本和 Notes blob/SHA。重新生成新增或变化的依赖来源、许可证 CSV、原始声明、工具清单、REBUILD/INSTALL 及源码材料；未变来源只能经差异审查复用。补齐应用复建和 LGPL 再链接证据。
 3. 使用同一输入执行完整构建、四镜像构建、package/seal/verify；记录材料 SHA、全部 ZIP 哈希和镜像摘要。后续验收使用同一批准确产物，不能沿用旧二进制或更换名称。
-4. 用真实 v0.1.0 程序及升级前完整快照，在 Windows amd64/SQLite 和指定 WSLc/Linux amd64/SQLite 上完成升级、重启、恢复及功能联合检查；新原生助手再次更新/失败恢复单列。既有 TLS 和其他数据库检查按实际回归入口保留，不扩大正式支持声明。
+4. 用真实 v0.1.1 程序及升级前完整快照，在 Windows amd64/SQLite 和指定 WSLc/Linux amd64/SQLite 上完成升级、重启、恢复及功能联合检查；保留 v0.1.0 首次布局迁移说明；新原生助手再次更新/失败恢复单列。既有 TLS 和其他数据库检查按实际回归入口保留，不扩大正式支持声明。
 5. 实际发布前回读远端状态、权限和 environment 保护，并对准确目标、命令及影响取得当次授权。源码、版本、说明、锁文件或材料改变时保留旧证据，重新绑定输入、补受影响检查及构建/平台验收。
 
-本页不授权远端写入，也不从历史归档继承待办。v0.1.1 的全版回归、正式材料、候选产物、平台验收和发布结果须分别记录真实执行事实。
+本页不授权远端写入，也不从历史归档继承待办。v0.1.2 的全版回归、正式材料、候选产物、平台验收和发布结果须分别记录真实执行事实。

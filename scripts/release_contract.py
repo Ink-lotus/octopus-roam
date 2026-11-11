@@ -21,8 +21,8 @@ APP = 'octopus-roam'
 MODULE = 'github.com/Ink-lotus/octopus-roam'
 GO_VERSION = 'go1.27.3'
 BUILD_SCHEMA = 2
-RELEASE_VERSION = r'v0\.1\.1(?:-rc\.[1-9][0-9]*)?'
-RELEASE_NOTES_PATH = 'docs/releases/v0.1.1.md'
+RELEASE_VERSION = r'v0\.1\.2(?:-rc\.[1-9][0-9]*)?'
+RELEASE_NOTES_PATH = 'docs/releases/v0.1.2.md'
 TARGETS = ('linux-amd64', 'linux-arm64', 'linux-arm', 'linux-386',
            'windows-amd64', 'darwin-arm64', 'darwin-amd64',
            'android-amd64', 'android-arm64', 'android-arm', 'android-386')
@@ -112,7 +112,7 @@ def binary_metadata(binary, target, version, commit):
 
 def identity(version, commit):
     require(isinstance(version, str) and re.fullmatch(RELEASE_VERSION, version),
-            'This release contract accepts v0.1.1 or v0.1.1-rc.N only')
+            'This release contract accepts v0.1.2 or v0.1.2-rc.N only')
     require(isinstance(commit, str) and re.fullmatch('[0-9a-f]{40}', commit),
             'A full lowercase commit SHA is required')
 

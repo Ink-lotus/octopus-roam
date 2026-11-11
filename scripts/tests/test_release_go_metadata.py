@@ -218,7 +218,7 @@ class RealGoMetadataTests(unittest.TestCase):
 
     def test_actual_program_cannot_be_relabelled_as_another_target_or_release(self):
         binary = self.binaries['windows-amd64']
-        for target, version in (('linux-amd64', fixtures.VERSION), ('windows-amd64', 'v0.1.1-rc.2')):
+        for target, version in (('linux-amd64', fixtures.VERSION), ('windows-amd64', 'v0.1.2-rc.2')):
             with self.subTest(target=target, version=version), self.assertRaises(contract.Invalid):
                 contract.binary_metadata(binary, target, version, fixtures.COMMIT)
 

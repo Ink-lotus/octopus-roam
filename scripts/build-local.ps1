@@ -1,7 +1,7 @@
 ﻿# PowerShell 5.1 compatible offline build helper for the first local release round.
 param(
     [string]$OutputRoot,
-    [string]$Version = ('v0.1.1-local.' + (Get-Date -Format 'yyyyMMddHHmmss')),
+    [string]$Version = ('v0.1.2-local.' + (Get-Date -Format 'yyyyMMddHHmmss')),
     [string[]]$Target = @('windows/amd64', 'linux/amd64', 'linux/arm64', 'linux/arm', 'linux/386', 'darwin/amd64', 'darwin/arm64'),
     [string]$LicenseReportPath,
     [string]$VerificationScript

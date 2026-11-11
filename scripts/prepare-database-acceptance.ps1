@@ -41,7 +41,7 @@ $goBin = Split-Path -Parent $goPath
 $goRoot = Split-Path -Parent $goBin
 $binding = $null
 if ($derived) {
-    if ($ExpectedVersion -cnotmatch '\Av0\.1\.1(?:-rc\.[1-9][0-9]*)?\z' -or
+    if ($ExpectedVersion -cnotmatch '\Av0\.1\.2(?:-rc\.[1-9][0-9]*)?\z' -or
         $ExpectedCommit -cnotmatch '^[0-9a-f]{40}$' -or
         $ArtifactSha256 -cnotmatch '^[0-9a-f]{64}$' -or $MaterialsSha256 -cnotmatch '^[0-9a-f]{64}$') {
         throw 'An artifact-derived candidate requires the explicitly reviewed version, commit, artifact and material hashes.'

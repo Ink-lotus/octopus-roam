@@ -1,10 +1,10 @@
-# v0.1.1 材料生产与验收目录入口
+# v0.1.2 材料生产与验收目录入口
 
-本入口只接受 `v0.1.1` / `v0.1.1-rc.N`（N 为无前导零的正整数）、main 历史中的完整小写 40 位 commit SHA 和该 commit 的 Unix 时间戳。先完成全版回归并冻结准确源码，再收集真实来源、审核许可证、验证 Go 1.27.3 复建/LGPL 再链接，生产材料和全部 11 个产品 ZIP、四架构镜像。v0.1.1 的正式材料、完整产物和双平台升级验收已完成，并于 2026-11-08 [正式发布](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.1)；准确提交为 `4ebd3590a73e0622dd0726faa44afd1d7d927e3f`，实际构建与发布见 [workflow](https://github.com/Ink-lotus/octopus-roam/actions/runs/42442769302)。以下保留材料生产与验收入口的使用约定。
+本入口只接受 `v0.1.2` / `v0.1.2-rc.N`（N 为无前导零的正整数）、main 历史中的完整小写 40 位 commit SHA 和该 commit 的 Unix 时间戳。先完成回归并冻结准确源码，再审查真实来源、许可证、Go 1.27.3 复建和 LGPL 再链接，生产材料、全部 11 个程序 ZIP 及四架构镜像。所有完成结论以本轮准确输入和实际结果为准。
 
 沿用[既有支持矩阵](support-v0.1.0.md)：正式支持 Windows amd64/SQLite 与 Windows/WSL Containers 3.0.3.0/Linux amd64 镜像/SQLite，其他目标保持原有实验性或范围外状态。产物合同仍要求全部 11 ZIP、四架构镜像、对应源码、编译版本和完整哈希。`INSTALL.md`、源码包 README、Release Notes 须使用一致的支持范围并绑定最终获审查 commit，不能直接改写已封存或公开的 RC 附件。
 
-Release Notes 固定来自该 commit 的 `docs/releases/v0.1.1.md` Git blob。`main.go` 的版本注释、`web/package.json` 的无 `v` 版本、说明首行和所有命令的版本必须一致。脚本保留说明原字节（包括换行和尾部空行），不读工作区替代文件或旧 `plan/` 路径。说明的 `release_notes_path` / `release_notes_sha256` 贯通材料、生产记录、build、artifact 及派生验收目录；RC 转正式版需要新准确 commit、重新审核和重新生成对应输入，不能只重命名附件。
+Release Notes 固定来自该 commit 的 `docs/releases/v0.1.2.md` Git blob。`main.go` 的版本注释、`web/package.json` 的无 `v` 版本、说明首行和所有命令的版本必须一致。脚本保留说明原字节（包括换行和尾部空行），不读工作区替代文件或旧 `plan/` 路径。说明的 `release_notes_path` / `release_notes_sha256` 贯通材料、生产记录、build、artifact 及派生验收目录；RC 转正式版需要新准确 commit、重新审核和重新生成对应输入，不能只重命名附件。
 
 ## 1. 准备审核后的输入
 
@@ -13,7 +13,7 @@ Release Notes 固定来自该 commit 的 `docs/releases/v0.1.1.md` Git blob。`m
 ```json
 {
   "schema": 1,
-  "version": "v0.1.1-rc.1",
+  "version": "v0.1.2-rc.1",
   "commit": "<完整候选SHA>",
   "source": {"path": "source-template.zip", "sha256": "<实际SHA256>"},
   "license_report": {"path": "THIRD_PARTY_LICENSES.csv", "sha256": "<实际SHA256>"},
@@ -34,9 +34,9 @@ Release Notes 固定来自该 commit 的 `docs/releases/v0.1.1.md` Git blob。`m
 }
 ```
 
-源码模板遵守 [发布 CI 合同](release-ci.md) 的源码 ZIP 布局和完整 `SHA256SUMS`，包括目标 commit 的 application、实际 Go/npm 对应源码、原始声明、准确 `release-source.json` 和重建说明。application 中除 `static/out/` 外的文件集合及字节必须与准确 checkout 一致，其中 `application/docs/releases/v0.1.1.md` 必须等于该 commit 的说明 blob。`release-source.json` 仍只有 `schema`、`version`、`commit`、`platforms` 四个字段。Release Notes 是 application 的受跟踪输入，不是 `inputs.json.documents` 的第六份独立说明；五份说明、CSV 必须与独立输入一致。模板不能带上一轮的 `material-production.json` 或 `tool-inputs.json`。
+源码模板遵守 [发布 CI 合同](release-ci.md) 的源码 ZIP 布局和完整 `SHA256SUMS`，包括目标 commit 的 application、实际 Go/npm 对应源码、原始声明、准确 `release-source.json` 和重建说明。application 中除 `static/out/` 外的文件集合及字节必须与准确 checkout 一致，其中 `application/docs/releases/v0.1.2.md` 必须等于该 commit 的说明 blob。`release-source.json` 仍只有 `schema`、`version`、`commit`、`platforms` 四个字段。Release Notes 是 application 的受跟踪输入，不是 `inputs.json.documents` 的第六份独立说明；五份说明、CSV 必须与独立输入一致。模板不能带上一轮的 `material-production.json` 或 `tool-inputs.json`。
 
-模板可以保留历史前端输出供输入审查，但生产器会明确用这次真实生成的 `static/out/` 替换它；不会继承其旧前端哈希。其他目录、来源目录中的说明、重建脚本和来源记录须按准确候选完成审查，生产器不会猜测或自动修订它们。本版上游前置调整过依赖，不能沿用 v0.1.0 的来源和许可证材料作为最终交付。
+模板可以保留历史前端输出供输入审查，但生产器会明确用这次真实生成的 `static/out/` 替换它；不会继承其旧前端哈希。其他目录、来源目录中的说明、重建脚本和来源记录须按准确候选完成审查，生产器不会猜测或自动修订它们。本版与 v0.1.1 的 Go/npm 锁文件及工具版本相同时，可逐项核对来源和哈希后复用未变材料；应用源码、前端、版本、说明、生产记录和相关哈希必须重新生成。
 
 `tool-inputs.json` 固定包含 `schema: 1` 和 `tools`；tools 必须有下表六项，每项结构为 `{"version":"<准确版本>","source":"<公开HTTPS来源>","sha256":"<审核的工具分发输入SHA256>"}`。来源不能含凭据、签名查询参数或片段。保留官方来源与校验记录，不能仅填写版本字符串。
 
@@ -114,6 +114,6 @@ pwsh -NoProfile -File scripts/prepare-database-acceptance.ps1 -Candidate $newAcc
 node scripts/test-release-acceptance.mjs $newAcceptanceLayout $newRuntimeRoot $rcVersion $rcCommit $artifactSha $materialsSha
 ```
 
-其中业务场景使用原程序；loopback 更新场景仍从同源源码编译独立 overlay，以合成的 `v0.1.1-rc.1 → v0.1.1-rc.2` 验证更新机制，报告记录这一边界。它不能替代真实正式 `v0.1.0 → 本版候选` 的升级验收。两个正式支持组合须使用同一批准确产物完成真实旧程序升级、持久化恢复及功能联合回归；候选原生更新助手的再次更新和失败恢复单独记录。首次 Windows 手动迁移及回滚损失见 [升级说明](upgrade-r1.md)。MySQL/PostgreSQL、其他平台和环境保持既有支持状态，不由本入口扩展。
+其中业务场景使用原程序；loopback 更新场景仍从同源源码编译独立 overlay，以合成的 `v0.1.2-rc.1 → v0.1.2-rc.2` 验证更新机制，报告记录这一边界。它不能替代真实正式 `v0.1.1 → 本版候选` 的升级验收。两个正式支持组合须使用同一批准确产物完成真实旧程序升级、持久化恢复及功能联合回归；候选原生更新助手的再次更新和失败恢复单独记录。首次 Windows 手动迁移及回滚损失见 [升级说明](upgrade-r1.md)。MySQL/PostgreSQL、其他平台和环境保持既有支持状态，不由本入口扩展。
 
-`build-local.ps1` 默认生成 `v0.1.1-local.<timestamp>`，旧 `build-info.json` 路径仍保留历史兼容。开发 CI 继续接受其开发版本；未绑定说明或完整材料的本地构建不能封存、通过发布 verify，亦不能携带新 artifact 审核参数冒充新候选。
+`build-local.ps1` 默认生成 `v0.1.2-local.<timestamp>`，旧 `build-info.json` 路径仍保留历史兼容。开发 CI 继续接受其开发版本；未绑定说明或完整材料的本地构建不能封存、通过发布 verify，亦不能携带新 artifact 审核参数冒充新候选。

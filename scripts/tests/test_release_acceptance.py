@@ -110,7 +110,7 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(self.layout.exists())
 
     def test_wrong_version_commit_or_material_hash_cannot_derive_layout(self):
-        for field, bad in [('version', 'v0.1.1-rc.2'), ('commit', 'b' * 40), ('materials_sha', 'c' * 64)]:
+        for field, bad in [('version', 'v0.1.2-rc.2'), ('commit', 'b' * 40), ('materials_sha', 'c' * 64)]:
             args = argparse.Namespace(**{**vars(self.args), field: bad})
             with self.subTest(field=field), self.assertRaises(contract.Invalid):
                 acceptance.prepare(args)

@@ -49,7 +49,7 @@ class CommittedInputsTests(unittest.TestCase):
         self.git(root, 'commit', '-m', 'W10 合成发布输入')
         return self.git(root, 'rev-parse', 'HEAD')
 
-    def repository(self, name, version='v0.1.1', main_version=None, frontend_version=None,
+    def repository(self, name, version='v0.1.2', main_version=None, frontend_version=None,
                    notes=None, notes_path=contract.RELEASE_NOTES_PATH):
         root = self.root / name
         root.mkdir()
@@ -62,7 +62,7 @@ class CommittedInputsTests(unittest.TestCase):
         return root, self.commit_files(root, files), raw
 
     def test_stable_and_rc_read_exact_blob_bytes(self):
-        for index, version in enumerate(('v0.1.1', 'v0.1.1-rc.1', 'v0.1.1-rc.123')):
+        for index, version in enumerate(('v0.1.2', 'v0.1.2-rc.1', 'v0.1.2-rc.123')):
             root, commit, raw = self.repository(str(index), version)
             with self.subTest(version=version), chdir(root):
                 self.assertEqual(contract.read_release_notes(version, commit), raw)
@@ -78,61 +78,61 @@ class CommittedInputsTests(unittest.TestCase):
         legacy.parent.mkdir()
         legacy.write_bytes(b'# Unreviewed legacy replacement\n')
         with chdir(root):
-            self.assertEqual(contract.read_release_notes('v0.1.1', commit), raw)
+            self.assertEqual(contract.read_release_notes('v0.1.2', commit), raw)
             with self.assertRaisesRegex(contract.Invalid, 'unreviewed'):
-                materials.target('v0.1.1', commit)
+                materials.target('v0.1.2', commit)
 
     def test_legacy_only_or_absent_notes_cannot_be_used(self):
         for index, location in enumerate((LEGACY_NOTES, None)):
             root, commit, _ = self.repository(str(index), notes_path=location)
             with self.subTest(location=location), chdir(root), self.assertRaises(subprocess.CalledProcessError):
-                contract.read_release_notes('v0.1.1', commit)
+                contract.read_release_notes('v0.1.2', commit)
 
     def test_main_frontend_and_title_must_name_the_exact_version(self):
         cases = [({'main_version': 'v0.1.0'}, 'main.go version'),
                  ({'frontend_version': '0.1.0'}, 'Frontend package version'),
-                 ({'frontend_version': 'v0.1.1'}, 'Frontend package version'),
-                 ({'notes': b'# Octopus Roam v0.1.1-rc.1\nReviewed\n'}, 'title'),
+                 ({'frontend_version': 'v0.1.2'}, 'Frontend package version'),
+                 ({'notes': b'# Octopus Roam v0.1.2-rc.1\nReviewed\n'}, 'title'),
                  ({'notes': b''}, 'empty'),
-                 ({'notes': '# Octopus Roam v0.1.1\n待发布\n'.encode()}, 'need review')]
+                 ({'notes': '# Octopus Roam v0.1.2\n待发布\n'.encode()}, 'need review')]
         for index, (options, message) in enumerate(cases):
             root, commit, _ = self.repository(str(index), **options)
             with self.subTest(options=options), chdir(root), self.assertRaisesRegex(contract.Invalid, message):
-                contract.read_release_notes('v0.1.1', commit)
+                contract.read_release_notes('v0.1.2', commit)
 
     def test_unknown_sha_tree_object_and_short_sha_are_rejected(self):
         root, commit, _ = self.repository('identity')
         tree = self.git(root, 'rev-parse', commit + '^{tree}')
         for value in ('0' * 40, tree, commit[:7]):
             with self.subTest(commit=value), chdir(root), self.assertRaises((contract.Invalid, subprocess.CalledProcessError)):
-                contract.read_release_notes('v0.1.1', value)
+                contract.read_release_notes('v0.1.2', value)
 
     def test_rc_to_stable_requires_new_commit_with_all_three_inputs(self):
-        root, candidate, _ = self.repository('promotion', 'v0.1.1-rc.1')
+        root, candidate, _ = self.repository('promotion', 'v0.1.2-rc.1')
         with chdir(root):
             with self.assertRaisesRegex(contract.Invalid, 'main.go version'):
-                contract.read_release_notes('v0.1.1', candidate)
+                contract.read_release_notes('v0.1.2', candidate)
             metadata_only = self.commit_files(root, {
-                'main.go': b'package main\n// Version v0.1.1\nfunc main() {}\n',
-                'web/package.json': b'{"version":"0.1.1"}\n'})
+                'main.go': b'package main\n// Version v0.1.2\nfunc main() {}\n',
+                'web/package.json': b'{"version":"0.1.2"}\n'})
             with self.assertRaisesRegex(contract.Invalid, 'title'):
-                contract.read_release_notes('v0.1.1', metadata_only)
-            notes = b'# Octopus Roam v0.1.1\nReviewed stable fixture\n'
+                contract.read_release_notes('v0.1.2', metadata_only)
+            notes = b'# Octopus Roam v0.1.2\nReviewed stable fixture\n'
             stable = self.commit_files(root, {contract.RELEASE_NOTES_PATH: notes})
             self.assertNotEqual(stable, candidate)
-            self.assertEqual(contract.read_release_notes('v0.1.1', stable), notes)
+            self.assertEqual(contract.read_release_notes('v0.1.2', stable), notes)
             with self.assertRaisesRegex(contract.Invalid, 'main.go version'):
-                contract.read_release_notes('v0.1.1-rc.1', stable)
+                contract.read_release_notes('v0.1.2-rc.1', stable)
 
     def test_prepared_path_and_hash_are_checked_against_the_blob(self):
         root, commit, raw = self.repository('prepared')
         good = {'RELEASE_NOTES_PATH': contract.RELEASE_NOTES_PATH, 'RELEASE_NOTES_SHA256': contract.sha(raw)}
         with chdir(root), patch.dict(os.environ, good):
-            self.assertEqual(contract.read_release_notes('v0.1.1', commit), raw)
+            self.assertEqual(contract.read_release_notes('v0.1.2', commit), raw)
             for name, value in (('RELEASE_NOTES_PATH', LEGACY_NOTES), ('RELEASE_NOTES_SHA256', '0' * 64)):
                 with self.subTest(name=name), patch.dict(os.environ, {name: value}), \
                      self.assertRaisesRegex(contract.Invalid, 'Prepared Release Notes binding'):
-                    contract.read_release_notes('v0.1.1', commit)
+                    contract.read_release_notes('v0.1.2', commit)
 
 
 class NotesHandoffTests(unittest.TestCase):
@@ -218,9 +218,9 @@ class EntryVersionTests(unittest.TestCase):
         self.root = fixtures.new_directory()
         self.output = REPOSITORY / 'build/release-local' / ('w10-version-' + uuid.uuid4().hex)
         contract.write_json(self.root / 'build-info.json', {'schema': 2, 'role': 'derived-acceptance-layout'})
-        self.versions = [('v0.1.1', True), ('v0.1.1-rc.12', True), ('v0.1.0', False),
-                         ('v0.1.1-rc.0', False), ('v0.1.1-rc.01', False), ('v0.1.2', False),
-                         ('V0.1.1', False), ('v0.1.1\n', False)]
+        self.versions = [('v0.1.2', True), ('v0.1.2-rc.12', True), ('v0.1.0', False), ('v0.1.1', False),
+                         ('v0.1.2-rc.0', False), ('v0.1.2-rc.01', False), ('v0.1.3', False),
+                         ('V0.1.2', False), ('v0.1.2\n', False)]
 
     def test_image_entry_accepts_only_target_versions_before_any_docker_action(self):
         environment = {**os.environ, 'COMMIT': '0' * 40}
