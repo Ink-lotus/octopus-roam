@@ -25,7 +25,7 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 - 📊 **Analytics** - Comprehensive request statistics, token consumption, and cost tracking
 - 🎨 **Elegant UI** - Clean and beautiful web management panel
 - 📦 **Lightweight Single-Binary Deployment** - Run as a single binary with no external runtime dependencies
-- 🗄️ **Database Drivers** - SQLite, MySQL and PostgreSQL; supported first-release deployments use SQLite
+- 🗄️ **Database Drivers** - SQLite, MySQL and PostgreSQL; official support targets use SQLite
 
 ### Added Features
 
@@ -41,42 +41,42 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 
 ## Support scope
 
-The v0.1.2 support scope remains the same as v0.1.0: the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on Windows using WSL Containers 3.0.3.0.
+From November 12, 2026, subsequent releases target two supported deployments: the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on a Linux amd64 host running Docker Engine, including the documented Compose entry. **The first complete application acceptance run for the Linux container deployment is still pending.** WSL2 / WSL Containers is expected to be compatible and is no longer a separate required release test environment.
 
-Other native Linux, macOS and Android builds, other image architectures, and Docker Engine/Compose examples are experimental or reference deployments outside this scope. All 11 program ZIPs, four image architectures and corresponding source remain available. MySQL/PostgreSQL functionality and its existing test records are retained; the supported database combinations use SQLite. See the [support matrix](docs/support-v0.1.0.md).
+Published versions retain their original support statements and acceptance records; see the [v0.1.2 release notes](docs/releases/v0.1.2.md). Native Linux, macOS and Android builds and other image architectures remain experimental. MySQL/PostgreSQL functionality and tests remain available outside the official support scope. All 11 program ZIPs, four image architectures and corresponding source remain available. See the [current support matrix and acceptance status](docs/support.md).
 
 ## 🚀 Quick Start
 
 The download links and image tags below refer to the **v0.1.2** release. When upgrading from v0.1.0, follow the [current upgrade guide](docs/upgrade-r1.md). The first Windows migration from the old layout requires manually updating both the executable and cmd entry.
 
-### WSL Containers 3.0.3.0 / Linux amd64
+### 🐳 Linux amd64 / Docker Engine
 
-With WSLc already installed, choose a data directory for a new instance and run in an administrator PowerShell 7:
-
-```powershell
-$dataPath = 'C:\octopus-roam\data'
-New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
-& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.2-amd64
-```
-
-Data persists in the host directory. Change the default password after first login; follow the [WSLc upgrade and recovery steps](docs/upgrade-r1.md). Other WSLc versions and external database combinations require separate acceptance.
-
-### 🐳 Docker Engine / Compose (reference deployment)
-
-These examples are outside the first-release support scope. Use the exact stable **v0.1.2** tag:
+The following deployment instructions use the available **v0.1.2** image; they do not claim that the new Linux acceptance run is complete. On a Linux amd64 host with Docker Engine installed, create a dedicated data directory on a Linux filesystem and start a new instance:
 
 ```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.2
+mkdir ./octopus-roam-data
+docker run --detach --name octopus-roam \
+  --publish 127.0.0.1:8080:8080 \
+  --volume "$(pwd)/octopus-roam-data:/app/data" \
+  --env PUID="$(id -u)" --env PGID="$(id -g)" \
+  ghcr.io/ink-lotus/octopus-roam:v0.1.2-amd64
 ```
 
-`docker-compose.yml` requires an explicit version. Run in PowerShell 7:
+Data persists in the host directory. The example maps the application user to your Linux UID/GID and listens on the host's loopback address at `http://127.0.0.1:8080`; use SSH port forwarding to access a remote host. Change the default password after first login. For an existing deployment, follow the [upgrade and recovery steps](docs/upgrade-r1.md) and retain its data and permission settings.
 
-```powershell
-$env:OCTOPUS_ROAM_VERSION = 'v0.1.2'
+### Docker Compose
+
+In the repository's `docker-compose.yml`, replace `/path/to/data` with the absolute path to a dedicated Linux data directory. For local access only, set the port mapping to `127.0.0.1:8080:8080`. Set `PUID` and `PGID` in the service's `environment` when a specific application UID/GID is needed; the current image defaults both to `0` when omitted.
+
+For a new instance, choose either Docker run or Compose. The Compose file requires an explicit published tag; from its directory in a Linux shell, run:
+
+```bash
+export OCTOPUS_ROAM_VERSION='v0.1.2-amd64'
+docker compose config --quiet
 docker compose up -d
 ```
 
-The stable release updates `latest`; RC releases do not. Use the exact version tag or a verified digest and follow the [upgrade and backup instructions](docs/upgrade-r1.md) when replacing an existing container.
+The stable release updates `latest`; RC releases do not. Use an exact published tag or a verified digest and follow the [upgrade and backup instructions](docs/upgrade-r1.md) when replacing an existing container. WSL2 / WSL Containers remains an expected-compatible option; host mounts, permissions and networking may differ from Linux and are not separately required release tests.
 
 
 ### 📦 Download from Release
@@ -174,7 +174,7 @@ The configuration file is located at `data/config.json` by default and is automa
 
 **Database Configuration:**
 
-Three database drivers are available. The supported first-release deployments use SQLite; MySQL/PostgreSQL configurations are outside that scope:
+Three database drivers are available. Official support targets use SQLite; MySQL/PostgreSQL configurations remain outside that scope:
 
 | Type | `database.type` | `database.path` Format |
 |------|-----------------|-----------------------|

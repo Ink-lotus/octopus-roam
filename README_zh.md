@@ -25,7 +25,7 @@ Octopus Roam 是从 [bestruirui/octopus](https://github.com/bestruirui/octopus) 
 - 📊 **数据统计** - 全面的请求统计、Token 消耗、费用追踪
 - 🎨 **优雅界面** - 简洁美观的 Web 管理面板
 - 📦 **轻量单文件部署** - 单个二进制文件即可运行，无需额外运行时依赖
-- 🗄️ **数据库驱动** - 提供 SQLite、MySQL、PostgreSQL；首发正式支持组合使用 SQLite
+- 🗄️ **数据库驱动** - 提供 SQLite、MySQL、PostgreSQL；正式支持目标使用 SQLite
 
 ### 新增特性
 
@@ -41,42 +41,42 @@ Octopus Roam 是从 [bestruirui/octopus](https://github.com/bestruirui/octopus) 
 
 ## 支持范围
 
-v0.1.2 的正式支持范围沿用 v0.1.0：Windows amd64 原生程序 + SQLite，以及 Windows 主机上的 WSL Containers 3.0.3.0 / Linux amd64 镜像 + SQLite。本版的升级与恢复使用对应版本的准确产物验收。
+自 2026-11-12 起，后续版本的正式支持目标为 Windows amd64 原生程序 + SQLite，以及 Linux amd64 宿主上的 Docker Engine / Linux amd64 镜像 + SQLite，包含文档提供的 Compose 入口。**Linux 容器组合的首次完整应用验收尚未完成。**WSL2 / WSL Containers 为预期兼容环境，不再单列发布必验项。
 
-其余 Linux 原生程序、macOS、Android、其他架构镜像及 Docker Engine/Compose 示例为实验性构建或参考部署，不在正式支持范围。11 个程序 ZIP、四架构镜像及对应源码继续完整交付。MySQL/PostgreSQL 功能与已有验证记录保留，正式支持的数据库组合限定为 SQLite。完整矩阵见[支持范围](docs/support-v0.1.0.md)。
+已发布版本保留当时的支持声明和验收记录，见 [v0.1.2 发布说明](docs/releases/v0.1.2.md)。Linux 原生程序、macOS、Android 和其他架构镜像继续作为实验性构建；MySQL/PostgreSQL 功能与测试保留，仍在正式支持范围外。11 个程序 ZIP、四架构镜像及对应源码继续完整交付。完整矩阵与验收状态见[当前支持范围](docs/support.md)。
 
 ## 🚀 快速开始
 
 下列下载链接和镜像标签对应 **v0.1.2** 正式版本。从 v0.1.0 升级时按[当前升级说明](docs/upgrade-r1.md)操作，Windows 旧布局首次迁移需要同时手动更新 exe 和 cmd。
 
-### WSL Containers 3.0.3.0 / Linux amd64
+### 🐳 Linux amd64 / Docker Engine
 
-使用已安装的 WSLc，在管理员 PowerShell 7 中为全新实例选择数据目录：
-
-```powershell
-$dataPath = 'C:\octopus-roam\data'
-New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
-& 'C:\Program Files\WSL\wslc.exe' run --detach --name octopus-roam --publish 127.0.0.1:8080:8080 --volume "${dataPath}:/app/data" --env PUID=65532 --env PGID=65532 ghcr.io/ink-lotus/octopus-roam:v0.1.2-amd64
-```
-
-数据保存在宿主机目录。首次登录后修改默认密码；版本更新和恢复按[WSLc 升级步骤](docs/upgrade-r1.md)执行。其他 WSLc 版本和外部数据库组合需另行验收。
-
-### 🐳 Docker Engine / Compose（参考部署）
-
-以下示例不在首发正式支持范围。正式版本为 **v0.1.2**，使用准确标签：
+以下部署步骤使用当前可下载的 **v0.1.2** 镜像，不代表新 Linux 组合已完成验收。在已安装 Docker Engine 的 Linux amd64 主机上，为全新实例选择 Linux 文件系统中的专用数据目录：
 
 ```bash
-docker run -d --name octopus-roam -v /path/to/data:/app/data -p 8080:8080 ghcr.io/ink-lotus/octopus-roam:v0.1.2
+mkdir ./octopus-roam-data
+docker run --detach --name octopus-roam \
+  --publish 127.0.0.1:8080:8080 \
+  --volume "$(pwd)/octopus-roam-data:/app/data" \
+  --env PUID="$(id -u)" --env PGID="$(id -g)" \
+  ghcr.io/ink-lotus/octopus-roam:v0.1.2-amd64
 ```
 
-`docker-compose.yml` 要求显式版本。在 PowerShell 7 中运行：
+数据保存在宿主目录。示例让应用使用当前 Linux 用户的 UID/GID，并仅在宿主回环地址 `http://127.0.0.1:8080` 提供访问；远程主机可通过 SSH 端口转发访问。首次登录后修改默认密码。已有部署按[升级与恢复步骤](docs/upgrade-r1.md)操作，保留原数据和权限设置。
 
-```powershell
-$env:OCTOPUS_ROAM_VERSION = 'v0.1.2'
+### Docker Compose
+
+先将仓库 `docker-compose.yml` 中的 `/path/to/data` 替换为 Linux 专用数据目录的绝对路径。仅本机访问时，将端口映射改为 `127.0.0.1:8080:8080`；需要指定应用 UID/GID 时，在服务的 `environment` 中配置 `PUID` 和 `PGID`，当前镜像未设置时两者默认均为 `0`。
+
+全新实例选择 Docker run 或 Compose 中的一种启动方式。Compose 文件要求显式的已发布标签，在其所在目录的 Linux shell 中运行：
+
+```bash
+export OCTOPUS_ROAM_VERSION='v0.1.2-amd64'
+docker compose config --quiet
 docker compose up -d
 ```
 
-正式版本更新 `latest`，RC 不更新该标签。使用已公开的准确标签；替换已有容器时按[升级与备份说明](docs/upgrade-r1.md)操作。
+正式版本更新 `latest`，RC 不更新该标签。部署使用已发布的准确标签或已核对的 digest；替换已有容器时按[升级与备份说明](docs/upgrade-r1.md)操作。WSL2 / WSL Containers 仍可作为预期兼容环境使用，宿主挂载、权限和网络差异不再单独作为发布必验项。
 
 
 ### 📦 从 Release 下载
@@ -174,7 +174,7 @@ http://localhost:5173
 
 **数据库配置：**
 
-程序提供三种数据库驱动；首发正式支持的部署组合使用 SQLite，MySQL/PostgreSQL 为范围外配置：
+程序提供三种数据库驱动；正式支持目标使用 SQLite，MySQL/PostgreSQL 仍为范围外配置：
 
 | 类型 | `database.type` | `database.path` 格式 |
 |------|-----------------|---------------------|
