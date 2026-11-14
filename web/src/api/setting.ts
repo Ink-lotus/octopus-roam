@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, apiRequest } from './client';
-import { groupRouteDefaultsQueryOptions } from './queries';
 
 /**
  * Setting 数据
@@ -134,15 +133,14 @@ export function useImportDB() {
             method: 'POST', body: form, credentials: 'include', signal, cache: 'no-store',
         });
         const data = await res.json().catch(() => null) as { message?: string; data?: DBImportResult } | null;
-        if (!res.ok) throw new ApiError(res.status, data?.message || `Request failed: ${res.status}`);
+        if (!res.ok) {
+            // A 503 here means the transaction committed but publication failed.
+            // Reload views so damaged/unavailable members do not look healthy.
+            if (res.status === 503) await queryClient.invalidateQueries();
+            throw new ApiError(res.status, data?.message || `Request failed: ${res.status}`);
+        }
         if (!data?.data?.rows_affected) throw new ApiError(500, 'Invalid backup import response');
-        await Promise.all([
-            queryClient.invalidateQueries({ queryKey: groupRouteDefaultsQueryOptions.queryKey }),
-            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] }),
-            queryClient.invalidateQueries({ queryKey: ['groups', 'detail'] }),
-            queryClient.invalidateQueries({ queryKey: ['settings', 'list'] }),
-            queryClient.invalidateQueries({ queryKey: ['channels'] }),
-        ]);
+        await queryClient.invalidateQueries();
         return data.data;
     };
 }

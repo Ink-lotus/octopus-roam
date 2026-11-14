@@ -293,6 +293,9 @@ func routeConfigChanged(oldGroup, newGroup model.Group) bool {
 
 func groupWriteError(c *gin.Context, err error) {
 	status := http.StatusInternalServerError
+	if errors.Is(err, op.ErrBackupCommitted) {
+		status = http.StatusServiceUnavailable
+	}
 	if errors.Is(err, model.ErrInvalidGroupConfig) || errors.Is(err, model.ErrInvalidGroupCategory) {
 		status = http.StatusBadRequest
 	}
@@ -308,7 +311,7 @@ func deleteGroup(c *gin.Context) {
 	groupMutationMu.Lock()
 	defer groupMutationMu.Unlock()
 	if err := op.GroupDel(id, c.Request.Context()); err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		groupWriteError(c, err)
 		return
 	}
 	relay.ResetRouteState(id)

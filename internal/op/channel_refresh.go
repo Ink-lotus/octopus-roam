@@ -419,6 +419,9 @@ func refreshChannelModelsOnce(ctx context.Context, channelID int, options model.
 	oldNames := make(map[string]struct{})
 	var cooldownConfig *channelCooldownConfig
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := validateChannelRelations(tx, channelID); err != nil {
+			return err
+		}
 		if options.Automatic && !ChannelAutoUpdateEligible(channelID) {
 			return ErrChannelRefreshStale
 		}

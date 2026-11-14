@@ -58,7 +58,7 @@ export function ChannelForm({ channelId, onBack }: {
 
 function ChannelEditForm({ channelId, onBack }: { channelId: number; onBack?: () => void }) {
     const t = useTranslations('channel.form');
-    const { data: detail, isFetchedAfterMount, isError } = useChannelDetail(channelId);
+    const { data: detail, isFetchedAfterMount, isError, error } = useChannelDetail(channelId);
     const [initialDetail, setInitialDetail] = useState<ChannelDetail>();
     // 新编辑必须等本次读取成功；之后的后台刷新不重置用户草稿。
     if (!initialDetail && detail && isFetchedAfterMount && !isError) {
@@ -68,7 +68,7 @@ function ChannelEditForm({ channelId, onBack }: { channelId: number; onBack?: ()
         return (
             <div className="flex items-center justify-center h-[min(29rem,calc(100vh-10rem))]">
                 <p role={isError ? 'alert' : 'status'} className="text-sm text-muted-foreground">
-                    {isError ? t('detailFailed') : t('detailLoading')}
+                    {isError ? (error?.message || t('detailFailed')) : t('detailLoading')}
                 </p>
             </div>
         );

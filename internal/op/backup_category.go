@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/Ink-lotus/octopus-roam/internal/db/sequence"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"gorm.io/gorm"
 )
@@ -76,10 +77,10 @@ func importGroupCategories(tx *gorm.DB, input []model.BackupGroupCategory) (map[
 		inserted++
 		mapping[category.ID], byKey[key], used[category.ID] = row.ID, row.ID, true
 	}
-	// PostgreSQL 的显式 ID 插入不会推进 serial 序列。为冲突分配或后续 CRUD
-	// 保留可用序号；nextval 保证不因已有删除记录而把序列倒退。
-	if inserted > 0 && tx.Dialector.Name() == "postgres" {
-		if err := tx.Exec("SELECT setval(pg_get_serial_sequence('group_categories', 'id'), GREATEST((SELECT MAX(id) FROM group_categories), nextval(pg_get_serial_sequence('group_categories', 'id'))), true)").Error; err != nil {
+	// Reserve explicit IDs before allocating collisions, including cached ranges
+	// held by other connections. The same helper repairs the remaining entities.
+	if inserted > 0 || len(pending) > 0 {
+		if err := sequence.Sync(tx, &model.GroupCategory{}); err != nil {
 			return nil, 0, err
 		}
 	}

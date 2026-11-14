@@ -2,6 +2,7 @@ package op
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -58,13 +59,14 @@ func TestCustomHeaderModelOnlyBackupVersionsAndRoundTrip(t *testing.T) {
 					t.Fatalf("older backup lost its existing categories or rules: %v", err)
 				}
 			}
-			// 增量恢复遇到已有渠道时，不能覆盖用户后来保存的总开关。
+			// Header scope changes are incompatible identities under the B03
+			// contract: reject the entire replay and preserve the later switch.
 			stored.CustomHeaderModelOnly = !channel.CustomHeaderModelOnly
 			if _, err := ChannelUpdateWithOptions(&stored, model.ChannelSaveOptions{CustomHeaderModelOnlyPresent: true}, t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := DBImportIncremental(t.Context(), restored); err != nil {
-				t.Fatal(err)
+			if _, err := DBImportIncremental(t.Context(), restored); !errors.Is(err, ErrBackupConflict) {
+				t.Fatalf("changed header scope did not reject replay: %v", err)
 			}
 			if err := InitCache(); err != nil {
 				t.Fatal(err)

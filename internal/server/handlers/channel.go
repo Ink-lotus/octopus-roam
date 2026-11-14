@@ -102,7 +102,14 @@ func getChannelDetail(c *gin.Context) {
 	}
 	detail, err := op.ChannelDetailGet(id)
 	if err != nil {
-		resp.Error(c, http.StatusNotFound, err.Error())
+		status := http.StatusNotFound
+		if errors.Is(err, op.ErrChannelIntegrity) {
+			status = http.StatusConflict
+		}
+		if errors.Is(err, op.ErrBackupCommitted) {
+			status = http.StatusServiceUnavailable
+		}
+		resp.Error(c, status, err.Error())
 		return
 	}
 	resp.Success(c, detail)
@@ -197,6 +204,12 @@ func updateChannel(c *gin.Context) {
 	channel, err := op.ChannelUpdateWithOptions(&req.ChannelDetail, req.ChannelSaveOptions, c.Request.Context())
 	if err != nil {
 		status := http.StatusInternalServerError
+		if errors.Is(err, op.ErrChannelIntegrity) {
+			status = http.StatusConflict
+		}
+		if errors.Is(err, op.ErrBackupCommitted) {
+			status = http.StatusServiceUnavailable
+		}
 		if errors.Is(err, model.ErrInvalidCooldownRule) || strings.Contains(strings.ToLower(err.Error()), "cooldown") {
 			status = http.StatusBadRequest
 		}
@@ -428,7 +441,14 @@ func refreshChannelModels(c *gin.Context) {
 	}
 	detail, err := op.ChannelDetailGet(id)
 	if err != nil && !options.EnabledOnly {
-		resp.Error(c, http.StatusNotFound, err.Error())
+		status := http.StatusNotFound
+		if errors.Is(err, op.ErrChannelIntegrity) {
+			status = http.StatusConflict
+		}
+		if errors.Is(err, op.ErrBackupCommitted) {
+			status = http.StatusServiceUnavailable
+		}
+		resp.Error(c, status, err.Error())
 		return
 	}
 	if err == nil {
@@ -444,8 +464,10 @@ func refreshChannelModels(c *gin.Context) {
 		status := http.StatusInternalServerError
 		if errors.Is(err, op.ErrInvalidChannelModelFilter) || errors.Is(err, op.ErrInvalidChannelAllowedProtocols) {
 			status = http.StatusBadRequest
-		} else if errors.Is(err, op.ErrChannelRefreshStale) {
+		} else if errors.Is(err, op.ErrChannelRefreshStale) || errors.Is(err, op.ErrChannelIntegrity) {
 			status = http.StatusConflict
+		} else if errors.Is(err, op.ErrBackupCommitted) {
+			status = http.StatusServiceUnavailable
 		}
 		resp.Error(c, status, err.Error())
 		return

@@ -11,13 +11,13 @@ type StatsMetrics struct {
 }
 
 type StatsTotal struct {
-	ID int `gorm:"primaryKey"`
+	ID int `gorm:"primaryKey;autoIncrement:false"` // 总统计固定使用 ID 1。
 	StatsMetrics
 }
 
 type StatsHourly struct {
-	Hour int    `json:"hour" gorm:"primaryKey"`
-	Date string `json:"date" gorm:"not null"` // 记录最后更新日期，格式：20060102
+	Hour int    `json:"hour" gorm:"primaryKey;autoIncrement:false"` // 0 是合法午夜槽位。
+	Date string `json:"date" gorm:"not null"`                       // 记录最后更新日期，格式：20060102
 	StatsMetrics
 }
 
@@ -27,7 +27,7 @@ type StatsDaily struct {
 }
 
 type StatsAPIKey struct {
-	APIKeyID int `json:"api_key_id" gorm:"primaryKey"`
+	APIKeyID int `json:"api_key_id" gorm:"primaryKey;autoIncrement:false"`
 	StatsMetrics
 }
 

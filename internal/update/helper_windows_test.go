@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -160,6 +161,12 @@ func TestNativeHelperReplacementAndRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
+				if t.Failed() {
+					if diagnostic, err := os.ReadFile(filepath.Join(f.stage, ".update-helper.log")); err == nil {
+						redact := strings.NewReplacer(plan.Runtime, "<runtime>", plan.Stage, "<stage>", f.root, "<runtime>", f.stage, "<stage>")
+						t.Logf("native helper failure: %s", redact.Replace(string(diagnostic)))
+					}
+				}
 				if command.ProcessState == nil {
 					_ = command.Process.Kill()
 				}

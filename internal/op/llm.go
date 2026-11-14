@@ -15,6 +15,8 @@ var llmModelCache = cache.New[string, model.LLMPrice](16) // 数据库中的模�
 
 // LLMList 返回缓存中的全部模型价格。
 func LLMList() []model.LLMInfo {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	models := make([]model.LLMInfo, 0, llmModelCache.Len())
 	for m, cost := range llmModelCache.GetAll() {
 		models = append(models, model.LLMInfo{
@@ -27,6 +29,11 @@ func LLMList() []model.LLMInfo {
 
 // LLMUpdate 更新已经存在的模型价格并同步缓存。
 func LLMUpdate(model model.LLMInfo, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	_, ok := llmModelCache.Get(model.Name)
 	if !ok {
 		return fmt.Errorf("model not found")
@@ -40,6 +47,11 @@ func LLMUpdate(model model.LLMInfo, ctx context.Context) error {
 
 // LLMDelete 删除未被任何渠道引用的模型价格。
 func LLMDelete(modelName string, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	_, ok := llmModelCache.Get(modelName)
 	if !ok {
 		return fmt.Errorf("model not found")
@@ -58,6 +70,11 @@ func LLMDelete(modelName string, ctx context.Context) error {
 
 // LLMCleanupGhosts 删除已经不被任何渠道引用的模型价格。
 func LLMCleanupGhosts(ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	channelModels := channelModelCache.GetAll()
 	referencedModelNames := make(map[string]struct{}, len(channelModels))
 	// 价格表使用小写模型名作为键，渠道模型名转换为相同键后再判断引用关系。
@@ -83,6 +100,11 @@ func LLMCleanupGhosts(ctx context.Context) error {
 
 // LLMCreate 写入已在外部入口规范化的模型价格。
 func LLMCreate(model model.LLMInfo, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	_, ok := llmModelCache.Get(model.Name)
 	if ok {
 		return fmt.Errorf("model already exists")
@@ -96,6 +118,11 @@ func LLMCreate(model model.LLMInfo, ctx context.Context) error {
 
 // LLMBatchCreate 批量写入已规范化且去重的模型价格，并跳过已有模型。
 func LLMBatchCreate(llmInfos []model.LLMInfo, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	if len(llmInfos) == 0 {
 		return nil
 	}
@@ -128,6 +155,11 @@ func LLMBatchCreate(llmInfos []model.LLMInfo, ctx context.Context) error {
 
 // LLMBatchSave 批量更新或新增模型价格，并在写入成功后同步价格缓存。
 func LLMBatchSave(llmInfos []model.LLMInfo, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	if len(llmInfos) == 0 {
 		return nil
 	}
@@ -142,6 +174,8 @@ func LLMBatchSave(llmInfos []model.LLMInfo, ctx context.Context) error {
 
 // LLMGet 按价格表统一使用的小写模型名读取数据库价格缓存。
 func LLMGet(name string) (model.LLMPrice, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	price, ok := llmModelCache.Get(strings.ToLower(name))
 	if !ok {
 		return model.LLMPrice{}, fmt.Errorf("model not found")

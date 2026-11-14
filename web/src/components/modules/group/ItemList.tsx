@@ -72,6 +72,7 @@ function MemberItem({
     const isDisabled = group && member.item_id !== undefined
         ? !group.items.find((item) => item.id === member.item_id)?.available
         : member.enabled === false;
+	const unavailableReason = group?.items.find((item) => item.id === member.item_id)?.unavailable_reason;
     const t = useTranslations('group');
     const selectable = memberActions !== undefined && member.item_id !== undefined;
     const Trigger = selectable ? 'button' : 'div';
@@ -153,6 +154,7 @@ function MemberItem({
                                     <span className="text-[10px] text-muted-foreground truncate leading-tight">
                                         {member.key_name ? `${member.channel_name} · ${member.key_name}` : member.channel_name}
                                     </span>
+									{unavailableReason && <span className="text-xs text-destructive break-words">{unavailableReason}</span>}
                                 </span>
                             </span>
                             <span className="col-start-3 flex items-center justify-self-end gap-1">

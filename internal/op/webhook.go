@@ -28,6 +28,11 @@ func WebhookEndpointGet(ctx context.Context, id int) (model.WebhookEndpoint, err
 }
 
 func WebhookEndpointCreate(ctx context.Context, endpoint *model.WebhookEndpoint) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	if err := db.GetDB().WithContext(ctx).Create(endpoint).Error; err != nil {
 		return fmt.Errorf("failed to create webhook endpoint: %w", err)
 	}
@@ -35,6 +40,11 @@ func WebhookEndpointCreate(ctx context.Context, endpoint *model.WebhookEndpoint)
 }
 
 func WebhookEndpointUpdate(ctx context.Context, id int, endpoint *model.WebhookEndpoint) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	result := db.GetDB().WithContext(ctx).Model(&model.WebhookEndpoint{}).Where("id = ?", id).
 		Select("Name", "Enabled", "URL", "Method", "ContentType", "Headers", "BodyTemplate", "TimeoutSeconds").
 		Updates(endpoint)
@@ -48,6 +58,11 @@ func WebhookEndpointUpdate(ctx context.Context, id int, endpoint *model.WebhookE
 }
 
 func WebhookEndpointDelete(ctx context.Context, id int) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	result := db.GetDB().WithContext(ctx).Delete(&model.WebhookEndpoint{}, id)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete webhook endpoint: %w", result.Error)

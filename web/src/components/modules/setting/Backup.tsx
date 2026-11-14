@@ -19,6 +19,7 @@ export function SettingBackup() {
     const [importPassword, setImportPassword] = useState('');
     const [busy, setBusy] = useState<'export' | 'import' | null>(null);
     const [result, setResult] = useState<DBImportResult | null>(null);
+    const [importError, setImportError] = useState<string | null>(null);
     useEffect(() => () => requestRef.current?.abort(), []);
 
     const rowsAffected = result?.rows_affected ?? null;
@@ -32,6 +33,7 @@ export function SettingBackup() {
     const onPickFile = (f: File | null) => {
         setFile(f);
         setResult(null);
+        setImportError(null);
         setImportPassword('');
     };
 
@@ -46,13 +48,18 @@ export function SettingBackup() {
         requestRef.current = controller;
         setBusy('import');
         setResult(null);
+        setImportError(null);
         try {
             setResult(await importDB(file, importPassword, controller.signal));
             toast.success(t('backup.import.success'));
             if (fileInputRef.current) fileInputRef.current.value = '';
             setFile(null);
         } catch (e) {
-            if (!controller.signal.aborted) toast.error(e instanceof Error ? e.message : t('backup.import.failed'));
+            if (!controller.signal.aborted) {
+                const message = e instanceof Error ? e.message : t('backup.import.failed');
+                setImportError(message);
+                toast.error(message);
+            }
         } finally {
             setImportPassword('');
             setBusy(null);
@@ -123,6 +130,8 @@ export function SettingBackup() {
             {/* 导入 */}
             <div className="space-y-3">
                 <div className="text-sm font-semibold text-card-foreground">{t('backup.import.title')}</div>
+                <p className="text-sm text-muted-foreground">{t('backup.import.conflictHelp')}</p>
+                {importError && <p role="alert" className="text-sm text-destructive break-words">{importError}</p>}
 
                 <Input
                     ref={fileInputRef}

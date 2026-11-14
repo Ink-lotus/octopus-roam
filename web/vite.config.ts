@@ -1,8 +1,19 @@
 import path from 'node:path';
+import { promisify } from 'node:util';
+import { gzip, type InputType, type ZlibOptions } from 'node:zlib';
 import babel from '@rolldown/plugin-babel';
 import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { compression, defineAlgorithm } from 'vite-plugin-compression2';
+
+const gzipAsync = promisify(gzip);
+
+async function portableGzip(buffer: InputType, options: ZlibOptions): Promise<Buffer> {
+  const compressed = await gzipAsync(buffer, options);
+  // RFC 1952: 255 means unknown OS. The assets contain no OS-specific data.
+  compressed[9] = 255;
+  return compressed;
+}
 
 export default defineConfig({
   base: './',
@@ -10,7 +21,7 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] }),
     compression({
-      algorithms: [defineAlgorithm('gzip', { level: 9 })],
+      algorithms: [defineAlgorithm(portableGzip, { level: 9 })],
       include: /\.(html|css|js|mjs|json|svg|txt|xml)$/,
       deleteOriginalAssets: true,
     }),

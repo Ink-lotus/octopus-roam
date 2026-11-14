@@ -6,12 +6,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/Ink-lotus/octopus-roam/internal/db"
+	"github.com/Ink-lotus/octopus-roam/internal/db/integrity"
+	"github.com/Ink-lotus/octopus-roam/internal/db/sequence"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 )
 
 const (
@@ -44,7 +49,7 @@ func validateDumpOrigin(dump *model.DBDump) error {
 		}
 		return fmt.Errorf("unsupported backup: version %d has no product marker (accepted upstream versions: 0, 5)", dump.Version)
 	default:
-		return fmt.Errorf("unsupported backup: product %q is not octopus-roam", dump.Product)
+		return fmt.Errorf("unsupported backup: product is not octopus-roam")
 	}
 }
 
@@ -134,181 +139,180 @@ func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 }
 
 func DBImportIncremental(ctx context.Context, dump *model.DBDump) (*model.DBImportResult, error) {
-	if err := validateDumpOrigin(dump); err != nil {
-		return nil, err
+	return DBImportIncrementalAndPublish(ctx, dump, nil)
+}
+
+// publish runs after commit and complete cache publication, while channel/group
+// writes are still excluded. It may read op snapshots and publish Relay/SSE, but
+// must not enter op writes or acquire handler groupMutationMu.
+func DBImportIncrementalAndPublish(ctx context.Context, source *model.DBDump, publish func()) (*model.DBImportResult, error) {
+	if err := validateDumpOrigin(source); err != nil {
+		return nil, &backupError{kind: ErrBackupInput, table: "backup", reason: err.Error()}
+	}
+	dump := cloneBackupInput(source)
+	if err := validateStatsPrimaryKeys(dump.StatsTotal, dump.StatsHourly, dump.StatsAPIKey); err != nil {
+		return nil, &backupError{kind: ErrBackupInput, table: "statistics", reason: err.Error()}
 	}
 	if err := validateBackupFeatureFields(dump); err != nil {
-		return nil, err
+		return nil, &backupError{kind: ErrBackupInput, table: "backup", reason: safeBackupFeatureError(err), cause: err}
 	}
 	dump.Settings = withoutRetiredSettings(dump.Settings)
 	if err := validateBackupSettings(dump.Settings); err != nil {
+		return nil, backupProblem(ErrBackupInput, "settings", 0, "duplicate setting key")
+	}
+	for i := range dump.Settings {
+		setting := &dump.Settings[i]
+		if setting.Key == "" || setting.Validate() != nil {
+			return nil, backupProblem(ErrBackupInput, "settings", 0, "invalid setting value")
+		}
+		if setting.Key == model.SettingKeyGroupRouteDefaults {
+			config, err := parseGroupRouteDefaults(setting.Value)
+			if err != nil {
+				return nil, backupProblem(ErrBackupInput, "settings", 0, "invalid group route defaults")
+			}
+			raw, _ := json.Marshal(config)
+			setting.Value = string(raw)
+		}
+	}
+	if err := normalizeBackupRows(dump); err != nil {
 		return nil, err
 	}
-	for i := range dump.Groups {
-		if dump.Groups[i].Mode == "" {
-			dump.Groups[i].Mode = model.GroupModeManual
-		}
-		if err := model.ValidateGroupMode(dump.Groups[i].Mode); err != nil {
-			return nil, err
-		}
-		dump.Groups[i].ModelMatchMode = model.NormalizeGroupModelMatchMode(dump.Groups[i].ModelMatchMode)
-		if err := model.ValidateGroupModelMatchMode(dump.Groups[i].ModelMatchMode); err != nil {
-			return nil, err
-		}
-		model.NormalizeGroupRelayConfigForMode(&dump.Groups[i].RelayConfig, dump.Groups[i].Mode)
+	if err := validateBackupGraph(dump); err != nil {
+		return nil, err
 	}
-	var importedDefaults *string
-	for i := range dump.Settings {
-		if isChannelAutomationSetting(dump.Settings[i].Key) {
-			if err := dump.Settings[i].Validate(); err != nil {
-				return nil, err
-			}
-		}
-		if dump.Settings[i].Key != model.SettingKeyGroupRouteDefaults {
-			continue
-		}
-		if importedDefaults != nil {
-			return nil, fmt.Errorf("duplicate group route defaults in backup")
-		}
-		config, err := parseGroupRouteDefaults(dump.Settings[i].Value)
-		if err != nil {
-			return nil, err
-		}
-		raw, err := json.Marshal(config)
-		if err != nil {
-			return nil, err
-		}
-		dump.Settings[i].Value = string(raw)
-		importedDefaults = &dump.Settings[i].Value
+	conn := db.GetDB().WithContext(ctx).Session(&gorm.Session{Logger: logger.Discard})
+	if err := validateBackupKeys(conn, dump); err != nil {
+		return nil, err
 	}
 
-	// 导入也是写入边界, 渠道配置须与接口提交走同一套规范化: 手改过的备份文件同样可能带空白,
-	// 空串或缺省字段, 不在此收敛则读侧要为每个字段各自兜底。
-	for i := range dump.Channels {
-		config, err := normalizeChannelConfig(dump.Channels[i].ChannelConfig)
-		if err != nil {
-			return nil, fmt.Errorf("import channel %d: %w", dump.Channels[i].ID, err)
-		}
-		dump.Channels[i].ChannelConfig = config
-	}
-
+	var cooldownNotify func()
+	defer runCooldownNotification(&cooldownNotify)
+	channelRefreshCommitMu.Lock()
+	defer channelRefreshCommitMu.Unlock()
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
-	conn := db.GetDB().WithContext(ctx)
-	res := &model.DBImportResult{RowsAffected: map[string]int64{}}
-	channels := make([]backupChannelRow, len(dump.Channels))
-	for i, row := range dump.Channels {
-		channels[i] = backupChannelRow{Channel: row, Enabled: row.Enabled}
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	backupStatsMu.Lock()
+	defer backupStatsMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
 	}
-	keys := make([]backupChannelKeyRow, len(dump.ChannelKeys))
-	for i, row := range dump.ChannelKeys {
-		keys[i] = backupChannelKeyRow{ChannelKey: row, Enabled: row.Enabled}
+
+	result := &model.DBImportResult{RowsAffected: map[string]int64{}}
+	options := &sql.TxOptions{Isolation: sql.LevelReadCommitted}
+	if conn.Dialector.Name() == "mysql" {
+		options.Isolation = sql.LevelRepeatableRead
 	}
-	apiKeys := make([]backupAPIKeyRow, len(dump.APIKeys))
-	for i, row := range dump.APIKeys {
-		apiKeys[i] = backupAPIKeyRow{APIKey: row, Enabled: row.Enabled}
-	}
+	var final *model.DBDump
 	err := conn.Transaction(func(tx *gorm.DB) error {
-		// base tables
-		categoryMapping, categoryCount, err := importGroupCategories(tx, dump.GroupCategories)
-		if err != nil {
-			return fmt.Errorf("import group_categories: %w", err)
+		if err := lockBackupTables(tx); err != nil {
+			return err
 		}
-		res.RowsAffected["group_categories"] = categoryCount
-		groups, err := mapBackupGroupCategories(dump.Groups, categoryMapping)
+		if err := validateBackupGraph(dump); err != nil {
+			return err
+		}
+		// Local validation and the final graph check use the same locked transaction.
+		local, err := exportBackupSnapshot(tx)
+		if err != nil {
+			return backupDatabaseError("local_snapshot", 0, err)
+		}
+		if issues := integrity.Inspect(local); len(issues) > 0 {
+			i := issues[0]
+			return backupProblem(ErrBackupConflict, i.Table, i.ID, i.Code+"; audit the existing database before importing")
+		}
+		if err := normalizeBackupRows(local); err != nil {
+			var problem *backupError
+			if errors.As(err, &problem) {
+				return backupProblem(ErrBackupConflict, problem.table, problem.id, "invalid persisted configuration: "+problem.reason)
+			}
+			return backupProblem(ErrBackupConflict, "local_snapshot", 0, "invalid persisted configuration; audit before importing")
+		}
+		mapping, categories, err := planBackupCategories(local.GroupCategories, dump.GroupCategories)
+		if err != nil {
+			return backupDatabaseError("group_categories", 0, err)
+		}
+		dump.Groups, err = mapBackupGroupCategories(dump.Groups, mapping)
+		if err != nil {
+			return backupProblem(ErrBackupInput, "groups", 0, "invalid category mapping")
+		}
+		plans, err := planBackupWrites(tx, dump, local)
 		if err != nil {
 			return err
 		}
-		if n, err := createDoNothing(tx, channels); err != nil {
-			return fmt.Errorf("import channels: %w", err)
-		} else {
-			res.RowsAffected["channels"] = n
+		if issues := integrity.Inspect(expectedBackupGraph(local, dump, categories)); len(issues) > 0 {
+			i := issues[0]
+			return backupProblem(ErrBackupConflict, i.Table, i.ID, i.Code)
 		}
-		// 渠道按主键冲突跳过, 统计需单独覆盖; 凭据与模型走整行覆盖, 统计随行一并导入。
-		for _, channel := range dump.Channels {
-			if err := tx.Model(&model.Channel{}).
-				Where("id = ?", channel.ID).
-				Select("input_token", "output_token", "input_cost", "output_cost", "wait_time", "request_success", "request_failed").
-				Updates(&channel).Error; err != nil {
-				return fmt.Errorf("import channel stats: %w", err)
+		if err := flushBackupStats(tx, dump); err != nil {
+			return backupDatabaseError("statistics", 0, err)
+		}
+		for _, category := range categories {
+			if err := tx.Omit(clause.Associations).Create(&category).Error; err != nil {
+				return backupDatabaseError("group_categories", category.ID, err)
 			}
 		}
-		if n, err := createDoNothing(tx, groups); err != nil {
-			return fmt.Errorf("import groups: %w", err)
-		} else {
-			res.RowsAffected["groups"] = n
+		result.RowsAffected["group_categories"] = int64(len(categories))
+		if err := writeBackupRows(tx, plans, result); err != nil {
+			return err
 		}
-		if n, err := createUpsertAll(tx, keys, []clause.Column{{Name: "id"}}); err != nil {
-			return fmt.Errorf("import channel_keys: %w", err)
-		} else {
-			res.RowsAffected["channel_keys"] = n
+		if err := sequence.Sync(tx); err != nil {
+			return backupDatabaseError("entity_sequences", 0, err)
 		}
-		if n, err := createUpsertAll(tx, dump.ChannelModels, []clause.Column{{Name: "id"}}); err != nil {
-			return fmt.Errorf("import channel_models: %w", err)
-		} else {
-			res.RowsAffected["channel_models"] = n
+		final, err = exportBackupSnapshot(tx)
+		if err != nil {
+			return backupDatabaseError("final_snapshot", 0, err)
 		}
-		if n, err := createUpsertAll(tx, dump.ChannelGrants, []clause.Column{{Name: "id"}}); err != nil {
-			return fmt.Errorf("import channel_grants: %w", err)
-		} else {
-			res.RowsAffected["channel_grants"] = n
+		if issues := integrity.Inspect(final); len(issues) > 0 {
+			i := issues[0]
+			return backupProblem(ErrBackupWrite, i.Table, i.ID, "final graph failed validation: "+i.Code)
 		}
-		if n, err := createDoNothing(tx, dump.GroupItems); err != nil {
-			return fmt.Errorf("import group_items: %w", err)
-		} else {
-			res.RowsAffected["group_items"] = n
+		if err := normalizeBackupRows(final); err != nil {
+			return backupProblem(ErrBackupWrite, "final_snapshot", 0, "final configuration failed validation")
 		}
-		if n, err := createUpsertAll(tx, dump.LLMInfos, []clause.Column{{Name: "name"}}); err != nil {
-			return fmt.Errorf("import llm_infos: %w", err)
-		} else {
-			res.RowsAffected["llm_infos"] = n
+		if err := verifyBackupWrites(plans, final, categories); err != nil {
+			return err
 		}
-		if n, err := createDoNothing(tx, apiKeys); err != nil {
-			return fmt.Errorf("import api_keys: %w", err)
-		} else {
-			res.RowsAffected["api_keys"] = n
-		}
-		if n, err := createUpsertSettings(tx, dump.Settings); err != nil {
-			return fmt.Errorf("import settings: %w", err)
-		} else {
-			res.RowsAffected["settings"] = n
-		}
-		if n, err := createUpsertAll(tx, dump.WebhookEndpoints, []clause.Column{{Name: "id"}}); err != nil {
-			return fmt.Errorf("import webhook_endpoints: %w", err)
-		} else {
-			res.RowsAffected["webhook_endpoints"] = n
-		}
-
-		if n, err := createUpsertAll(tx, dump.StatsTotal, []clause.Column{{Name: "id"}}); err != nil {
-			return fmt.Errorf("import stats_total: %w", err)
-		} else {
-			res.RowsAffected["stats_total"] = n
-		}
-		if n, err := createUpsertAll(tx, dump.StatsDaily, []clause.Column{{Name: "date"}}); err != nil {
-			return fmt.Errorf("import stats_daily: %w", err)
-		} else {
-			res.RowsAffected["stats_daily"] = n
-		}
-		if n, err := createUpsertAll(tx, dump.StatsHourly, []clause.Column{{Name: "hour"}}); err != nil {
-			return fmt.Errorf("import stats_hourly: %w", err)
-		} else {
-			res.RowsAffected["stats_hourly"] = n
-		}
-		if n, err := createUpsertAll(tx, dump.StatsAPIKey, []clause.Column{{Name: "api_key_id"}}); err != nil {
-			return fmt.Errorf("import stats_api_key: %w", err)
-		} else {
-			res.RowsAffected["stats_api_key"] = n
-		}
-
 		return nil
-	})
+	}, options)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBackupWrite, err)
+		if errors.Is(err, ErrBackupInput) || errors.Is(err, ErrBackupConflict) || errors.Is(err, ErrBackupWrite) {
+			return nil, err
+		}
+		return nil, backupDatabaseError("transaction", 0, err)
 	}
-	if importedDefaults != nil {
-		settingCache.Set(model.SettingKeyGroupRouteDefaults, *importedDefaults)
+	cooldownNotify, err = publishBackupCache(final)
+	if err != nil {
+		return nil, ErrBackupCommitted
 	}
-	return res, nil
+	finishBackupPublication(publish)
+	return result, nil
+}
+
+func cloneBackupInput(source *model.DBDump) *model.DBDump {
+	dump := *source
+	v := reflect.ValueOf(&dump).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		if field.CanSet() && field.Kind() == reflect.Slice {
+			copy := reflect.MakeSlice(field.Type(), field.Len(), field.Len())
+			reflect.Copy(copy, field)
+			field.Set(copy)
+		}
+	}
+	return &dump
+}
+
+// Feature validators historically include user supplied text in nested errors.
+// Preserve useful version/field diagnostics without exposing those values.
+func safeBackupFeatureError(err error) string {
+	message := err.Error()
+	for _, field := range []string{"platform categories", "group_categories", "cooldown_rules", "strip_responses_history", "custom_header_model_only"} {
+		if strings.Contains(message, field) {
+			return "invalid or unsupported " + field
+		}
+	}
+	return "invalid backup feature configuration"
 }
 
 func validateBackupFeatureFields(dump *model.DBDump) error {

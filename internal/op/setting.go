@@ -14,6 +14,8 @@ import (
 var settingCache = cache.New[model.SettingKey, string](16)
 
 func SettingList(ctx context.Context) ([]model.Setting, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	settings := make([]model.Setting, 0, settingCache.Len())
 	for key, value := range settingCache.GetAll() {
 		if model.IsRetiredSetting(key) {
@@ -28,6 +30,8 @@ func SettingList(ctx context.Context) ([]model.Setting, error) {
 }
 
 func SettingGetString(key model.SettingKey) (string, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	if model.IsRetiredSetting(key) {
 		return "", model.ErrSettingRetired
 	}
@@ -48,6 +52,11 @@ func SettingSetString(key model.SettingKey, value string) error {
 		value = strings.TrimSpace(value)
 		channelRefreshCommitMu.Lock()
 		defer channelRefreshCommitMu.Unlock()
+	}
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
 	}
 	if err := (&model.Setting{Key: key, Value: value}).Validate(); err != nil {
 		return err
@@ -104,6 +113,11 @@ func SettingSetInt(key model.SettingKey, value int) error {
 	}
 	if key == model.SettingKeyGroupRouteDefaults {
 		return fmt.Errorf("use /api/v1/group/route-defaults to update route defaults")
+	}
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
 	}
 	valueCache, ok := settingCache.Get(key)
 	if !ok {

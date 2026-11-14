@@ -119,7 +119,7 @@ async function makeRuntime(name, template, releaseBase = '') {
     return runtime;
 }
 async function status(runtime, suffix = '') { return JSON.parse(await operation('Status', runtime.directory, [], 'status-' + runtime.name + suffix)); }
-async function stop(runtime, suffix = '') { return operation('Stop', runtime.directory, [], 'stop-' + runtime.name + suffix); }
+async function stop(runtime, suffix = '') { return operation('Stop', runtime.directory, [], 'stop-' + runtime.name + suffix, runtime.env); }
 async function watchLogs(runtime, signal) {
     const response = await fetch(runtime.url + '/api/v1/log/overview/stream', { headers: { Cookie: runtime.cookie }, signal });
     assert.equal(response.status, 200);
@@ -314,7 +314,7 @@ func init() {
             assert.equal(actualHash, sha(await fs.readFile(expectedBinary)));
             assert((await fs.readdir(path.join(runtime.directory, 'backups'))).some(name => name.startsWith('before-update-')));
             for (const asset of ['octopus-roam-windows-amd64.zip', 'SHA256SUMS']) assert(sourceCalls.some(item => item.path === '/' + runtime.name + '/download/v0.1.2-rc.2/' + asset));
-            return { expected_version: expectedVersion, status: info.status, executable_sha256: actualHash, chinese_directory_and_config: true, real_process_replaced: true, setting_persisted: true };
+            return { expected_version: expectedVersion, update_status: info.status, executable_sha256: actualHash, chinese_directory_and_config: true, real_process_replaced: true, setting_persisted: true };
         });
     }
     await jsonFile('release-source-requests.json', sourceCalls);
@@ -333,6 +333,10 @@ func init() {
         catch (error) { cleanup.push({ name: runtime.name, normal_stop: false, error: error.message }); process.exitCode = 1; }
     }
     await jsonFile('process-cleanup.json', cleanup);
+    if (cleanup.some(item => !item.normal_stop)) {
+        const summary = JSON.parse(await fs.readFile(path.join(runRoot, 'summary.json'), 'utf8'));
+        await jsonFile('summary.json', { ...summary, status: 'failed', cleanup_failed: true });
+    }
     fixture.closeAllConnections();
     await new Promise(resolve => fixture.close(resolve));
     console.log('ARTIFACTS ' + runRoot);

@@ -70,6 +70,8 @@ func setGroupCacheLocked(group model.Group) model.Group {
 }
 
 func GroupCategoryList() GroupCategoryListSnapshot {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	groupCategories.RLock()
 	defer groupCategories.RUnlock()
 	return GroupCategoryListSnapshot{
@@ -134,6 +136,9 @@ func GroupCategoryCreate(name string, ctx context.Context) (*model.GroupCategory
 	}
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	category := model.GroupCategory{Name: display, NameKey: key}
 	var categories []model.GroupCategory
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -161,6 +166,9 @@ func GroupCategoryUpdate(id int, name string, ctx context.Context) (*model.Group
 	}
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	var category model.GroupCategory
 	var categories []model.GroupCategory
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -191,6 +199,9 @@ func GroupCategoryDelete(id int, ctx context.Context) (*GroupCategoryDeletion, e
 	}
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	result := &GroupCategoryDeletion{ID: id, UncategorizedGroupIDs: []int{}, Groups: []model.Group{}}
 	var categories []model.GroupCategory
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {

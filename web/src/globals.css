@@ -1,5 +1,9 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 @import "tw-animate-css";
+
+/* Build from application sources even inside an ignored staging directory. */
+@source "./";
+@source "../index.html";
 
 @custom-variant dark (&:is(.dark *, html.dark *));
 

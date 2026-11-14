@@ -263,6 +263,11 @@ func republishChannelCooldownConfigs(globalProxy string, deletedID int) (func(),
 // ChannelRelaySnapshot never combines values from separate mutable caches.
 // Grant/model discovery may publish a new snapshot with the SAME generation.
 func ChannelRelaySnapshot(grantID int) (ChannelRelayConfig, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
+	if backupUnavailable.Load() {
+		return ChannelRelayConfig{}, ErrBackupCommitted
+	}
 	channelCooldownSnapshots.RLock()
 	defer channelCooldownSnapshots.RUnlock()
 	id := channelCooldownSnapshots.grants[grantID]
@@ -275,6 +280,9 @@ func ChannelRelaySnapshot(grantID int) (ChannelRelayConfig, error) {
 	key, keyOK := config.keys[grant.ChannelKeyID]
 	if !exists || !modelOK || !keyOK || !key.Enabled {
 		return ChannelRelayConfig{}, fmt.Errorf("channel grant is unavailable")
+	}
+	if m.ChannelID != config.channel.ID || key.ChannelID != config.channel.ID {
+		return ChannelRelayConfig{}, fmt.Errorf("%w: channel_grants ID %d crosses channels", ErrChannelIntegrity, grantID)
 	}
 	grant.Protocols = model.EffectiveProtocols(config.channel.AllowedProtocols, grant.Protocols)
 	if grant.Protocols == 0 {

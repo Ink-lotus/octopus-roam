@@ -226,12 +226,13 @@ type GroupItem struct {
 	ChannelGrant   *ChannelGrant `json:"-" gorm:"foreignKey:ChannelGrantID;references:ID;constraint:OnDelete:CASCADE"` // 仅用于声明级联外键, 授权被删除时成员随之删除; 读取时不填充, 展示所需字段见下方。
 	Priority       int           `json:"priority" gorm:"not null"`                                                     // Priority 决定界面展示和故障转移模式下的成员切换顺序。
 
-	ChannelID   int      `json:"channel_id" gorm:"-"`   // 授权所属渠道 ID。
-	ChannelName string   `json:"channel_name" gorm:"-"` // 授权所属渠道名称。
-	ModelName   string   `json:"model_name" gorm:"-"`   // 授权引用的上游模型名称。
-	KeyName     string   `json:"key_name" gorm:"-"`     // 授权引用的凭据名称。
-	Protocols   Protocol `json:"protocols" gorm:"-"`    // 授权支持的协议位掩码。
-	Available   bool     `json:"available" gorm:"-"`    // 渠道与凭据均启用且模型, 凭据均存在时为真; 为假表示该成员当前无法转发, 但仍需列出以便移除。
+	ChannelID         int      `json:"channel_id" gorm:"-"`                   // 授权所属渠道 ID。
+	ChannelName       string   `json:"channel_name" gorm:"-"`                 // 授权所属渠道名称。
+	ModelName         string   `json:"model_name" gorm:"-"`                   // 授权引用的上游模型名称。
+	KeyName           string   `json:"key_name" gorm:"-"`                     // 授权引用的凭据名称。
+	Protocols         Protocol `json:"protocols" gorm:"-"`                    // 授权支持的协议位掩码。
+	Available         bool     `json:"available" gorm:"-"`                    // 渠道与凭据均启用且模型, 凭据均存在时为真; 为假表示该成员当前无法转发, 但仍需列出以便移除。
+	UnavailableReason string   `json:"unavailable_reason,omitempty" gorm:"-"` // 只包含实体 ID 和异常类型，不包含凭据。
 }
 
 // 创建分组请求; 成员顺序即优先级顺序。

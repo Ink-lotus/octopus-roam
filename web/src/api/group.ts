@@ -55,6 +55,7 @@ export interface GroupItem {
     key_name: string;
     protocols: number; // 该授权支持的 Protocol 位掩码。
     available: boolean; // 为假表示该成员当前无法转发，但仍会列出以便移除。
+	 unavailable_reason?: string; // 关系异常的脱敏原因，包含可供审计的实体 ID。
 }
 
 // GroupRuntime 是分组的实时路由状态。

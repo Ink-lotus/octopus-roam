@@ -22,7 +22,7 @@ const (
 )
 
 type MigrationRecord struct {
-	Version int `gorm:"primaryKey"`
+	Version int `gorm:"primaryKey;autoIncrement:false"`
 	Status  MigrationRecordStatus
 }
 
@@ -66,6 +66,9 @@ func runMigrationsWithRecord(db *gorm.DB, migrations []Migration) error {
 	seen := make(map[int]struct{}, len(migrations))
 	versions := make([]int, 0, len(migrations))
 	for _, m := range migrations {
+		if m.Version <= 0 {
+			return fmt.Errorf("invalid migration version: %d", m.Version)
+		}
 		if _, ok := seen[m.Version]; ok {
 			return fmt.Errorf("duplicated migration version: %d", m.Version)
 		}

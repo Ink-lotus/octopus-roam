@@ -297,6 +297,7 @@
                 "success": "Export started"
             },
             "import": {
+                "conflictHelp": "Incremental import accepts complete, compatible records. Conflicting IDs, unique keys or relationships reject the entire import and preserve existing data.",
                 "title": "Import",
                 "button": "Import",
                 "importing": "Importing...",

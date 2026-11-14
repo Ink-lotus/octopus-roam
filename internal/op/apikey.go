@@ -14,6 +14,11 @@ var apiKeyCache = cache.New[int, model.APIKey](16)
 var apiKeyIDMap = cache.New[string, int](16)
 
 func APIKeyCreate(key *model.APIKey, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	if err := db.GetDB().WithContext(ctx).Create(key).Error; err != nil {
 		return fmt.Errorf("failed to create API key: %w", err)
 	}
@@ -23,6 +28,11 @@ func APIKeyCreate(key *model.APIKey, ctx context.Context) error {
 }
 
 func APIKeyUpdate(key *model.APIKey, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	existing, ok := apiKeyCache.Get(key.ID)
 	if !ok {
 		return fmt.Errorf("API key not found")
@@ -44,6 +54,8 @@ func APIKeyUpdate(key *model.APIKey, ctx context.Context) error {
 // APIKeyList 返回全部 API Key, 按主键升序定序。
 // 设置页不提供排序开关, 而缓存遍历顺序随机, 故顺序须由此处定稿。
 func APIKeyList(ctx context.Context) ([]model.APIKey, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	keys := make([]model.APIKey, 0, apiKeyCache.Len())
 	for _, apiKey := range apiKeyCache.GetAll() {
 		keys = append(keys, apiKey)
@@ -53,6 +65,8 @@ func APIKeyList(ctx context.Context) ([]model.APIKey, error) {
 }
 
 func APIKeyGet(id int, ctx context.Context) (model.APIKey, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	apiKey, ok := apiKeyCache.Get(id)
 	if !ok {
 		return model.APIKey{}, fmt.Errorf("API key not found")
@@ -61,14 +75,25 @@ func APIKeyGet(id int, ctx context.Context) (model.APIKey, error) {
 }
 
 func APIKeyGetByAPIKey(apiKey string, ctx context.Context) (model.APIKey, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	id, ok := apiKeyIDMap.Get(apiKey)
 	if !ok {
 		return model.APIKey{}, fmt.Errorf("API key not found")
 	}
-	return APIKeyGet(id, ctx)
+	key, ok := apiKeyCache.Get(id)
+	if !ok {
+		return model.APIKey{}, fmt.Errorf("API key not found")
+	}
+	return key, nil
 }
 
 func APIKeyDelete(id int, ctx context.Context) error {
+	backupAuxMu.Lock()
+	defer backupAuxMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	k := model.APIKey{
 		ID: id,
 	}

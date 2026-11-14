@@ -102,7 +102,7 @@ func TestCooldownRulesBackupVersionAndRoundTrip(t *testing.T) {
 	}
 
 	legacy := &model.DBDump{Product: dumpProduct, Version: 1000, Channels: []model.Channel{{ID: id + 1, ChannelConfig: model.ChannelConfig{Name: "w04-old-channel", BaseURL: "https://fixture.example", CooldownRules: rules}}}}
-	if _, err := DBImportIncremental(t.Context(), legacy); err == nil || !strings.Contains(err.Error(), "cannot contain cooldown_rules") {
+	if _, err := DBImportIncremental(t.Context(), legacy); !errors.Is(err, ErrBackupInput) || !strings.Contains(err.Error(), "cooldown_rules") {
 		t.Fatalf("legacy version with rules was accepted: %v", err)
 	}
 	var count int64

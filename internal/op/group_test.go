@@ -80,6 +80,7 @@ func TestDBImportLegacyGroupDefaultsModelMatchMode(t *testing.T) {
 	dump := &model.DBDump{
 		Version: 5,
 		Groups: []model.Group{{
+			ID:          840051,
 			Name:        name,
 			Mode:        model.GroupModeManual,
 			RelayConfig: model.DefaultGroupRelayConfig(),
@@ -89,8 +90,8 @@ func TestDBImportLegacyGroupDefaultsModelMatchMode(t *testing.T) {
 		t.Fatalf("导入缺少匹配模式的旧备份失败: %v", err)
 	}
 	t.Cleanup(func() { db.GetDB().Where("name = ?", name).Delete(&model.Group{}) })
-	if dump.Groups[0].ModelMatchMode != model.GroupModelMatchModeKeyword {
-		t.Fatalf("旧备份归一化匹配模式 = %q, 期望 %q", dump.Groups[0].ModelMatchMode, model.GroupModelMatchModeKeyword)
+	if dump.Groups[0].ModelMatchMode != "" {
+		t.Fatal("导入应归一化自己的副本，不能修改调用者的旧备份")
 	}
 	var stored model.Group
 	if err := db.GetDB().Where("name = ?", name).First(&stored).Error; err != nil {

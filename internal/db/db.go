@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/url"
@@ -56,10 +57,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		return err
 	}
 
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
-	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
+	configurePool(sqlDB)
 
 	if err := migrate.BeforeAutoMigrate(db); err != nil {
 		return err
@@ -89,13 +87,33 @@ func InitDB(dbType, dsn string, debug bool) error {
 	if err := migrate.AfterAutoMigrate(db); err != nil {
 		return err
 	}
-	// Postgres: schema changes during migrations can invalidate cached prepared plans
-	// (e.g. "cached plan must not change result type"). Clear them.
+	// Migrations may invalidate prepared plans. SQL DEALLOCATE/DISCARD clears
+	// only server state, leaving pgx's client cache referencing missing statements
+	// (SQLSTATE 26000). A fresh pool clears both caches on every connection.
 	if db.Dialector != nil && db.Dialector.Name() == "postgres" {
-		db.Exec("DEALLOCATE ALL")
-		db.Exec("DISCARD ALL")
+		refreshed, err := initPostgres(dsn, &gormConfig)
+		if err != nil {
+			return err
+		}
+		refreshedPool, err := refreshed.DB()
+		if err != nil {
+			return err
+		}
+		if err := sqlDB.Close(); err != nil {
+			_ = refreshedPool.Close()
+			return err
+		}
+		configurePool(refreshedPool)
+		db = refreshed
 	}
 	return nil
+}
+
+func configurePool(pool *sql.DB) {
+	pool.SetMaxIdleConns(10)
+	pool.SetMaxOpenConns(100)
+	pool.SetConnMaxLifetime(time.Hour)
+	pool.SetConnMaxIdleTime(10 * time.Minute)
 }
 
 // initSQLite 使用指定文件路径初始化 SQLite，并为每个连接应用运行参数。

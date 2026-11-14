@@ -35,7 +35,8 @@ const chatCompletionBody = `{"id":"chatcmpl-test","object":"chat.completion","cr
 const chatCompletionStreamBody = "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"pong\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n"
 
 // TestMain 为全包测试建立一个 SQLite 库并刷新 op 缓存, 结束后清理。
-// 库与缓存在本进程内共用: 各测试按唯一名称建立自己的渠道与分组, 互不干扰。
+// 库与缓存在本进程内共用: 各测试按唯一名称建立自己的渠道与分组, 并在该测试结束时清理。
+// 避免后续用例反复扫描已结束用例的关系图与分组缓存, 尤其是 race 下的纯 Go SQLite。
 func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
 
@@ -237,6 +238,14 @@ func newTestChannel(t *testing.T, name, baseURL, upstreamModel string) int {
 	if err != nil {
 		t.Fatalf("建立测试渠道 %s 失败: %v", name, err)
 	}
+	t.Cleanup(func() {
+		// 部分用例本身验证删除操作; 已删除的夹具不重复删除。
+		if _, err := op.ChannelGet(created.ID); err == nil {
+			if err := op.ChannelDel(created.ID, context.Background()); err != nil {
+				t.Errorf("清理测试渠道 %d 失败: %v", created.ID, err)
+			}
+		}
+	})
 	for _, candidate := range op.ChannelGrantCandidates() {
 		if candidate.ChannelID == created.ID && candidate.ModelName == upstreamModel {
 			return candidate.ID
@@ -311,6 +320,14 @@ func newTestGroup(t *testing.T, mode model.GroupMode, config model.GroupRelayCon
 	if err != nil {
 		t.Fatalf("建立测试分组 %s 失败: %v", name, err)
 	}
+	t.Cleanup(func() {
+		if _, err := op.GroupGet(group.ID); err == nil {
+			if err := op.GroupDel(group.ID, context.Background()); err != nil {
+				t.Errorf("清理测试分组 %d 失败: %v", group.ID, err)
+			}
+		}
+		ResetRouteState(group.ID)
+	})
 
 	if mode == model.GroupModeManual {
 		if len(group.Items) == 0 {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Ink-lotus/octopus-roam/internal/desktop"
+	"golang.org/x/sys/windows"
 )
 
 type updateFile struct {
@@ -76,7 +77,21 @@ func replaceWindowsFile(source, destination, expectedDigest string) error {
 	if expectedDigest != "" && hex.EncodeToString(hash.Sum(nil)) != expectedDigest {
 		return ErrReleaseVerification
 	}
-	return os.Rename(output.Name(), destination)
+	// Process exit does not release handles owned by other readers. In
+	// particular, a transient executable lock must not abort rollback after
+	// the new program has failed. Keep the verified temporary file and retry
+	// only Windows errors that can result from file sharing; never remove the
+	// destination to work around a lock or permission failure.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := os.Rename(output.Name(), destination)
+		if err == nil || (!errors.Is(err, windows.ERROR_ACCESS_DENIED) &&
+			!errors.Is(err, windows.ERROR_SHARING_VIOLATION) &&
+			!errors.Is(err, windows.ERROR_LOCK_VIOLATION)) || !time.Now().Before(deadline) {
+			return err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // Mutations reject symlinks and junctions, including destination parents.

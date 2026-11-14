@@ -26,6 +26,11 @@ const definedProtocols = model.ProtocolAll
 
 // ChannelDetailGet 返回指定渠道的完整配置, 供编辑表单读取。
 func ChannelDetailGet(id int) (model.ChannelDetail, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
+	if err := cachedChannelIntegrity(id); err != nil {
+		return model.ChannelDetail{}, err
+	}
 	channel, ok := channelCache.Get(id)
 	if !ok {
 		return model.ChannelDetail{}, fmt.Errorf("channel not found")
@@ -37,6 +42,8 @@ func ChannelDetailGet(id int) (model.ChannelDetail, error) {
 // ChannelStatsList 返回全部渠道及其模型的累计统计, 自带名称与启停状态, 同时充当列表页的渠道列表。
 // 不带整份配置: 路径, 代理与凭据明文只在编辑时用得上, 由 ChannelDetailGet 按主键单独给出。
 func ChannelStatsList() []model.ChannelStats {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	modelsByChannel := make(map[int][]model.ChannelModelStats, channelCache.Len())
 	for _, channelModel := range channelModelCache.GetAll() {
 		modelsByChannel[channelModel.ChannelID] = append(modelsByChannel[channelModel.ChannelID], model.ChannelModelStats{
@@ -81,6 +88,9 @@ func ChannelCreateWithOptions(detail *model.ChannelDetail, options model.Channel
 	defer runCooldownNotification(&cooldownNotify)
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	if options.AutoAddGroups {
 		groupWriteMu.Lock()
 		defer groupWriteMu.Unlock()
@@ -135,6 +145,9 @@ func ChannelUpdate(detail *model.ChannelDetail, ctx context.Context) (*model.Cha
 
 // ChannelUpdateWithOptions 保存配置时按已有分组规则补齐匹配授权。
 func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.ChannelSaveOptions, ctx context.Context) (*model.ChannelDetail, error) {
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	if _, ok := channelCache.Get(detail.ID); !ok {
 		return nil, fmt.Errorf("channel not found")
 	}
@@ -144,6 +157,9 @@ func ChannelUpdateWithOptions(detail *model.ChannelDetail, options model.Channel
 	defer channelRefreshCommitMu.Unlock()
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	if !options.CooldownRulesPresent || !options.StripResponsesHistoryPresent || !options.CustomHeaderModelOnlyPresent {
 		current, ok := channelCache.Get(detail.ID)
 		if !ok {
@@ -302,6 +318,9 @@ func normalizeChannelDetail(detail *model.ChannelDetail) error {
 // syncChannelChildren 按提交的完整配置整体替换渠道下的凭据, 模型与授权。
 // 凭据与模型必须先落库: 授权引用两者的主键, 新增的两者在同一事务内才拿得到。
 func syncChannelChildren(tx *gorm.DB, channelID int, detail *model.ChannelDetail) error {
+	if err := validateChannelRelations(tx, channelID); err != nil {
+		return err
+	}
 	if err := syncChannelKeys(tx, channelID, detail.Keys); err != nil {
 		return err
 	}
@@ -317,6 +336,9 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	defer runCooldownNotification(&cooldownNotify)
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	if _, ok := channelCache.Get(id); !ok {
 		return fmt.Errorf("channel not found")
 	}
@@ -346,6 +368,9 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 
 // ChannelDel 删除渠道及其凭据, 模型与渠道授权, 关联分组项由数据库外键级联删除。
 func ChannelDel(id int, ctx context.Context) error {
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	if _, ok := channelCache.Get(id); !ok {
 		return fmt.Errorf("channel not found")
 	}
@@ -353,6 +378,9 @@ func ChannelDel(id int, ctx context.Context) error {
 	defer runCooldownNotification(&cooldownNotify)
 	channelRefreshCommitMu.Lock()
 	defer channelRefreshCommitMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	grantIDs := channelGrantIDs(id)
 	if err := db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if len(grantIDs) > 0 {
@@ -411,6 +439,11 @@ func ChannelDel(id int, ctx context.Context) error {
 // ChannelGet 返回指定渠道的缓存副本, 供转发按地址, 路径与代理构造上游请求。
 // 不补齐凭据, 模型与授权: 转发所需的授权由 ChannelGrantGet 按主键单独取, 那里已连带给出两侧。
 func ChannelGet(id int) (model.Channel, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
+	if backupUnavailable.Load() {
+		return model.Channel{}, ErrBackupCommitted
+	}
 	channel, ok := channelCache.Get(id)
 	if !ok {
 		return model.Channel{}, fmt.Errorf("channel not found")
@@ -423,6 +456,11 @@ func ChannelGet(id int) (model.Channel, error) {
 // 凭据被停用, 以及模型, 凭据缺失时一律返回错误, 使调用方拿到的授权必然可直接转发, 无需再逐项检查。
 // 授权本身没有停用状态: 不再授权就删掉该组合, 无需保留一行停用记录。
 func ChannelGrantGet(id int) (model.ChannelGrant, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
+	if backupUnavailable.Load() {
+		return model.ChannelGrant{}, ErrBackupCommitted
+	}
 	grant, ok := channelGrantCache.Get(id)
 	if !ok {
 		return model.ChannelGrant{}, fmt.Errorf("channel grant not found")
@@ -437,6 +475,9 @@ func ChannelGrantGet(id int) (model.ChannelGrant, error) {
 	}
 	if !channelKey.Enabled {
 		return model.ChannelGrant{}, fmt.Errorf("channel key %d is disabled", channelKey.ID)
+	}
+	if channelKey.ChannelID != channelModel.ChannelID {
+		return model.ChannelGrant{}, fmt.Errorf("%w: channel_grants ID %d crosses channels", ErrChannelIntegrity, id)
 	}
 	channel, ok := channelCache.Get(channelModel.ChannelID)
 	if !ok {
@@ -455,11 +496,13 @@ func ChannelGrantGet(id int) (model.ChannelGrant, error) {
 // 可用性与 GroupList 补齐成员时同一口径: 渠道与凭据均启用即可用, 由此候选与已选成员不会各判一套。
 // 两侧任一缺失的授权直接跳过: 它无法转发, 也无从展示名称。
 func ChannelGrantCandidates() []model.ChannelGrantCandidate {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	candidates := make([]model.ChannelGrantCandidate, 0, channelGrantCache.Len())
 	for _, grant := range channelGrantCache.GetAll() {
 		channelModel, modelOK := channelModelCache.Get(grant.ChannelModelID)
 		channelKey, keyOK := channelKeyCache.Get(grant.ChannelKeyID)
-		if !modelOK || !keyOK {
+		if !modelOK || !keyOK || channelModel.ChannelID != channelKey.ChannelID || backupUnavailable.Load() {
 			continue
 		}
 		channel, channelOK := channelCache.Get(channelModel.ChannelID)

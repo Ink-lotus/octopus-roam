@@ -25,6 +25,8 @@ var (
 // 定序是为 API Key 面板的模型选择器: 那里没有排序开关, 而缓存遍历顺序随机;
 // 分组页自带升降序开关, 会按开关重排, 不依赖此顺序。
 func GroupList() []model.Group {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	groups := make([]model.Group, 0, groupCache.Len())
 	for _, group := range groupCache.GetAll() {
 		groups = append(groups, groupSnapshot(group))
@@ -36,6 +38,8 @@ func GroupList() []model.Group {
 // GroupGet 返回指定分组的读取副本, 成员已补齐界面展示所需的名称与可用性。
 // 不含实时路由状态: 与 GroupList 同理, 由处理器在返回前补齐。
 func GroupGet(id int) (model.Group, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	group, ok := groupCache.Get(id)
 	if !ok {
 		return model.Group{}, fmt.Errorf("group not found")
@@ -47,6 +51,8 @@ func GroupGet(id int) (model.Group, error) {
 // 两个消费方都不提供排序开关: /v1/models 由第三方客户端直接展示, API Key 面板按返回顺序列出可用模型,
 // 而缓存遍历顺序随机, 故顺序须由此处定稿。
 func GroupListModel() []string {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	models := make([]string, 0, groupCache.Len())
 	for _, group := range groupCache.GetAll() {
 		models = append(models, group.Name)
@@ -72,6 +78,8 @@ func GroupGrantCandidates() []model.ChannelGrantCandidate {
 // GroupGetByName 返回客户端模型名称对应的完整分组配置, 供转发选路使用。
 // Relay 根据 Available 跳过暂不可用成员, 保留完整成员集合供路由版本检测与恢复通知使用。
 func GroupGetByName(name string) (model.Group, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	groupID, ok := groupNameIndex.Get(name)
 	if !ok {
 		return model.Group{}, fmt.Errorf("group not found")
@@ -89,6 +97,9 @@ func GroupGetByName(name string) (model.Group, error) {
 func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Group, error) {
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, fmt.Errorf("group name is required")
@@ -139,6 +150,9 @@ func GroupCreate(req *model.GroupCreateRequest, ctx context.Context) (*model.Gro
 func GroupUpdate(id int, req *model.GroupUpdateRequest, ctx context.Context) (*model.Group, error) {
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return nil, ErrBackupCommitted
+	}
 	oldGroup, ok := groupCache.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("group not found")
@@ -303,6 +317,9 @@ func syncGroupItems(tx *gorm.DB, groupID int, requested []model.GroupItemInput) 
 func GroupDel(id int, ctx context.Context) error {
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return ErrBackupCommitted
+	}
 	group, ok := groupCache.Get(id)
 	if !ok {
 		return fmt.Errorf("group not found")
@@ -373,21 +390,35 @@ func groupSnapshot(group model.Group) model.Group {
 	// 成员恒为数组: 读取侧承诺该字段不为 null, 空分组也要给出空数组。
 	group.Items = append(make([]model.GroupItem, 0, len(group.Items)), group.Items...)
 	for i := range group.Items {
+		group.Items[i].Available = false
+		group.Items[i].Protocols = 0
+		group.Items[i].UnavailableReason = ""
+		if backupUnavailable.Load() {
+			unavailableGroupItem(&group.Items[i], "backup cache publication failed; restart required")
+			continue
+		}
 		grant, ok := channelGrantCache.Get(group.Items[i].ChannelGrantID)
 		if !ok {
+			unavailableGroupItem(&group.Items[i], "missing grant")
 			continue
 		}
 		group.Items[i].Protocols = 0
 		channelModel, modelOK := channelModelCache.Get(grant.ChannelModelID)
 		channelKey, keyOK := channelKeyCache.Get(grant.ChannelKeyID)
 		if !modelOK || !keyOK {
+			unavailableGroupItem(&group.Items[i], "missing model or key")
 			continue
 		}
 		group.Items[i].ChannelID = channelModel.ChannelID
 		group.Items[i].ModelName = channelModel.Name
 		group.Items[i].KeyName = channelKey.Name
+		if channelModel.ChannelID != channelKey.ChannelID {
+			unavailableGroupItem(&group.Items[i], "cross-channel grant")
+			continue
+		}
 		channel, channelOK := channelCache.Get(channelModel.ChannelID)
 		if !channelOK {
+			unavailableGroupItem(&group.Items[i], "missing channel")
 			continue
 		}
 		group.Items[i].ChannelName = channel.Name

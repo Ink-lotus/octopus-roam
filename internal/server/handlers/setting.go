@@ -17,7 +17,6 @@ import (
 	"github.com/Ink-lotus/octopus-roam/internal/server/resp"
 	"github.com/Ink-lotus/octopus-roam/internal/server/router"
 	"github.com/Ink-lotus/octopus-roam/internal/task"
-	"github.com/Ink-lotus/octopus-roam/internal/webhook"
 	"github.com/gin-gonic/gin"
 )
 
@@ -135,7 +134,15 @@ func backupReadError(c *gin.Context, err error) {
 		resp.Error(c, http.StatusRequestEntityTooLarge, op.ErrBackupTooLarge.Error())
 		return
 	}
-	resp.Error(c, http.StatusBadRequest, err.Error())
+	// JSON/time/driver errors may echo user-provided values. Only fixed backup
+	// errors are safe to return; malformed bodies never need their contents shown.
+	for _, known := range []error{op.ErrBackupPassword, op.ErrBackupInvalid, op.ErrBackupDecrypt} {
+		if errors.Is(err, known) {
+			resp.Error(c, http.StatusBadRequest, known.Error())
+			return
+		}
+	}
+	resp.Error(c, http.StatusBadRequest, "invalid backup or request structure")
 }
 
 func exportDB(c *gin.Context) {
@@ -235,47 +242,29 @@ func importDB(c *gin.Context) {
 		return
 	}
 
-	seenLLMNames := make(map[string]struct{}, len(dump.LLMInfos))
-	for i := range dump.LLMInfos {
-		dump.LLMInfos[i].Name = strings.ToLower(strings.TrimSpace(dump.LLMInfos[i].Name))
-		if dump.LLMInfos[i].Name == "" {
-			resp.Error(c, http.StatusBadRequest, "model price name cannot be empty")
-			return
-		}
-		if _, ok := seenLLMNames[dump.LLMInfos[i].Name]; ok {
-			resp.Error(c, http.StatusBadRequest, "duplicate model price: "+dump.LLMInfos[i].Name)
-			return
-		}
-		seenLLMNames[dump.LLMInfos[i].Name] = struct{}{}
-	}
-	for i := range dump.WebhookEndpoints {
-		if err := webhook.NormalizeAndValidate(&dump.WebhookEndpoints[i]); err != nil {
-			resp.Error(c, http.StatusBadRequest, "invalid webhook endpoint in backup: "+err.Error())
-			return
-		}
-	}
-
 	groupMutationMu.Lock()
 	defer groupMutationMu.Unlock()
-	result, err := op.DBImportIncremental(c.Request.Context(), &dump)
-	if err != nil {
-		if errors.Is(err, op.ErrBackupWrite) {
-			resp.Error(c, http.StatusInternalServerError, op.ErrBackupWrite.Error())
-			return
+	result, err := op.DBImportIncrementalAndPublish(c.Request.Context(), &dump, func() {
+		groups := op.GroupList()
+		relay.ResetAllRouteStates()
+		relay.SetAllRouteConfigs(groups)
+		publishGroupCategories()
+		for _, group := range groups {
+			publishGroupSnapshot(group)
 		}
-		resp.Error(c, http.StatusBadRequest, err.Error())
+	})
+	if err != nil {
+		status := http.StatusBadRequest
+		switch {
+		case errors.Is(err, op.ErrBackupConflict):
+			status = http.StatusConflict
+		case errors.Is(err, op.ErrBackupWrite):
+			status = http.StatusInternalServerError
+		case errors.Is(err, op.ErrBackupCommitted):
+			status = http.StatusServiceUnavailable
+		}
+		resp.Error(c, status, err.Error())
 		return
-	}
-
-	if err := op.InitCache(); err != nil {
-		resp.Error(c, http.StatusInternalServerError, "backup was imported but caches could not be reloaded; restart the service")
-		return
-	}
-	relay.ResetAllRouteStates()
-	relay.SetAllRouteConfigs(op.GroupList())
-	publishGroupCategories()
-	for _, group := range op.GroupList() {
-		publishGroupSnapshot(group)
 	}
 
 	resp.Success(c, result)

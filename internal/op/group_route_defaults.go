@@ -46,6 +46,8 @@ func parseGroupRouteDefaults(raw string) (model.GroupRelayConfig, error) {
 
 // GroupRouteDefaultsGet 返回经过类型验证的全局默认策略; 缺键的旧备份使用内建默认值。
 func GroupRouteDefaultsGet() (model.GroupRelayConfig, error) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
 	raw, exists := settingCache.Get(model.SettingKeyGroupRouteDefaults)
 	if !exists {
 		return model.DefaultGroupRelayConfig(), nil
@@ -66,6 +68,9 @@ func GroupRouteDefaultsSet(config model.GroupRelayConfig, applyToExisting bool, 
 	}
 	groupWriteMu.Lock()
 	defer groupWriteMu.Unlock()
+	if backupUnavailable.Load() {
+		return config, nil, ErrBackupCommitted
+	}
 	var changes []GroupRouteConfigChange
 	err = db.GetDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if _, err := createUpsertSettings(tx, []model.Setting{{Key: model.SettingKeyGroupRouteDefaults, Value: string(raw)}}); err != nil {

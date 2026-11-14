@@ -38,6 +38,7 @@ type DBDump struct {
 
 	explicitNullCooldownRules   bool `json:"-"`
 	explicitNullGroupCategories bool `json:"-"`
+	nestedBackupAssociations    bool `json:"-"`
 }
 
 func (dump *DBDump) UnmarshalJSON(data []byte) error {
@@ -79,7 +80,32 @@ func (dump *DBDump) UnmarshalJSON(data []byte) error {
 	*dump = DBDump(decoded)
 	dump.explicitNullCooldownRules = explicitNullCooldownRules
 	dump.explicitNullGroupCategories = explicitNullGroupCategories
+	for table, names := range map[string][]string{
+		"channels": {"keys", "models"}, "groups": {"items", "category"},
+		"channel_grants": {"channel_model", "channel_key"}, "group_items": {"channel_grant"},
+	} {
+		var rows []map[string]json.RawMessage
+		if raw, ok := fields[table]; ok {
+			if err := json.Unmarshal(raw, &rows); err != nil {
+				return err
+			}
+		}
+		for _, row := range rows {
+			for _, name := range names {
+				raw := bytes.TrimSpace(row[name])
+				var empty []json.RawMessage
+				isEmptyArray := len(raw) > 0 && raw[0] == '[' && json.Unmarshal(raw, &empty) == nil && len(empty) == 0
+				if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) && !isEmptyArray {
+					dump.nestedBackupAssociations = true
+				}
+			}
+		}
+	}
 	return nil
+}
+
+func (dump *DBDump) HasNestedBackupAssociations() bool {
+	return dump != nil && dump.nestedBackupAssociations
 }
 
 // MarshalJSON writes stable empty arrays and validates the persisted rule shape.
@@ -118,6 +144,6 @@ func (dump *DBDump) HasNonNullGroupCategoryReference() bool {
 }
 
 type DBImportResult struct {
-	// RowsAffected contains the rows affected for each table operation (insert/upsert depending on table).
+	// RowsAffected counts logical accepted writes, independent of driver upsert counts.
 	RowsAffected map[string]int64 `json:"rows_affected"`
 }

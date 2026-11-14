@@ -147,6 +147,14 @@ func TestBackupCategoryIDConflictsAndIncrementalSemantics(t *testing.T) {
 		Channels: []model.Channel{{ID: channelID, ChannelConfig: model.ChannelConfig{Name: "should-not-overwrite", BaseURL: "https://other.fixture.example", CooldownRules: []model.CooldownRule{{ErrorCode: "503", CooldownSeconds: 60, Scope: model.CooldownScopeChannel}}}}},
 	}
 	dump.Channels[0].RequestFailed = 23
+	beforeConflict := categoryBackupFingerprint(t)
+	if _, err := DBImportIncremental(t.Context(), dump); !errors.Is(err, ErrBackupConflict) || categoryBackupFingerprint(t) != beforeConflict {
+		t.Fatalf("different identities must reject the complete import: %v", err)
+	}
+	// Compatible identities retain local category and state while allowing the
+	// same category merge/reservation/statistics behavior tested below.
+	dump.Groups[0].Name = localGroup.Name
+	dump.Channels[0].ChannelConfig = localChannel.ChannelConfig
 	result, err := DBImportIncremental(t.Context(), dump)
 	if err != nil || result.RowsAffected["group_categories"] != 2 {
 		t.Fatalf("conflict import result: %+v, %v", result, err)
@@ -239,8 +247,8 @@ func TestBackupCategoriesValidationAndTransactionRollback(t *testing.T) {
 		Groups:          []model.Group{{ID: 883001, Name: "w08-rollback-group", CategoryID: &id}},
 		GroupItems:      []model.GroupItem{{ID: 883001, GroupID: 883001, ChannelGrantID: 999999999, Priority: 1}},
 	}
-	if _, err := DBImportIncremental(t.Context(), dump); !errors.Is(err, ErrBackupWrite) {
-		t.Fatalf("late foreign-key failure did not reject import: %v", err)
+	if _, err := DBImportIncremental(t.Context(), dump); !errors.Is(err, ErrBackupInput) {
+		t.Fatalf("dangling member must fail graph validation: %v", err)
 	}
 	if categoryBackupFingerprint(t) != before || !reflect.DeepEqual(GroupCategoryList(), cacheBefore) {
 		t.Fatal("transaction failure left partial category/group/channel data or cache state")

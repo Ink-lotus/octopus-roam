@@ -66,6 +66,8 @@ func groupCategoryID(c *gin.Context) (int, bool) {
 func groupCategoryError(c *gin.Context, err error) {
 	status := http.StatusInternalServerError
 	switch {
+	case errors.Is(err, op.ErrBackupCommitted):
+		status = http.StatusServiceUnavailable
 	case errors.Is(err, model.ErrInvalidGroupCategory):
 		status = http.StatusBadRequest
 	case errors.Is(err, op.ErrGroupCategoryNotFound):
