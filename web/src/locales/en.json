@@ -794,7 +794,7 @@
             "cooldownRuleSecondsError": "Enter a whole number of seconds from 1 to 2147483647.",
             "cooldownRuleScopeError": "Choose a model or channel scope.",
             "stripResponsesHistory": "Clean OpenAI Responses history",
-            "stripResponsesHistoryHint": "Remove previous response references and encrypted reasoning items before sending to an OpenAI Responses upstream.",
+            "stripResponsesHistoryHint": "Remove remote history references while preserving reasoning, agent messages, and compacted context; the client must supply the required conversation history.",
             "edit": "Edit",
             "delete": "Delete",
             "submit": "Create",
