@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/Ink-lotus/octopus-roam/internal/conf"
-	_ "github.com/Ink-lotus/octopus-roam/internal/server/handlers"
+	"github.com/Ink-lotus/octopus-roam/internal/server/handlers"
 	"github.com/Ink-lotus/octopus-roam/internal/server/middleware"
 	"github.com/Ink-lotus/octopus-roam/internal/server/router"
 	"github.com/Ink-lotus/octopus-roam/static"
@@ -17,6 +17,7 @@ import (
 var httpSrv http.Server
 
 func Start() error {
+	handlers.InitCodexCatalog()
 	if conf.IsDebug() {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -51,5 +52,6 @@ func Start() error {
 }
 
 func Close() error {
+	handlers.CloseCodexCatalog()
 	return httpSrv.Close()
 }

@@ -406,6 +406,8 @@ Edit `~/.claude/settings.json`
 
 ### Codex
 
+The optional [Codex model catalog](docs/codex-catalog.md) serves the matching GitHub release snapshot with gateway permissions. Enable `codex_catalog.enabled` on the gateway before setting `model_catalog_url`; it is disabled by default.
+
 Edit `~/.codex/config.toml`
 
 ```toml
@@ -416,6 +418,8 @@ preferred_auth_method = "apikey"
 
 [model_providers.octopus-roam]
 base_url = "http://127.0.0.1:8080/v1"
+# Optional, after enabling the gateway catalog:
+# model_catalog_url = "http://127.0.0.1:8080/codex/models"
 name = "octopus-roam"
 supports_websockets = false
 requires_openai_auth = true

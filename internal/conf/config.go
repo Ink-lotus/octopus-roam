@@ -24,10 +24,16 @@ type Database struct {
 	MySQLCAFile string `mapstructure:"mysql_ca_file"`
 }
 
+type CodexCatalog struct {
+	Enabled  bool `mapstructure:"enabled"`
+	UseProxy bool `mapstructure:"use_proxy"`
+}
+
 type Config struct {
-	Server   Server   `mapstructure:"server"`
-	Log      Log      `mapstructure:"log"`
-	Database Database `mapstructure:"database"`
+	Server       Server       `mapstructure:"server"`
+	Log          Log          `mapstructure:"log"`
+	Database     Database     `mapstructure:"database"`
+	CodexCatalog CodexCatalog `mapstructure:"codex_catalog"`
 }
 
 var AppConfig Config
@@ -76,4 +82,6 @@ func setDefaults() {
 	viper.SetDefault("database.path", "data/data.db")
 	viper.SetDefault("database.mysql_ca_file", "")
 	viper.SetDefault("log.level", "info")
+	viper.SetDefault("codex_catalog.enabled", false)
+	viper.SetDefault("codex_catalog.use_proxy", false)
 }

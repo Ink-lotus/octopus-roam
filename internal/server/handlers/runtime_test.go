@@ -28,6 +28,7 @@ func TestRuntimeEndpointsRequireAuthAndShareSnapshotContract(t *testing.T) {
 	}
 	testRetiredSettingRoutes(t, engine)
 	t.Run("configuration-values", func(t *testing.T) { testConfigurationValues(t, engine) })
+	t.Run("codex-catalog", func(t *testing.T) { testCodexCatalogRoutes(t, engine) })
 	server := httptest.NewServer(engine)
 	defer server.Close()
 	for _, path := range []string{"/api/v1/setting/export", "/api/v1/setting/import"} {

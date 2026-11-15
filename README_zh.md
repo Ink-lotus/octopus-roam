@@ -408,6 +408,8 @@ print(completion.choices[0].message.content)
 
 ### Codex
 
+可选的 [Codex 模型目录](docs/codex-catalog.md) 按客户端版本提供 GitHub 发布快照，并应用网关权限过滤。服务端默认关闭；先启用 `codex_catalog.enabled`，再配置 `model_catalog_url`。
+
 编辑 `~/.codex/config.toml`
 
 ```toml
@@ -418,6 +420,8 @@ preferred_auth_method = "apikey"
 
 [model_providers.octopus-roam]
 base_url = "http://127.0.0.1:8080/v1"
+# 可选：先启用网关目录功能，再取消下一行注释。
+# model_catalog_url = "http://127.0.0.1:8080/codex/models"
 name = "octopus-roam"
 supports_websockets = false
 requires_openai_auth = true
