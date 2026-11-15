@@ -494,6 +494,10 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				return
 			}
 
+			// SSE events are decoded and encoded again below. The upstream byte
+			// length no longer describes this response; let net/http frame the stream.
+			c.Writer.Header().Del("Content-Length")
+
 			// 首帧提交后仍需逐个事件判断协议终态: 上游发出结束事件后未必立即关闭响应体, 继续读取会一直阻塞到
 			// 客户端断开, 从而把已完整交付的响应误判为 context canceled。
 			if c.Writer.Header().Get("Content-Type") == "" {

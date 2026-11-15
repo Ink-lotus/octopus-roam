@@ -49,7 +49,7 @@ go test -tags=jsoniter ./internal/relay -run 'ResponsesHistory|StripResponses|Sa
 go test ./internal/relay -count=1
 ```
 
-这些测试使用合成密文，只证明数据被完整保留，不证明真实上游能够解密。Paseo 现场复核需要用户指定的隔离渠道 / 会话和真实上游生成的内容，记录客户端、daemon、Codex 与代理程序版本，再验证代理消息回填后的连续请求和工具调用。未实际复核时应记录“Paseo 现场待复核”。
+这些测试使用合成密文，只证明数据被完整保留，不证明真实上游能够解密。客户端接入使用原生 Codex CLI 验证连续请求与工具调用，并记录实际 CLI、网关版本和请求结果；不再要求单独的 Paseo 现场测试。没有执行过的场景保持未实测，不把取消验收要求记为现场通过。
 
 完整 CI、规定 race、准确提交的云端检查及正式 Windows ZIP / Linux 镜像验收仍遵守 [当前发布门禁](release-ci.md)。局部测试或开发程序回放不能替代实际发布产物的安装、升级、启停、持久化、备份恢复、卷权限和容器重建验收。
 
