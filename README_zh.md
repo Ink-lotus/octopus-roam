@@ -30,7 +30,7 @@ Octopus Roam 是从 [bestruirui/octopus](https://github.com/bestruirui/octopus) 
 ### 新增特性
 
 - 🔃 **共享批量刷新** - 渠道页和分组页共用一个任务，刷新已启用且跟随全局更新的渠道，不受展示筛选影响
-- 🎛️ **渠道兼容开关** - 可选择清理 Responses 历史标识，或将自定义 Header 限定为获取模型；均默认关闭
+- 🎛️ **渠道兼容开关** - 可选择移除 Responses 显式远端引用并保留客户端历史，或将自定义 Header 限定为获取模型；均默认关闭
 - ⏱️ **自定义冷却规则** - 按上游错误手动配置模型级或渠道级冷却
 - 📁 **平台分类** - 手动归类并持久化，支持分类筛选和分组列表折叠
 - 🛡️ **重试与健康保护** - 支持固定间隔或指数退避、跨请求健康状态；流式响应已开始后不重放请求
@@ -41,17 +41,17 @@ Octopus Roam 是从 [bestruirui/octopus](https://github.com/bestruirui/octopus) 
 
 ## 支持范围
 
-自 2026-11-12 起，后续版本的正式支持目标为 Windows amd64 原生程序 + SQLite，以及 Linux amd64 宿主上的 Docker Engine / Linux amd64 镜像 + SQLite，包含文档提供的 Compose 入口。**Linux 容器组合的首次完整应用验收尚未完成。**WSL2 / WSL Containers 为预期兼容环境，不再单列发布必验项。
+正式支持 Windows amd64 原生程序 + SQLite，以及 Linux amd64 宿主上的 Docker Engine / amd64 镜像 + SQLite，包含 Compose。首次 Linux 应用验收已在 C02 开发提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成；v0.1.3 候选与正式发布 run 仍须分别验收自己的产物，准确输入见[支持与证据](docs/support.md)。WSL2 / WSL Containers 为预期兼容环境，不再单列发布必验项。
 
 已发布版本保留当时的支持声明和验收记录，见 [v0.1.2 发布说明](docs/releases/v0.1.2.md)。Linux 原生程序、macOS、Android 和其他架构镜像继续作为实验性构建；MySQL/PostgreSQL 功能与测试保留，仍在正式支持范围外。11 个程序 ZIP、四架构镜像及对应源码继续完整交付。完整矩阵与验收状态见[当前支持范围](docs/support.md)。
 
 ## 🚀 快速开始
 
-下列下载链接和镜像标签对应 **v0.1.2** 正式版本。从 v0.1.0 升级时按[当前升级说明](docs/upgrade-r1.md)操作，Windows 旧布局首次迁移需要同时手动更新 exe 和 cmd。
+下列说明面向 **v0.1.3** 交付布局。安装前先确认该版本已在本仓库 Releases 公开，并核验其摘要；候选产物只用于隔离验收。从 v0.1.0 升级时按[当前升级说明](docs/upgrade-r1.md)操作，Windows 旧布局首次迁移需要同时手动更新 exe 和 cmd。
 
 ### 🐳 Linux amd64 / Docker Engine
 
-以下部署步骤使用当前可下载的 **v0.1.2** 镜像，不代表新 Linux 组合已完成验收。在已安装 Docker Engine 的 Linux amd64 主机上，为全新实例选择 Linux 文件系统中的专用数据目录：
+v0.1.3 公开后，使用已核验的准确镜像执行以下部署步骤。在已安装 Docker Engine 的 Linux amd64 主机上，为全新实例选择 Linux 文件系统中的专用数据目录：
 
 ```bash
 mkdir ./octopus-roam-data
@@ -59,7 +59,7 @@ docker run --detach --name octopus-roam \
   --publish 127.0.0.1:8080:8080 \
   --volume "$(pwd)/octopus-roam-data:/app/data" \
   --env PUID="$(id -u)" --env PGID="$(id -g)" \
-  ghcr.io/ink-lotus/octopus-roam:v0.1.2-amd64
+  ghcr.io/ink-lotus/octopus-roam:v0.1.3-amd64
 ```
 
 数据保存在宿主目录。示例让应用使用当前 Linux 用户的 UID/GID，并仅在宿主回环地址 `http://127.0.0.1:8080` 提供访问；远程主机可通过 SSH 端口转发访问。首次登录后修改默认密码。已有部署按[升级与恢复步骤](docs/upgrade-r1.md)操作，保留原数据和权限设置。
@@ -71,7 +71,7 @@ docker run --detach --name octopus-roam \
 全新实例选择 Docker run 或 Compose 中的一种启动方式。Compose 文件要求显式的已发布标签，在其所在目录的 Linux shell 中运行：
 
 ```bash
-export OCTOPUS_ROAM_VERSION='v0.1.2-amd64'
+export OCTOPUS_ROAM_VERSION='v0.1.3-amd64'
 docker compose config --quiet
 docker compose up -d
 ```
@@ -81,7 +81,7 @@ docker compose up -d
 
 ### 📦 从 Release 下载
 
-从 [v0.1.2](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.2) 下载 [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.2/octopus-roam-windows-amd64.zip)（其他平台 ZIP 为实验性）和 [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.2/SHA256SUMS)，核对哈希后完整解压到固定目录。同一 Release 提供[对应源码](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.2/octopus-roam-source-v0.1.2.zip)、原始声明和重建说明。
+从 [v0.1.3](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.3) 下载 [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.3/octopus-roam-windows-amd64.zip)（其他平台 ZIP 为实验性）和 [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.3/SHA256SUMS)，核对哈希后完整解压到固定目录。同一 Release 提供[对应源码](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.3/octopus-roam-source-v0.1.3.zip)、原始声明和重建说明。
 
 **Windows：**双击 `octopus-roam.cmd`，输入序号即可操作，无需输入命令：
 
@@ -90,7 +90,7 @@ docker compose up -d
 3. 关闭服务。
 4. 关闭服务并关闭开机自启。
 
-首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。登录自启在当前 Windows 用户登录后生效。关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。v0.1.2 使用单 cmd 入口和 exe 原生控制，登录自启通过计划任务实现。已发布的 v0.1.0 仍须保留 `windows` 支持文件；首次迁移到原生布局须同时手动更新 exe 和 cmd，见[迁移说明](docs/local-deployment.md#从旧脚本布局迁移)。
+首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。登录自启在当前 Windows 用户登录后生效。关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。v0.1.3 使用单 cmd 入口和 exe 原生控制，登录自启通过计划任务实现。已发布的 v0.1.0 仍须保留 `windows` 支持文件；首次迁移到原生布局须同时手动更新 exe 和 cmd，见[迁移说明](docs/local-deployment.md#从旧脚本布局迁移)。
 
 **Linux / macOS 等原生实验性构建：**在解压目录运行；原生进程升级与恢复尚未完成正式验收：
 
@@ -117,7 +117,7 @@ go run . start
 
 > 💡 **提示**：前端构建产物会被嵌入到 Go 二进制文件中，所以必须先构建前端再启动后端。
 
-离线准备本地构建可使用 `pwsh -NoProfile -File scripts/build-local.ps1`，默认版本为 `v0.1.2-local.<时间戳>`。脚本只写入新的 `build/release-local/` 目录，使用已有缓存；缺少第三方许可证报告时会明确标记。正式材料另按[发布合同](docs/release-ci.md)生成。
+离线准备本地构建可使用 `pwsh -NoProfile -File scripts/build-local.ps1`，默认版本为 `v0.1.3-local.<时间戳>`。脚本只写入新的 `build/release-local/` 目录，使用已有缓存；缺少第三方许可证报告时会明确标记。正式材料另按[发布合同](docs/release-ci.md)生成。
 
 本地部署验收建议使用仓库外的独立运行目录，放置程序、配置、数据库及日志；见[本地部署说明](docs/local-deployment.md)。
 
@@ -303,9 +303,9 @@ http://localhost:5173
 
 模型级按该渠道的实际上游模型跨 Key、协议授权及分组共享；渠道级作用于整个渠道。多个冷却来源取较晚截止时间。只有真实 Relay 上游失败（含 HTTP 200 内流式错误）触发；正常输出、prompt、客户端取消和模型列表探测不触发。成功和刷新不解除规则冷却，等待时释放渠道并发额度，原“解除成员冷却”不清除共享规则状态。规则配置持久化，运行倒计时重启清空且不备份；规则或出站连接/凭据变化使旧状态失效，展示名称和分类变化不解除。
 
-渠道高级设置的“清理 Responses 历史”只影响发往 OpenAI Responses 的请求；“仅获取模型”让该渠道全部自定义 Header 只用于模型获取与刷新。两个开关默认关闭并随渠道保存，详细边界见 [v0.1.2 说明](docs/releases/v0.1.2.md)。
+渠道高级设置的“清理 Responses 历史”只删除最终 Responses 请求顶层的 `previous_response_id` 和 `input` 第一层 `item_reference`，保留其他客户端历史、ID 和密文；“仅获取模型”让该渠道全部自定义 Header 只用于模型获取与刷新。两个开关默认关闭并随渠道保存，详见[历史清理合同](docs/responses-history-cleanup.md)和 [v0.1.3 说明](docs/releases/v0.1.3.md)。
 
-备份须设置至少 12 个字符的独立口令，下载为加密 JSON；口令无法找回，应单独保管。导出使用已认证的 `POST /api/v1/setting/export`，在 JSON 请求体传入口令；旧 GET 返回 405。v0.1.2 导出 `octopus-roam` 内容 **1003**，含规则、分类、分组归属和两个渠道兼容开关，加密容器仍为 **1**。新程序接受本产品 1000～1003 及已审计的无标识上游 0/5，继续拒绝无标识 6 和未知身份。增量导入保留已有渠道的规则、兼容开关和已有分组的分类；完整恢复应使用空实例。
+备份须设置至少 12 个字符的独立口令，下载为加密 JSON；口令无法找回，应单独保管。导出使用已认证的 `POST /api/v1/setting/export`，在 JSON 请求体传入口令；旧 GET 返回 405。v0.1.3 继续导出 `octopus-roam` 内容 **1003**，含规则、分类、分组归属和两个渠道兼容开关，加密容器仍为 **1**。新程序接受本产品 1000～1003 及已审计的无标识上游 0/5，继续拒绝无标识 6 和未知身份。增量导入只接受兼容身份与引用，配置、凭据或唯一键冲突时整次拒绝并返回 409；兼容重放保留明确约定的本地状态，包括分组分类和当前成员。完整恢复使用空实例，详见[完整性合同](docs/backup-integrity.md)。
 
 升级前保存旧程序、配置和完整数据库快照。1003 不能交给 v0.1.1 或更旧程序恢复，也不承诺旧程序直接读取迁移后的数据库。回滚恢复升级前快照，会丢失升级后的新增数据。首次 Windows 迁移、增量导入、默认值和故障排查见[升级说明](docs/upgrade-r1.md)。
 

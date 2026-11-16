@@ -90,10 +90,10 @@ https://raw.githubusercontent.com/openai/codex/rust-v<client_version>/codex-rs/m
 
 0.167.0 / 0.168.0 / 0.169.0 已取得 Windows 原生匿名 Raw HTTP 快照：每份 539696 字节、12 个模型，SHA-256 为 `1384625c0b6b3e67d3c60da29becea2b017f2c283fc1e2d05b8edafb4698eb10`。这些版本当前内容相同，测试另使用不同内容的版本 fixture，并核对实际请求路径。
 
-Windows Codex CLI 0.169.0 使用原样本地快照（ExplicitConfig），已验证 `gpt-6.1-sol` 在无新增 override 时默认由 `gpt-5.6-luna / low` 审核并得到 allow。部分推理上游限制客户端类型，使用真实 Codex 时须保留其必要协议头。
+C01 曾验证原样本地快照的 ExplicitConfig 路径。C02 随后以准确网关提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 和原生 Codex CLI 0.169.0 完成真实 provider endpoint 八场景：实际生效配置没有 model_catalog_json，Sol/Astra 和重启后 Sol 均真实调用 `gpt-5.6-luna / low` 完成审核并得到 allow；包含五类负面条件及工具后续轮次。官方 override 原值保持。部分推理上游限制客户端类型，真实 Codex 仍须保留必要协议头。
 
 Windows amd64 隔离开发程序已通过 91 项检查：默认关闭、直连和应用代理、三个版本实际来源路径、缓存和重启重取、无效/禁用/过期 Key、版本缺失、权限收紧和分组删除、原模型列表，以及 `gpt-6.1-sol` 的普通/流式推理。三模型可见时，各版本响应均为 180169 字节，SHA-256 为 `c075c83f9e0ecff971a20770e9f065d69a4a6de691c652774840f4fcd1a61187`；两个单模型权限范围和空集也已验证。模块测试另覆盖超额 Key、限流、并发、取消、解压上限和缓存控制。
 
 开发验收入口为 [scripts/test-codex-catalog.py](../scripts/test-codex-catalog.py)，使用 Python 标准库。传入已构建 Windows 程序、准确程序 SHA-256、至少两个版本的原样快照和全新输出目录；`--help` 列出参数。脚本创建隔离配置、SQLite 和合成测试数据，使用 `localhost:8080` 的另行获准测试网关，Key 从交互式标准输入读取，每轮最多四次真实推理请求。它正常停止自建进程并保留证据；执行前应明确这些配置、数据和请求的授权范围。
 
-Codex 默认审核的结果只覆盖上述本地文件路径。真实 provider endpoint、两个主模型、准确提交的完整 CI 和 Windows / Linux 容器完整应用验收属于后续 C02 门禁，不能由文件下载、模块测试或 Windows 开发实例替代。其他版本的 HTTP 取源成功不表示对应 CLI 已通过真实兼容验收。
+C02 已完成同一 SHA 的 Windows/Linux/GitHub 完整 CI，Windows 实际开发 ZIP 的 91 项目录和 Linux 实际开发镜像的 116 项目录检查，以及两平台应用/升级/恢复、Linux 卷/Compose 和真实客户端验收；准确产物与范围见[支持证据](support.md)。目录原始快照摘要与网关源码/产物身份分别记录，同标签内容变化须重新核对。其他版本的 HTTP 取源成功不表示对应 CLI 已实测；这些 v0.0.0-ci 开发结果也不代替 v0.1.3 新候选的产物验收。

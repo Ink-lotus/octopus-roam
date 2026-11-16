@@ -30,7 +30,7 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 ### Added Features
 
 - 🔃 **Shared Bulk Refresh** - One task across the channel and group pages, covering enabled channels that follow global updates regardless of display filters
-- 🎛️ **Channel Compatibility Options** - Optionally remove Responses history identifiers or restrict custom headers to model discovery; both default to off
+- 🎛️ **Channel Compatibility Options** - Optionally remove explicit Responses history references while preserving client-provided history, or restrict custom headers to model discovery; both default to off
 - ⏱️ **Custom Cooldown Rules** - Optional model or channel cooldowns based on upstream errors
 - 📁 **Platform Categories** - Persisted, manually assigned categories with filtering and collapsible group lists
 - 🛡️ **Retry and Health Protection** - Fixed intervals or exponential backoff and health tracking across requests; streaming requests are not replayed after the response has started
@@ -41,17 +41,17 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 
 ## Support scope
 
-From November 12, 2026, subsequent releases target two supported deployments: the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on a Linux amd64 host running Docker Engine, including the documented Compose entry. **The first complete application acceptance run for the Linux container deployment is still pending.** WSL2 / WSL Containers is expected to be compatible and is no longer a separate required release test environment.
+Supported deployments are the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on a Linux amd64 host running Docker Engine, including Compose. The first Linux application acceptance run passed on the C02 development build from commit `9a7ed524bf763bc776ef291a0998aeb715700ad4`; each v0.1.3 candidate and publication run must still validate its own artifacts. See the [exact inputs and acceptance scope](docs/support.md). WSL2 / WSL Containers is expected to be compatible and is not a separate required release test environment.
 
 Published versions retain their original support statements and acceptance records; see the [v0.1.2 release notes](docs/releases/v0.1.2.md). Native Linux, macOS and Android builds and other image architectures remain experimental. MySQL/PostgreSQL functionality and tests remain available outside the official support scope. All 11 program ZIPs, four image architectures and corresponding source remain available. See the [current support matrix and acceptance status](docs/support.md).
 
 ## 🚀 Quick Start
 
-The download links and image tags below refer to the **v0.1.2** release. When upgrading from v0.1.0, follow the [current upgrade guide](docs/upgrade-r1.md). The first Windows migration from the old layout requires manually updating both the executable and cmd entry.
+The instructions below describe the **v0.1.3** delivery layout. Before installation, confirm that this version is publicly available in this repository's Releases and verify its checksums. Candidate artifacts are for isolated acceptance. When upgrading from v0.1.0, follow the [current upgrade guide](docs/upgrade-r1.md). The first Windows migration from the old layout requires manually updating both the executable and cmd entry.
 
 ### 🐳 Linux amd64 / Docker Engine
 
-The following deployment instructions use the available **v0.1.2** image; they do not claim that the new Linux acceptance run is complete. On a Linux amd64 host with Docker Engine installed, create a dedicated data directory on a Linux filesystem and start a new instance:
+Use the verified **v0.1.3** image after it is published. On a Linux amd64 host with Docker Engine installed, create a dedicated data directory on a Linux filesystem and start a new instance:
 
 ```bash
 mkdir ./octopus-roam-data
@@ -59,7 +59,7 @@ docker run --detach --name octopus-roam \
   --publish 127.0.0.1:8080:8080 \
   --volume "$(pwd)/octopus-roam-data:/app/data" \
   --env PUID="$(id -u)" --env PGID="$(id -g)" \
-  ghcr.io/ink-lotus/octopus-roam:v0.1.2-amd64
+  ghcr.io/ink-lotus/octopus-roam:v0.1.3-amd64
 ```
 
 Data persists in the host directory. The example maps the application user to your Linux UID/GID and listens on the host's loopback address at `http://127.0.0.1:8080`; use SSH port forwarding to access a remote host. Change the default password after first login. For an existing deployment, follow the [upgrade and recovery steps](docs/upgrade-r1.md) and retain its data and permission settings.
@@ -71,7 +71,7 @@ In the repository's `docker-compose.yml`, replace `/path/to/data` with the absol
 For a new instance, choose either Docker run or Compose. The Compose file requires an explicit published tag; from its directory in a Linux shell, run:
 
 ```bash
-export OCTOPUS_ROAM_VERSION='v0.1.2-amd64'
+export OCTOPUS_ROAM_VERSION='v0.1.3-amd64'
 docker compose config --quiet
 docker compose up -d
 ```
@@ -81,7 +81,7 @@ The stable release updates `latest`; RC releases do not. Use an exact published 
 
 ### 📦 Download from Release
 
-Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.2/octopus-roam-windows-amd64.zip), or an experimental ZIP for another platform, and [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.2/SHA256SUMS) from [v0.1.2](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.2), verify the checksum, and extract the entire archive into a permanent folder. The same release includes [corresponding source](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.2/octopus-roam-source-v0.1.2.zip), original notices and rebuild instructions.
+Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.3/octopus-roam-windows-amd64.zip), or an experimental ZIP for another platform, and [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.3/SHA256SUMS) from [v0.1.3](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.3), verify the checksum, and extract the entire archive into a permanent folder. The same release includes [corresponding source](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.3/octopus-roam-source-v0.1.3.zip), original notices and rebuild instructions.
 
 **Windows:** double-click `octopus-roam.cmd` and choose a numbered option:
 
@@ -90,7 +90,7 @@ Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/relea
 3. Stop the service.
 4. Stop the service and disable automatic startup.
 
-The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Closing the menu leaves the service running; choose `3` or `4` to stop it. v0.1.2 uses one cmd entry and native executable commands, with a per-user scheduled logon task. Published v0.1.0 packages still require their `windows` support folder. The first migration to the native layout requires manually updating both the executable and cmd entry; see the [migration instructions](docs/local-deployment.md#从旧脚本布局迁移).
+The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Closing the menu leaves the service running; choose `3` or `4` to stop it. v0.1.3 uses one cmd entry and native executable commands, with a per-user scheduled logon task. Published v0.1.0 packages still require their `windows` support folder. The first migration to the native layout requires manually updating both the executable and cmd entry; see the [migration instructions](docs/local-deployment.md#从旧脚本布局迁移).
 
 **Experimental native Linux / macOS and other builds:** run in the extracted directory; native process upgrade and recovery remain unvalidated:
 
@@ -117,7 +117,7 @@ go run . start
 
 > 💡 **Tip**: The frontend build artifacts are embedded into the Go binary, so you must build the frontend before starting the backend.
 
-For an offline local build, use `pwsh -NoProfile -File scripts/build-local.ps1`. The default version is `v0.1.2-local.<timestamp>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable. Reviewed release materials use the separate [release contract](docs/release-ci.md).
+For an offline local build, use `pwsh -NoProfile -File scripts/build-local.ps1`. The default version is `v0.1.3-local.<timestamp>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable. Reviewed release materials use the separate [release contract](docs/release-ci.md).
 
 For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](docs/local-deployment.md).
 
@@ -302,9 +302,9 @@ In channel advanced settings, add cooldown rules only when needed. Each rule has
 
 Model scope covers the actual upstream model on that channel across keys, protocol grants and groups; channel scope covers the whole channel. Multiple cooldown sources use the latest deadline. Only actual Relay upstream failures trigger rules, including streamed errors within HTTP 200; normal output, prompts, client cancellation and model-list probes do not. Success and refresh do not clear a rule cooldown. Waiting releases channel capacity, and the existing member-cooldown release action does not clear shared rule cooldowns. Rules persist, while active timers reset on process restart and are not backed up. Rule or outbound connection/credential changes invalidate old rule state; display names and categories do not.
 
-Channel advanced settings can remove history identifiers from outbound OpenAI Responses requests or limit all channel custom headers to model discovery and refresh. Both options default to off and persist with the channel. See the [v0.1.2 notes](docs/releases/v0.1.2.md) for their exact scope.
+Channel advanced settings can remove only the top-level `previous_response_id` and first-level `input` items of type `item_reference` from outbound Responses requests, preserving all other client-provided history, IDs and encrypted content. The separate custom-header option limits all channel custom headers to model discovery and refresh. Both default to off and persist with the channel. See the [history contract](docs/responses-history-cleanup.md) and [v0.1.3 notes](docs/releases/v0.1.3.md).
 
-Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts use authenticated `POST /api/v1/setting/export` with the password in the JSON body; the former GET returns 405. v0.1.2 exports `octopus-roam` content **1003**, including rules, categories, group assignments and both channel compatibility options, in encrypted container **1**. It accepts product content 1000–1003 and audited unmarked upstream formats 0/5; unmarked 6 and unknown identities remain rejected. Incremental import preserves an existing channel's rules and compatibility options and an existing group's category; use an empty instance for complete restoration.
+Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts use authenticated `POST /api/v1/setting/export` with the password in the JSON body; the former GET returns 405. v0.1.3 continues to export `octopus-roam` content **1003**, including rules, categories, group assignments and both channel compatibility options, in encrypted container **1**. It accepts product content 1000–1003 and audited unmarked upstream formats 0/5; unmarked 6 and unknown identities remain rejected. Incremental import accepts only compatible identities and references; conflicting configurations, credentials or unique keys reject the entire import with 409. Compatible replay retains the documented local state, including a group's category and active member. Use an empty instance for complete restoration; see the [integrity contract](docs/backup-integrity.md).
 
 Save the old executable, configuration and complete database snapshot before upgrading. Content 1003 cannot be restored into v0.1.1 or older releases, and the old program is not promised to read the migrated database. Rollback restores the pre-upgrade snapshot and loses data added after that snapshot. The [upgrade guide](docs/upgrade-r1.md) explains the first Windows migration, incremental import, defaults and troubleshooting.
 
