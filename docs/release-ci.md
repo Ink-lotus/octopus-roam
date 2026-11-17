@@ -20,9 +20,9 @@
 
 主分支的必需检查和保护继续适用；文档化此流程不会创建远端分支、修改保护规则或授权 commit、推送和发布。实际远端配置在对应操作前回读，具体操作仍按当前任务授权执行。
 
-版本合同仅接受 `v0.1.3` 和 `v0.1.3-rc.N`，N 为无前导零正整数。输入 commit 必须是 main 历史中的完整 40 位小写 SHA；该 commit 的 main.go 版本注释、web/package.json 版本（不带 v）和 Release Notes 首行必须精确匹配。旧 0.1.0 / 0.1.1 / 0.1.2、其他版本线、local 后缀、非法 RC、错误 commit、未审查说明及已有 tag / Release / 版本镜像均拒绝。普通开发 CI 的 dev / v0.0.0-ci 不进入正式材料合同。
+版本合同仅接受 `v0.1.4` 和 `v0.1.4-rc.N`，N 为无前导零正整数。输入 commit 必须是 main 历史中的完整 40 位小写 SHA；该 commit 的 main.go 版本注释、web/package.json 版本（不带 v）和 Release Notes 首行必须精确匹配。旧 0.1.0 / 0.1.1 / 0.1.2 / 0.1.3、其他版本线、local 后缀、非法 RC、错误 commit、未审查说明及已有 tag / Release / 版本镜像均拒绝。普通开发 CI 的 dev / v0.0.0-ci 不进入正式材料合同。
 
-当前合同服务于用户选定的 v0.1.3 发布准备，候选流程显式使用 `publish=false`。已有标签、Release 和版本镜像的拒绝检查继续生效；v0.1.2 及更早公开产物保持原样。材料生产与验收见[材料入口](release-materials.md)，行为和兼容边界见 [v0.1.3 说明](releases/v0.1.3.md)。正式发布须对准确操作另行授权。
+当前合同服务于用户选定的 v0.1.4 发布准备，候选流程显式使用 `publish=false`。已有标签、Release 和版本镜像的拒绝检查继续生效；v0.1.3 及更早公开产物保持原样。材料生产与验收见[材料入口](release-materials.md)，行为和兼容边界见 [v0.1.4 说明](releases/v0.1.4.md)。正式发布须对准确操作另行授权。
 
 ## 后续平台门禁
 
@@ -44,7 +44,7 @@ Linux 验收可使用 instabox 等主机，由当前代理通过 SSH 直接运�
 2. 使用真实前一正式版本及升级前完整数据副本验证升级、数据保留、当前加密备份在空实例中的恢复，以及旧产物配合升级前副本的失败恢复。Windows 原生助手的成功更新和失败恢复继续单独验证。实际登录自启按下述条件执行。
 3. Linux 容器验证 `/app/data` 的挂载与实际运行用户权限，正常停止后用同一数据卷重建容器并核对数据。SQLite 数据目录使用 Linux 文件系统；Windows 共享目录行为不作为 Linux 门禁的隐含保证。
 
-C02 已在准确提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成固定工具、Windows/Linux/GitHub 完整 CI 和两平台开发产物应用验收，Linux 包含真实 v0.1.2 升级、卷权限、同卷重建和 Compose；准确版本/产物摘要见[支持与证据](support.md)。这些 `v0.0.0-ci` 结果不替代 v0.1.3 正式版本候选。现有 workflow 没有自动执行全部双平台应用验收，绿色 `test` 或成功构建镜像不能代替本次实际产物记录。
+C02 已在准确提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成固定工具、Windows/Linux/GitHub 完整 CI 和两平台开发产物应用验收，Linux 包含真实 v0.1.2 升级、卷权限、同卷重建和 Compose；准确版本/产物摘要见[支持与证据](support.md)。这些 `v0.0.0-ci` 结果不替代 v0.1.4 正式版本候选。现有 workflow 没有自动执行全部双平台应用验收，绿色 `test` 或成功构建镜像不能代替本次实际产物记录。
 
 Windows 实际退出并重新登录的自启动测试不作为每次发布的固定门禁；只有登录任务、桌面启动控制、对应入口发生相关改动，或发现登录自启功能异常时，才执行该项并记录触发原因。普通业务变化、版本号或二进制摘要变化不自动触发。现有菜单启停与计划任务管理测试保留；不将未执行的实际登录测试记为通过。
 
@@ -54,11 +54,11 @@ Linux 原生程序、其他架构、macOS、Android、MySQL/PostgreSQL、其他�
 
 ## 唯一发布说明来源
 
-`scripts/release_contract.py` 的 `RELEASE_NOTES_PATH` 固定为 `docs/releases/v0.1.3.md`，`read_release_notes(version, commit)` 从准确 commit 的 Git blob 读取原始字节，同时验证 main 和前端版本。prepare、materials、package、seal、verify、材料生产/审核及派生验收复用该入口；不从工作区或已取消跟踪的旧说明路径回退取值。
+`scripts/release_contract.py` 的 `RELEASE_NOTES_PATH` 固定为 `docs/releases/v0.1.4.md`，`read_release_notes(version, commit)` 从准确 commit 的 Git blob 读取原始字节，同时验证 main 和前端版本。prepare、materials、package、seal、verify、材料生产/审核及派生验收复用该入口；不从工作区或已取消跟踪的旧说明路径回退取值。
 
-prepare / resolve 输出 `release_notes_path` 和 `release_notes_sha256`，workflow 将它们传给后续 job 的同名大写环境变量并再次校验。materials.json、material-production.json、build.json、artifact.json 和派生 build-info.json 均记录说明路径及 SHA-256。对应源码包含 `application/docs/releases/v0.1.3.md`，delivery/RELEASE-NOTES.md 必须与同一 blob 逐字节相同，包含原换行和末尾空行。
+prepare / resolve 输出 `release_notes_path` 和 `release_notes_sha256`，workflow 将它们传给后续 job 的同名大写环境变量并再次校验。materials.json、material-production.json、build.json、artifact.json 和派生 build-info.json 均记录说明路径及 SHA-256。对应源码包含 `application/docs/releases/v0.1.4.md`，delivery/RELEASE-NOTES.md 必须与同一 blob 逐字节相同，包含原换行和末尾空行。
 
-新说明须与版本入口一起进入获审查 commit；未提交文案不属于 HEAD。`publish=false` 候选同样使用此路径，可使用本轮选定的 v0.1.3 或合法 v0.1.3-rc.N；首行、main 注释、前端版本及注入值必须与当批准确版本一致。RC 转正式版本或改变文案/源码后，重新审查和绑定 commit、材料与产物，重做受影响验收；改文件名或重算清单哈希不能使旧输入合格。`plan/release-notes-v0.1.0.md` 仅保留历史本地字节，不再参与新发布链路。
+新说明须与版本入口一起进入获审查 commit；未提交文案不属于 HEAD。`publish=false` 候选同样使用此路径，可使用本轮选定的 v0.1.4 或合法 v0.1.4-rc.N；首行、main 注释、前端版本及注入值必须与当批准确版本一致。RC 转正式版本或改变文案/源码后，重新审查和绑定 commit、材料与产物，重做受影响验收；改文件名或重算清单哈希不能使旧输入合格。`plan/release-notes-v0.1.0.md` 仅保留历史本地字节，不再参与新发布链路。
 
 ## 对应材料输入
 
@@ -90,7 +90,7 @@ alpine/386.zip
   "schema": 1,
   "version": "<exact-version>",
   "commit": "<full-commit-sha>",
-  "release_notes_path": "docs/releases/v0.1.3.md",
+  "release_notes_path": "docs/releases/v0.1.4.md",
   "release_notes_sha256": "<sha256-of-exact-committed-blob>",
   "source_date_epoch": 0,
   "platforms": [
@@ -112,7 +112,7 @@ alpine/386.zip
 
 应用源码 ZIP 保留对应源码包布局：`application/`、`go-cache/cache/download/`、`npm-packages/`、`licenses/`、重建/安装/源码获取说明及 `SHA256SUMS`。`release-source.json` 精确包含 `schema`、`version`、`commit`、`platforms` 四项，分别对应以上值。生产入口加入 `tool-inputs.json` 和 `material-production.json`，绑定说明 path/SHA、输入哈希、实际工具/生产脚本及实际前端。SHA256SUMS 必须覆盖除自身外的全部常规文件。保留完整原始声明，包括 AGPLv3、LGPLv3、GPLv3、MPL-2.0 原文；顶层五份说明及 `licenses/THIRD_PARTY_LICENSES.csv` 必须与材料目录的副本逐字节一致。
 
-`application/` 必须包含目标 commit 中 `.github`、cmd、internal、scripts、static、web 下的已跟踪文件，以及 main.go、go.mod、go.sum、LICENSE、两份 README、Compose、.dockerignore 和 `docs/releases/v0.1.3.md`；static/out 以本次实际生成内容为准。不得包含 node_modules、测试 profile、私钥、数据库、日志或工具缓存。新编译程序的实际依赖（含 replace 后的模块）必须有对应模块 ZIP，模块内容 h1 同时匹配实际二进制元数据和对应源码中的 go.sum。源码包内仍需准确的前端来源记录、原始声明和重建工具材料；自动哈希检查不代替材料审核或 LGPL 重新链接演练。
+`application/` 必须包含目标 commit 中 `.github`、cmd、internal、scripts、static、web 下的已跟踪文件，以及 main.go、go.mod、go.sum、LICENSE、两份 README、Compose、.dockerignore 和 `docs/releases/v0.1.4.md`；static/out 以本次实际生成内容为准。不得包含 node_modules、测试 profile、私钥、数据库、日志或工具缓存。新编译程序的实际依赖（含 replace 后的模块）必须有对应模块 ZIP，模块内容 h1 同时匹配实际二进制元数据和对应源码中的 go.sum。源码包内仍需准确的前端来源记录、原始声明和重建工具材料；自动哈希检查不代替材料审核或 LGPL 重新链接演练。
 
 四份 Alpine ZIP 保留既有包格式：ALPINE-PACKAGES.json、FILE-SHA256SUMS.json、SOURCE-BINDINGS.json、GITMODES.json、SOURCE-ARCHIVE-FILES.json、NOTICE-INDEX.json、准确 aports/源文件/原始声明及重建说明。逐项验证文件、Git blob、APKBUILD SHA-512 输入和源归档内文件。清单字段区分大小写，实际镜像的 P/V/A/o/c/L 必须与相应平台材料一致。最终 IMAGE-MANIFEST.json 另将本次实际镜像 ID、镜像 tar 哈希、原始包数据库哈希与 OS 源码 ZIP 绑定；不会把历史镜像 ID 当作本次镜像 ID。
 
@@ -167,4 +167,4 @@ checkout/setup-node/setup-go/setup-python/pnpm/setup-ndk/Docker actions 保留�
 4. 用本次指定的真实前一正式版本及升级前完整快照，在 Windows amd64 原生 / SQLite 和 Linux amd64 Docker 镜像 / SQLite 上完成上述升级、重启、恢复及功能联合检查；保留 v0.1.0 首次布局迁移说明；新原生助手再次更新 / 失败恢复单列。WSLc 不再作为必验项。既有 TLS 和其他数据库检查按实际回归入口保留，不由本次调整扩大其正式支持声明。
 5. 实际发布前回读远端状态、权限和 environment 保护，并对准确目标、命令及影响取得当次授权。源码、版本、说明、锁文件或材料改变时保留旧证据，重新绑定输入、补受影响检查及构建/平台验收。
 
-本页不授权远端写入，也不从历史归档继承待办。v0.1.2 的已完成结果保留在原记录中；v0.1.3 的全版回归、正式材料、候选产物、平台验收和正式发布分别记录真实执行事实。
+本页不授权远端写入，也不从历史归档继承待办。v0.1.2 的已完成结果保留在原记录中；v0.1.4 的全版回归、正式材料、候选产物、平台验收和正式发布分别记录真实执行事实。

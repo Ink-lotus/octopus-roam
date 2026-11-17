@@ -19,7 +19,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import release_contract as contract
 
-VERSION = 'v0.1.3-rc.1'
+VERSION = 'v0.1.4-rc.1'
 COMMIT = 'a' * 40
 NOTES = f'# Octopus Roam {VERSION}\r\nReviewed synthetic notes.\r\n\r\n'.encode()
 
@@ -198,20 +198,20 @@ class ContractTests(unittest.TestCase):
 
     def test_identity_accepts_only_full_sha_and_target_release(self):
         contract.identity(VERSION, COMMIT)
-        contract.identity('v0.1.3', COMMIT)
-        contract.identity('v0.1.3-rc.123', COMMIT)
+        contract.identity('v0.1.4', COMMIT)
+        contract.identity('v0.1.4-rc.123', COMMIT)
         for version, commit in [('dev', COMMIT), ('v0.0.0-ci', COMMIT), ('v0.13.6', COMMIT),
                                 ('v0.1.0', COMMIT), ('v0.1.0-rc.1', COMMIT), ('v0.1.1', COMMIT), ('v0.1.2', COMMIT),
-                                ('v0.1.2-rc.1', COMMIT), ('v0.1.4', COMMIT),
-                                ('v0.1.3-local.x', COMMIT), ('v0.1.3-rc.0', COMMIT),
-                                ('v0.1.3-rc.01', COMMIT), ('v0.1.3\n', COMMIT),
-                                ('V0.1.3', COMMIT), (VERSION, 'abcdef1'), (VERSION, 'A' * 40)]:
+                                ('v0.1.2-rc.1', COMMIT), ('v0.1.3', COMMIT), ('v0.1.3-rc.1', COMMIT), ('v0.1.5', COMMIT),
+                                ('v0.1.4-local.x', COMMIT), ('v0.1.4-rc.0', COMMIT),
+                                ('v0.1.4-rc.01', COMMIT), ('v0.1.4\n', COMMIT),
+                                ('V0.1.4', COMMIT), (VERSION, 'abcdef1'), (VERSION, 'A' * 40)]:
             with self.subTest(version=version, commit=commit), self.assertRaises(contract.Invalid):
                 contract.identity(version, commit)
 
     def test_notes_version_must_match_exactly(self):
-        for title, version in [('# Release v0.1.3-rc.10', VERSION), ('# Release v0.1.3-rc.1', 'v0.1.3'),
-                               ('# Release v0.1.3+local', 'v0.1.3'), ('# Release v0.1.3beta', 'v0.1.3')]:
+        for title, version in [('# Release v0.1.4-rc.10', VERSION), ('# Release v0.1.4-rc.1', 'v0.1.4'),
+                               ('# Release v0.1.4+local', 'v0.1.4'), ('# Release v0.1.4beta', 'v0.1.4')]:
             with self.assertRaises(contract.Invalid):
                 contract.reviewed_notes(title, version)
 
@@ -319,7 +319,7 @@ class ContractTests(unittest.TestCase):
     def test_stale_materials_fail(self):
         expected, _ = material_fixture(self.root / 'materials')
         with self.assertRaises(contract.Invalid):
-            contract.materials(self.root / 'materials', 'v0.1.3-rc.2', COMMIT, expected)
+            contract.materials(self.root / 'materials', 'v0.1.4-rc.2', COMMIT, expected)
 
     def test_material_root_hash_fail(self):
         material_fixture(self.root / 'materials')
@@ -390,7 +390,7 @@ class ContractTests(unittest.TestCase):
     def test_wrong_image_version_and_arch_fail(self):
         path = self.root / 'image.tar'
         image_fixture(path, 'amd64', {'app/payload': b'fixture'})
-        for arch, version in [('arm64', VERSION), ('amd64', 'v0.1.3-rc.2')]:
+        for arch, version in [('arm64', VERSION), ('amd64', 'v0.1.4-rc.2')]:
             with self.assertRaises(contract.Invalid):
                 contract.image_files(path, ['app/payload'], arch, version, COMMIT)
 
@@ -440,7 +440,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('release_notes_sha256=' + contract.sha(NOTES), output.read_text())
         with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/test'}), self.assertRaises(contract.Invalid):
             contract.prepare(args)
-        for note in (f'# Release {VERSION}\n草稿', '# Release v0.1.3\nReviewed'):
+        for note in (f'# Release {VERSION}\n草稿', '# Release v0.1.4\nReviewed'):
             with patch.dict(os.environ, {'GITHUB_REF': 'refs/heads/main'}), \
                  patch.object(contract, 'read_release_notes', side_effect=lambda v, c: contract.reviewed_notes(note, v)), \
                  patch.object(contract.subprocess, 'run'), self.assertRaises(contract.Invalid):

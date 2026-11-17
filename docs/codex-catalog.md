@@ -96,4 +96,4 @@ Windows amd64 隔离开发程序已通过 91 项检查：默认关闭、直连�
 
 开发验收入口为 [scripts/test-codex-catalog.py](../scripts/test-codex-catalog.py)，使用 Python 标准库。传入已构建 Windows 程序、准确程序 SHA-256、至少两个版本的原样快照和全新输出目录；`--help` 列出参数。脚本创建隔离配置、SQLite 和合成测试数据，使用 `localhost:8080` 的另行获准测试网关，Key 从交互式标准输入读取，每轮最多四次真实推理请求。它正常停止自建进程并保留证据；执行前应明确这些配置、数据和请求的授权范围。
 
-C02 已完成同一 SHA 的 Windows/Linux/GitHub 完整 CI，Windows 实际开发 ZIP 的 91 项目录和 Linux 实际开发镜像的 116 项目录检查，以及两平台应用/升级/恢复、Linux 卷/Compose 和真实客户端验收；准确产物与范围见[支持证据](support.md)。目录原始快照摘要与网关源码/产物身份分别记录，同标签内容变化须重新核对。其他版本的 HTTP 取源成功不表示对应 CLI 已实测；这些 v0.0.0-ci 开发结果也不代替 v0.1.3 新候选的产物验收。
+C02 已完成同一 SHA 的 Windows/Linux/GitHub 完整 CI，Windows 实际开发 ZIP 的 91 项目录和 Linux 实际开发镜像的 116 项目录检查，以及两平台应用/升级/恢复、Linux 卷/Compose 和真实客户端验收；准确产物与范围见[支持证据](support.md)。目录原始快照摘要与网关源码/产物身份分别记录，同标签内容变化须重新核对。其他版本的 HTTP 取源成功不表示对应 CLI 已实测；这些 v0.0.0-ci 开发结果也不代替 v0.1.4 新候选的产物验收。

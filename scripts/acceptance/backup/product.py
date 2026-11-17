@@ -137,8 +137,11 @@ class Fixture(http.server.BaseHTTPRequestHandler):
 
 
 class Runtime:
-    def __init__(self, suite, name, legacy=False, data_source=None, compose=False):
+    def __init__(self, suite, name, legacy=False, data_source=None, compose=False, previous=False):
+        require(not (legacy and previous), "select only one historical artifact")
         self.suite, self.name, self.legacy, self.compose = suite, name, legacy, compose
+        self.previous = previous
+        self.expected_exit = 0
         self.root = suite.output / name
         self.root.mkdir()
         self.data = self.root / "data"
@@ -159,7 +162,7 @@ class Runtime:
         self.sequence = 0
         self.container = "roam-b04-" + suite.run_id + "-" + name
         if suite.platform == "windows":
-            archive = suite.legacy_zip if legacy else suite.archive
+            archive = suite.previous_zip if previous else suite.legacy_zip if legacy else suite.archive
             with zipfile.ZipFile(archive) as bundle:
                 for entry in bundle.infolist():
                     relative = pathlib.PurePosixPath(entry.filename)
@@ -168,7 +171,7 @@ class Runtime:
                     require(not target.exists(), "product ZIP would overwrite existing test data")
                 bundle.extractall(self.root)
             self.executable = self.root / "octopus-roam.exe"
-            if not legacy:
+            if not (legacy or previous):
                 require(sha(self.executable) == suite.binary_sha, "extracted product differs from built ZIP")
         suite.runtimes.append(self)
 
@@ -204,7 +207,8 @@ class Runtime:
             require(b"synthetic-b04-upstream" not in content, "import error exposed a credential")
         return content
 
-    def start(self):
+    def start(self, expect_hourly_failure=False):
+        require(not expect_hourly_failure or self.previous, "failure reproduction requires real v0.1.3")
         self.sequence += 1
         if self.suite.platform == "windows":
             env = {k: v for k, v in os.environ.items() if not k.startswith("OCTOPUS_ROAM_")}
@@ -216,13 +220,29 @@ class Runtime:
         elif self.container_created:
             self.suite.command(["docker", "start", self.container])
         else:
-            image = self.suite.legacy_image if self.legacy else self.suite.image
+            image = self.suite.previous_image if self.previous else self.suite.legacy_image if self.legacy else self.suite.image
             self.suite.command(["docker", "run", "--detach", "--name", self.container, "--label", "roam.task=backup-b04", "--label", "roam.run=" + self.suite.run_id, "--publish", f"127.0.0.1:{self.port}:8080", "--mount", f"type=bind,source={self.data},target=/app/data", "--env", "PUID=10001", "--env", "PGID=" + str(self.suite.data_gid), "--env", "OCTOPUS_ROAM_SKIP_STARTUP_PRICE_UPDATE=1", "--env", "OCTOPUS_ROAM_LOG_LEVEL=error", image])
             self.container_created = True
+        if expect_hourly_failure:
+            if self.suite.platform == "windows":
+                exit_code = self.process.wait(timeout=45)
+                log = (self.root / f"application-{self.sequence}.log").read_bytes()
+            else:
+                def exited():
+                    state = json.loads(self.suite.command(["docker", "inspect", "--format", "{{json .State}}", self.container]))
+                    return state if not state["Running"] else None
+                state = until(exited, self.name + " expected startup exit")
+                require(not state["OOMKilled"], "old startup was killed by OOM")
+                exit_code = state["ExitCode"]
+                log = self.suite.command(["docker", "logs", self.container], include_stderr=True).encode()
+                (self.root / f"application-{self.sequence}.log").write_bytes(log)
+            require(exit_code == 1 and b"stats_hourly hour " in log and b"must be between 0 and 23" in log and b"cache initialization failed" in log, "real v0.1.3 did not fail for historical hourly overflow")
+            self.expected_exit = 1
+            return
         until(lambda: self.api("/", raw=True), self.name + " readiness")
         self.api("/api/v1/user/login", "POST", {"username": "admin", "password": "admin", "expire": -1})
         version = self.api("/api/v1/update/now-version")
-        require(version == ("v0.1.2" if self.legacy else self.suite.version), "runtime version does not match selected artifact")
+        require(version == ("v0.1.3" if self.previous else "v0.1.2" if self.legacy else self.suite.version), "runtime version does not match selected artifact")
 
     def _compose_start(self):
         if not self.container_created:
@@ -244,7 +264,7 @@ class Runtime:
             if state["Running"]:
                 self.suite.command(["docker", "stop", "--time", "25", self.container])
                 state = json.loads(self.suite.command(["docker", "inspect", "--format", "{{json .State}}", self.container]))
-            require(state["ExitCode"] == 0 and not state["OOMKilled"], "container normal stop failed")
+            require(state["ExitCode"] == self.expected_exit and not state["OOMKilled"], "container exit does not match its recorded expectation")
 
     def remove_container(self):
         if not self.container_created:
@@ -265,15 +285,23 @@ class Suite:
         self.run_id = hashlib.sha256(str(self.output).encode()).hexdigest()[:10]
         self.metadata = json.loads((args.candidate / "build-info.json").read_text(encoding="utf-8-sig"))
         self.version = self.metadata["version"]
+        if self.metadata.get("role") == "derived-acceptance-layout":
+            require(args.version == self.version and args.commit == self.metadata["commit"]
+                    and args.artifact_sha256 == self.metadata["source_artifact_manifest_sha256"]
+                    and args.materials_sha256 == self.metadata["source_materials_sha256"],
+                    "derived candidate requires its four reviewed identity arguments")
         self.archive = args.candidate / "archives/octopus-roam-windows-amd64.zip"
         self.legacy_zip = args.legacy_zip
+        self.previous_zip = args.previous_zip
         self.image, self.legacy_image = args.image, args.legacy_image
+        self.previous_image = args.previous_image
         self.compose_file = args.compose_file
         self.data_gid = os.getgid() if self.platform == "docker" else None
         self.binary_sha = next(row["sha256"] for row in self.metadata["binaries"] if row["target"] == "windows/amd64")
         if self.platform == "windows":
             require(sha(self.archive) == next(row["sha256"] for row in self.metadata["archives"] if row["name"] == self.archive.name), "current ZIP hash differs")
             require(sha(self.legacy_zip) == "ec1d9bd3cd999488d55f64e504e2960cf2fca23d735825b2d6217d2febfc0af9", "real v0.1.2 ZIP hash differs")
+            require(self.previous_zip and sha(self.previous_zip) == "86f6335421a481ade2b324b3d427f38c60c61251ac3e66e292ced8778d3ea21f", "real v0.1.3 ZIP hash differs")
             bind = "127.0.0.1"
         else:
             # Docker's containerd store identifies this exact saved image by its
@@ -281,6 +309,8 @@ class Suite:
             # to the independently verified v0.1.2 config and layer contents.
             legacy_ids = ("sha256:907f1080901cea2eb105a277ff3ea7ee5c52c7dc6334e15a418fd8d26ad446fd", "sha256:9525262a0c093e8fc40ea19ce8607a31659a3bf3f9cbac45e1ade40517086963")
             require(self.image.startswith("sha256:") and self.legacy_image in legacy_ids, "immutable Docker image IDs are required")
+            previous_ids = ("sha256:3bd71858fd6c338a9b36c1a656062f11f564c31e447d1ee72bf77c3e36160e3e", "sha256:327120b7cf3f287591e052539665ab57600c682461fa44b09240b25ed03e6983")
+            require(self.previous_image in previous_ids, "verified real v0.1.3 Docker identity is required")
             bind = self.command(["docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"]).strip()
         self.fixture_server = http.server.ThreadingHTTPServer((bind, 0), Fixture)
         self.fixture_server.daemon_threads = True
@@ -296,12 +326,12 @@ class Suite:
         self.runtimes, self.checks = [], []
         self.hold = args.hold_for_browser
 
-    def command(self, arguments, additions=None):
+    def command(self, arguments, additions=None, include_stderr=False):
         result = subprocess.run(arguments, capture_output=True, env={**os.environ, **(additions or {})}, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         with (self.output / "commands.jsonl").open("a", encoding="utf-8") as output:
             output.write(json.dumps({"command": arguments, "exit_code": result.returncode}) + "\n")
         require(result.returncode == 0, pathlib.Path(arguments[0]).name + " command failed")
-        return result.stdout.decode("utf-8", errors="replace")
+        return (result.stdout + (result.stderr if include_stderr else b"")).decode("utf-8", errors="replace")
 
     def check(self, name, function):
         started = time.monotonic()
@@ -384,6 +414,44 @@ class Suite:
             write_json(self.output / "healthy-preupgrade-manifest.json", manifest)
             return self.before
         self.check("real-v012-seed-normal-stop-complete-copy", seed_old)
+
+        def failed_v013_recovery():
+            failed = Runtime(self, "real-v013-hourly-failure", previous=True, data_source=self.old_copy)
+            failed.start(expect_hourly_failure=True)
+            before = database_state(failed.db)
+            require(before["live_business_sha256"] == self.before["live_business_sha256"], "v0.1.3 failure changed prior legitimate business values")
+            require({16: 1, 17: 1}.items() <= dict(before["migrations"]).items() and 18 not in dict(before["migrations"]), "failed v0.1.3 did not complete exactly the expected migration boundary")
+            require(expected_archives(failed.db) == self.hourly_expected, "migration 17 changed original overflow values")
+            recovered = Runtime(self, "real-v013-failure-recovered", data_source=failed.data)
+            recovered.start()
+            after = database_state(recovered.db)
+            require(after["live_business_sha256"] == before["live_business_sha256"], "recovery changed legitimate business data")
+            verify_archives(recovered.db, self.hourly_expected)
+            require(dict(after["migrations"]).get(18) == 1, "recovery did not complete migration 18")
+            recovered.stop()
+            stopped = database_state(recovered.db)
+            recovered.start()
+            require(database_state(recovered.db)["business_sha256"] == stopped["business_sha256"], "second startup duplicated archives or changed data")
+            verify_archives(recovered.db, self.hourly_expected)
+            recovered.stop()
+            return {"previous_version": "v0.1.3", "previous_exit": 1, "before_migrations": before["migrations"], "after_migrations": after["migrations"], "archived_rows": len(self.hourly_expected), "legitimate_data_preserved": True, "repeated_startup": True}
+        self.check("real-v013-migration17-startup-failure-and-v014-recovery", failed_v013_recovery)
+
+        def healthy_v013_upgrade():
+            previous = Runtime(self, "healthy-v013", previous=True)
+            previous.start()
+            previous.import_backup(json.dumps(self.seed).encode())
+            previous.stop()
+            require(not expected_archives(previous.db), "healthy v0.1.3 fixture has overflow")
+            before = database_state(previous.db)
+            current = Runtime(self, "healthy-v013-upgraded", data_source=previous.data)
+            current.start()
+            after = database_state(current.db)
+            require(after["business_sha256"] == before["business_sha256"], "normal v0.1.3 upgrade changed business values")
+            verify_archives(current.db, [])
+            current.stop()
+            return {"normal_v013_upgrade": True, "unchanged_business_sha256": before["business_sha256"], "archived_rows": 0}
+        self.check("normal-v013-database-upgrade-preserves-data", healthy_v013_upgrade)
         upgraded = Runtime(self, "healthy-upgraded", data_source=self.old_copy)
 
         def upgrade():
@@ -447,9 +515,11 @@ class Suite:
             restored.import_backup(raw, "incorrect-synthetic-password", expected=400)
             require(database_state(restored.db, True)["business_sha256"] == before["business_sha256"], "wrong password changed data")
             restored.import_backup(raw, password)
+            restored.import_backup(raw, password)
             restored.stop()
             upgraded.stop()
             require(database_state(restored.db)["business_sha256"] == database_state(upgraded.db)["business_sha256"], "restored actual business rows differ")
+            verify_archives(restored.db, self.hourly_expected)
             restored.start()
             require(restored.api("/api/v1/channel/detail/1")["max_concurrency"] == 9, "restored cache lost saved configuration")
             restored.stop()
@@ -462,6 +532,9 @@ class Suite:
             fallback = Runtime(self, "old-complete-copy-recovery", legacy=True, data_source=self.old_copy)
             fallback.start()
             require(database_state(fallback.db)["business_sha256"] == self.before["business_sha256"], "old artifact with pre-upgrade copy differs")
+            before_reject = database_state(fallback.db)
+            fallback.import_backup(self.encrypted, password, expected=400)
+            require(database_state(fallback.db)["business_sha256"] == before_reject["business_sha256"], "old program changed data while rejecting content 1004")
             fallback.stop()
             return {"real_old_artifact": True, "preupgrade_complete_copy": True, "normal_exit": True}
         self.check("old-artifact-and-complete-preupgrade-copy-recovery", rollback)
@@ -568,23 +641,29 @@ class Suite:
                 runtime.stop()
                 if self.platform == "docker":
                     runtime.remove_container()
-                result.append({"runtime": runtime.name, "normal_stop": True, "owned_container_removed": self.platform == "docker"})
+                result.append({"runtime": runtime.name, "expected_exit_verified": True, "expected_exit": runtime.expected_exit, "normal_stop": runtime.expected_exit == 0, "owned_container_removed": self.platform == "docker"})
             except Exception as error:
-                result.append({"runtime": runtime.name, "normal_stop": False, "error_type": type(error).__name__})
+                result.append({"runtime": runtime.name, "expected_exit_verified": False, "normal_stop": False, "error_type": type(error).__name__})
         self.fixture_server.shutdown()
         self.fixture_server.server_close()
         self.fixture_thread.join(timeout=5)
         write_json(self.output / "cleanup.json", result)
-        require(all(row["normal_stop"] for row in result), "one or more owned runtimes did not stop cleanly")
+        require(all(row["expected_exit_verified"] for row in result), "one or more owned runtimes did not exit as expected")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--platform", choices=("windows", "docker"), required=True)
     parser.add_argument("--candidate", type=pathlib.Path, required=True)
+    parser.add_argument("--version")
+    parser.add_argument("--commit")
+    parser.add_argument("--artifact-sha256")
+    parser.add_argument("--materials-sha256")
     parser.add_argument("--legacy-zip", type=pathlib.Path)
+    parser.add_argument("--previous-zip", type=pathlib.Path)
     parser.add_argument("--image", default="")
     parser.add_argument("--legacy-image", default="")
+    parser.add_argument("--previous-image", default="")
     parser.add_argument("--compose-file", type=pathlib.Path)
     parser.add_argument("--fixture", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path, required=True)
@@ -602,7 +681,8 @@ def main():
             passed = False
             raise
         finally:
-            write_json(suite.output / "summary.json", {"passed": passed, "platform": args.platform, "version": suite.version, "source_commit": suite.metadata["source_commit"], "source_commit_exact": suite.metadata["source_commit_exact"], "source_tree_sha256": suite.metadata["source_tree_sha256"], "current_image": suite.image or None, "old_image": suite.legacy_image or None, "checks": len(suite.checks), "browser_requested": suite.hold, "upstream_calls": Fixture.calls, "acceptance_script_sha256": sha(__file__)})
+            derived = suite.metadata.get("role") == "derived-acceptance-layout"
+            write_json(suite.output / "summary.json", {"passed": passed, "platform": args.platform, "version": suite.version, "source_commit": suite.metadata["commit"] if derived else suite.metadata["source_commit"], "source_commit_exact": True if derived else suite.metadata["source_commit_exact"], "source_tree_sha256": sha(args.candidate / "source-input-sha256sums.txt") if derived else suite.metadata["source_tree_sha256"], "artifact_sha256": args.artifact_sha256, "materials_sha256": args.materials_sha256, "candidate_metadata_sha256": sha(args.candidate / "build-info.json"), "current_image": suite.image or None, "old_image": suite.legacy_image or None, "previous_image": suite.previous_image or None, "checks": len(suite.checks), "browser_requested": suite.hold, "upstream_calls": Fixture.calls, "acceptance_script_sha256": sha(__file__), "hourly_helper_sha256": sha(pathlib.Path(__file__).with_name("hourly_archive.py"))})
 
 
 if __name__ == "__main__":

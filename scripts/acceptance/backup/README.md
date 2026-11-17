@@ -38,3 +38,7 @@ B02 不猜测移动、合并或恢复已有错位统计。B03 增加 `--stage in
 B04 的 `--stage matrix --scenario C01` 至 `C08` 各使用独立新库，逐组核对数据库、关联、缓存、首次渠道保存、九类实体真正新增、统计落库和重连。`--stage cross-export` 将真实源库再导出的加密备份写入新 `--cross-backup` 文件；`--stage cross-import` 在空目标库恢复该文件，逐字段比较持久化内容后再保存、新增和重连。`run-joint-linux.sh` 在三库运行全部组合，并保留 B01～B03 的失败、并发、迁移与午夜回归。
 
 `--stage fixture-json --cross-backup <new-path>` 只将通过固定合成数据身份校验的夹具转换为明文，供真实旧产品的 HTTP 导入验收；不接受任意用户备份。报告的 `source_commit_exact=false` 明确表示输入尚未提交，此时必须同时保留完整文件清单 SHA-256，不能把基线 HEAD 当作修复后源码的准确提交。
+
+v0.1.4 的 `product.py` 与同目录 `hourly_archive.py` 必须一同传输。Windows 使用 `--legacy-zip` 指定真实 v0.1.2 ZIP、`--previous-zip` 指定真实 v0.1.3 ZIP；Linux 对应 `--legacy-image` 和 `--previous-image`，均核对已发布产物的准确身份。当前 `--candidate` 在执行前通过 `release_acceptance.py verify-layout`，派生布局还须提供 `--version`、`--commit`、`--artifact-sha256`、`--materials-sha256` 四项外部审核身份；Linux 实际镜像须先按 sealed artifact 核对配置、层与程序，再传入不可变 ID。
+
+产品场景覆盖真实 v0.1.2 旧结构的重复午夜遗留行、真实 v0.1.3 完成迁移 17 后因越界退出、v0.1.4 从两个起点归档升级，以及正常 v0.1.3 库升级。独立 Python 按原始 SQLite 列类型和值计算期望归档，核对合法业务数据、重复启动、1004 加密备份空库恢复/重复导入及旧程序拒绝。Linux 另覆盖数据卷用户/权限、同卷重建和 Compose。仅操作新隔离目录与本轮标识容器，保留原始数据和失败证据；失败复现的退出 1 与正常停止的退出 0 分别记录。

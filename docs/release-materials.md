@@ -1,20 +1,20 @@
 # 材料生产与验收目录入口
 
-当前脚本只接受 `v0.1.3` / `v0.1.3-rc.N`（N 为无前导零的正整数）、main 历史中的完整小写 40 位 commit SHA 和该 commit 的 Unix 时间戳。本轮准备 v0.1.3，候选显式使用 `publish=false`；正式发布另行授权，v0.1.2 及更早公开产物保持原样。材料生产仍须先完成回归并冻结准确源码，再审查真实来源、许可证、Go 1.27.3 复建和 LGPL 再链接，生产全部 11 个程序 ZIP 及四架构镜像。所有完成结论以本轮准确输入和实际结果为准。
+当前脚本只接受 `v0.1.4` / `v0.1.4-rc.N`（N 为无前导零的正整数）、main 历史中的完整小写 40 位 commit SHA 和该 commit 的 Unix 时间戳。本轮准备 v0.1.4，候选显式使用 `publish=false`；正式发布另行授权，v0.1.3 及更早公开产物保持原样。材料生产仍须先完成回归并冻结准确源码，再审查真实来源、许可证、Go 1.27.3 复建和 LGPL 再链接，生产全部 11 个程序 ZIP 及四架构镜像。所有完成结论以本轮准确输入和实际结果为准。
 
-后续版本按[当前支持矩阵](support.md)和[发布门禁](release-ci.md)准备材料：Windows amd64 原生 / SQLite，以及 Linux amd64 宿主上的 Docker Engine / amd64 镜像 / SQLite，包含文档提供的 Compose 入口。Linux 首次开发产物应用验收已由 C02 的 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成，v0.1.3 新候选仍独立验收；WSL2 / WSL Containers 为预期兼容，不再设置独立发布必验项。其余目标保持原有实验性或范围外状态，产物合同仍要求全部 11 ZIP、四架构镜像、对应源码、编译版本和完整哈希。
+后续版本按[当前支持矩阵](support.md)和[发布门禁](release-ci.md)准备材料：Windows amd64 原生 / SQLite，以及 Linux amd64 宿主上的 Docker Engine / amd64 镜像 / SQLite，包含文档提供的 Compose 入口。Linux 首次开发产物应用验收已由 C02 的 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成，v0.1.4 新候选仍独立验收；WSL2 / WSL Containers 为预期兼容，不再设置独立发布必验项。其余目标保持原有实验性或范围外状态，产物合同仍要求全部 11 ZIP、四架构镜像、对应源码、编译版本和完整哈希。
 
-当前 Release Notes 路径固定为该 commit 的 `docs/releases/v0.1.3.md` Git blob。`main.go` 的版本注释、`web/package.json` 的无 `v` 版本、说明首行和所有命令的版本必须一致。脚本保留说明原字节（包括换行和尾部空行），不读工作区替代文件或旧 `plan/` 路径。说明的 `release_notes_path` / `release_notes_sha256` 贯通材料、生产记录、build、artifact 及派生验收目录；RC 转正式版需要新准确 commit、重新审核和重新生成对应输入，不能只重命名附件。
+当前 Release Notes 路径固定为该 commit 的 `docs/releases/v0.1.4.md` Git blob。`main.go` 的版本注释、`web/package.json` 的无 `v` 版本、说明首行和所有命令的版本必须一致。脚本保留说明原字节（包括换行和尾部空行），不读工作区替代文件或旧 `plan/` 路径。说明的 `release_notes_path` / `release_notes_sha256` 贯通材料、生产记录、build、artifact 及派生验收目录；RC 转正式版需要新准确 commit、重新审核和重新生成对应输入，不能只重命名附件。
 
 ### 支持范围与交付文案
 
-v0.1.3 的说明与材料使用一致的支持范围，并区分开发验收、候选和正式发布 run 的结果：
+v0.1.4 的说明与材料使用一致的支持范围，并区分开发验收、候选和正式发布 run 的结果：
 
 - `INSTALL.md`：写明 Windows 原生与 Linux amd64 Docker / Compose 安装入口、Linux 专用数据目录和运行用户权限、正常停止、旧版升级及备份恢复；WSL2 / WSL Containers 仅标为预期兼容。按支持矩阵引用 C02 首次开发验收和本轮候选的各自准确产物，不混用结论。
 - 源码 ZIP 顶层 README 和 `application/` 下的双语 README：写明相同平台与数据库范围、实验性目标和完整交付矩阵。安装说明与源码包顶层 README 须自含支持范围，不能只给仓库文档链接。
-- 新版 Release Notes 与 CHANGELOG：记录支持范围和发布门禁调整，引用本次真实平台验收。本轮变化记录在 [CHANGELOG 的 v0.1.3 条目](../CHANGELOG.md)；不修改已发布的 v0.1.2 或更早版本说明。
+- 新版 Release Notes 与 CHANGELOG：记录支持范围和发布门禁调整，引用本次真实平台验收。本轮变化记录在 [CHANGELOG 的 v0.1.4 条目](../CHANGELOG.md)；不修改已发布的 v0.1.3 或更早版本说明。
 
-当前统一状态为：Windows amd64 原生 + SQLite 和 Linux amd64 Docker / Compose + SQLite 正式支持，C02 的首次开发产物应用验收已完成；v0.1.3 候选必须使用本轮新 ZIP/镜像完成验收。WSL2 / WSL Containers 预期兼容，不再单列发布必验项。C02 准确输入、产物摘要与范围见[支持矩阵](support.md)。
+当前统一状态为：Windows amd64 原生 + SQLite 和 Linux amd64 Docker / Compose + SQLite 正式支持，C02 的首次开发产物应用验收已完成；v0.1.4 候选必须使用本轮新 ZIP/镜像完成验收。WSL2 / WSL Containers 预期兼容，不再单列发布必验项。C02 准确输入、产物摘要与范围见[支持矩阵](support.md)。
 
 `INSTALL.md` 来自审核输入中的独立文档，源码包顶层 README 来自 `source-template.zip`；仓库没有独立的自动文案模板。生产器不会根据本页自动改写它们。准备下一批材料时更新这两处输入及模板内的相应副本，核对同一批内容与哈希；已经封存或公开的说明、源码包和其他附件保留原样。
 
@@ -25,7 +25,7 @@ v0.1.3 的说明与材料使用一致的支持范围，并区分开发验收、�
 ```json
 {
   "schema": 1,
-  "version": "v0.1.3-rc.1",
+  "version": "v0.1.4-rc.1",
   "commit": "<完整候选SHA>",
   "source": {"path": "source-template.zip", "sha256": "<实际SHA256>"},
   "license_report": {"path": "THIRD_PARTY_LICENSES.csv", "sha256": "<实际SHA256>"},
@@ -46,7 +46,7 @@ v0.1.3 的说明与材料使用一致的支持范围，并区分开发验收、�
 }
 ```
 
-源码模板遵守 [发布 CI 合同](release-ci.md) 的源码 ZIP 布局和完整 `SHA256SUMS`，包括目标 commit 的 application、实际 Go/npm 对应源码、原始声明、准确 `release-source.json` 和重建说明。application 中除 `static/out/` 外的文件集合及字节必须与准确 checkout 一致，其中 `application/docs/releases/v0.1.3.md` 必须等于该 commit 的说明 blob。`release-source.json` 仍只有 `schema`、`version`、`commit`、`platforms` 四个字段。Release Notes 是 application 的受跟踪输入，不是 `inputs.json.documents` 的第六份独立说明；五份说明、CSV 必须与独立输入一致。模板不能带上一轮的 `material-production.json` 或 `tool-inputs.json`。
+源码模板遵守 [发布 CI 合同](release-ci.md) 的源码 ZIP 布局和完整 `SHA256SUMS`，包括目标 commit 的 application、实际 Go/npm 对应源码、原始声明、准确 `release-source.json` 和重建说明。application 中除 `static/out/` 外的文件集合及字节必须与准确 checkout 一致，其中 `application/docs/releases/v0.1.4.md` 必须等于该 commit 的说明 blob。`release-source.json` 仍只有 `schema`、`version`、`commit`、`platforms` 四个字段。Release Notes 是 application 的受跟踪输入，不是 `inputs.json.documents` 的第六份独立说明；五份说明、CSV 必须与独立输入一致。模板不能带上一轮的 `material-production.json` 或 `tool-inputs.json`。
 
 模板可以保留历史前端输出供输入审查，但生产器会明确用这次真实生成的 `static/out/` 替换它；不会继承其旧前端哈希。其他目录、来源目录中的说明、重建脚本和来源记录须按准确候选完成审查，生产器不会猜测或自动修订它们。与前一批材料的 Go/npm 锁文件及工具版本相同时，可逐项核对来源和哈希后复用未变材料；应用源码、前端、版本、说明、生产记录和相关哈希必须重新生成。
 
@@ -126,6 +126,6 @@ pwsh -NoProfile -File scripts/prepare-database-acceptance.ps1 -Candidate $newAcc
 node scripts/test-release-acceptance.mjs $newAcceptanceLayout $newRuntimeRoot $rcVersion $rcCommit $artifactSha $materialsSha
 ```
 
-其中业务场景使用原程序；当前 loopback 更新场景从同源源码编译独立 overlay，以合成的 `v0.1.3-rc.1 → v0.1.3-rc.2` 验证更新机制，报告记录这一边界。它不能替代真实前一正式版本到本次候选的升级验收，也不会自动完成 Linux 容器验收。Windows 原生与 Linux amd64 Docker / Compose 两个正式支持目标须使用同一批准确产物完成真实旧程序升级、持久化恢复及功能联合回归；Linux 另验证数据卷权限、正常启停和同卷容器重建。候选原生更新助手的再次更新和失败恢复单独记录，WSLc 不再作为必验项。首次 Windows 手动迁移及回滚损失见 [升级说明](upgrade-r1.md)，C02 首次 Linux 开发验收及后续产物边界见[支持矩阵](support.md)。MySQL/PostgreSQL、其他平台和环境保持既有支持状态。
+其中业务场景使用原程序；当前 loopback 更新场景从同源源码编译独立 overlay，以合成的 `v0.1.4-rc.1 → v0.1.4-rc.2` 验证更新机制，报告记录这一边界。它不能替代真实前一正式版本到本次候选的升级验收，也不会自动完成 Linux 容器验收。Windows 原生与 Linux amd64 Docker / Compose 两个正式支持目标须使用同一批准确产物完成真实旧程序升级、持久化恢复及功能联合回归；Linux 另验证数据卷权限、正常启停和同卷容器重建。候选原生更新助手的再次更新和失败恢复单独记录，WSLc 不再作为必验项。首次 Windows 手动迁移及回滚损失见 [升级说明](upgrade-r1.md)，C02 首次 Linux 开发验收及后续产物边界见[支持矩阵](support.md)。MySQL/PostgreSQL、其他平台和环境保持既有支持状态。
 
-`build-local.ps1` 默认生成 `v0.1.3-local.<timestamp>`，旧 `build-info.json` 路径仍保留历史兼容。开发 CI 继续接受其开发版本；未绑定说明或完整材料的本地构建不能封存、通过发布 verify，亦不能携带新 artifact 审核参数冒充新候选。
+`build-local.ps1` 默认生成 `v0.1.4-local.<timestamp>`，旧 `build-info.json` 路径仍保留历史兼容。开发 CI 继续接受其开发版本；未绑定说明或完整材料的本地构建不能封存、通过发布 verify，亦不能携带新 artifact 审核参数冒充新候选。
