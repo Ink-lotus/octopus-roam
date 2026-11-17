@@ -266,7 +266,12 @@ func (s *suite) assertStatisticsHours(expected []model.StatsHourly) error {
 func statisticsSnapshot(conn *gorm.DB) (string, error) {
 	rows := map[string]any{"stats_totals": &[]model.StatsTotal{}, "stats_hourlies": &[]model.StatsHourly{}, "stats_api_keys": &[]model.StatsAPIKey{}}
 	for table, value := range rows {
-		if err := conn.Table(table).Find(value).Error; err != nil {
+		query := conn.Table(table)
+		// Overflow is independently checked against hourly18_expected_fixture.
+		if table == "stats_hourlies" && conn.Dialector.Name() == "sqlite" {
+			query = query.Where("hour < 24")
+		}
+		if err := query.Find(value).Error; err != nil {
 			return "", err
 		}
 	}
@@ -350,6 +355,9 @@ func (s *suite) prepareStatisticsUpgrade(dump *model.DBDump) error {
 			}
 			return nil
 		}); err != nil {
+			return nil, err
+		}
+		if err := seedHourlyArchiveFixture(conn); err != nil {
 			return nil, err
 		}
 		phase = "legacy secondary indexes"
@@ -452,11 +460,14 @@ func (s *suite) verifyStatisticsUpgrade(_ *model.DBDump) error {
 		if err != nil {
 			return nil, err
 		}
+		if err := verifyHourlyArchiveFixture(db.GetDB()); err != nil {
+			return nil, err
+		}
 		if stats != identity.StatsHash || entities != identity.EntityHash {
 			return nil, &assertionFailure{"upgrade changed legacy business rows"}
 		}
 		var records []migrate.MigrationRecord
-		if err := db.GetDB().Order("version").Find(&records).Error; err != nil || len(records) != 15 {
+		if err := db.GetDB().Order("version").Find(&records).Error; err != nil || len(records) != 16 {
 			return nil, &assertionFailure{"upgrade lost or duplicated migration records"}
 		}
 		for i, record := range records {

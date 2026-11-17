@@ -12,6 +12,7 @@ import (
 type Migration struct {
 	Version int
 	Up      func(db *gorm.DB) error
+	Atomic  bool // Run data changes and success record in one transaction. No implicit-commit DDL.
 }
 
 type MigrationRecordStatus int
@@ -93,6 +94,24 @@ func runMigrationsWithRecord(db *gorm.DB, migrations []Migration) error {
 
 		// 已成功则跳过
 		if st, ok := statusByVersion[m.Version]; ok && st == MigrationRecordStatusSuccess {
+			continue
+		}
+
+		// Atomic migrations include the success marker in the data transaction.
+		if m.Atomic {
+			err := db.Transaction(func(tx *gorm.DB) error {
+				if err := m.Up(tx); err != nil {
+					return err
+				}
+				return upsertMigrationRecord(tx, m.Version, MigrationRecordStatusSuccess)
+			})
+			if err != nil {
+				if recordErr := upsertMigrationRecord(db, m.Version, MigrationRecordStatusFailed); recordErr != nil {
+					return fmt.Errorf("migration %d rolled back: %w; failed to record retry status: %v", m.Version, err, recordErr)
+				}
+				return fmt.Errorf("migration %d rolled back: %w", m.Version, err)
+			}
+			statusByVersion[m.Version] = MigrationRecordStatusSuccess
 			continue
 		}
 

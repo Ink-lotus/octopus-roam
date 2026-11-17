@@ -7,6 +7,7 @@ No production connection, release transport or application source is patched.
 import argparse
 import copy
 import hashlib
+from hourly_archive import seed_legacy_hours, expected_archives, verify_archives
 import http.client
 import http.cookiejar
 import http.server
@@ -78,10 +79,18 @@ def database_state(path, entities_only=False):
             rows = [list(row) for row in conn.execute('SELECT * FROM "' + name + '"')]
             rows.sort(key=lambda row: json.dumps(row, sort_keys=True, default=str))
             result[name] = rows
+        live = copy.deepcopy(result)
+        live.pop("stats_hourly_archives", None)
+        if "stats_hourlies" in live:
+            hour_index = [row[1] for row in conn.execute("PRAGMA table_info(stats_hourlies)")].index("hour")
+            live["stats_hourlies"] = [row for row in live["stats_hourlies"] if row[hour_index] < 24]
+        live_encoded = json.dumps(live, sort_keys=True, separators=(",", ":"), default=str).encode()
+        if not entities_only:
+            result.setdefault("stats_hourly_archives", [])
         encoded = json.dumps(result, sort_keys=True, separators=(",", ":"), default=str).encode()
         migrations = list(conn.execute("SELECT version,status FROM migration_records ORDER BY version"))
         members = list(conn.execute("SELECT id,group_id,channel_grant_id FROM group_items ORDER BY id"))
-        return {"business_sha256": hashlib.sha256(encoded).hexdigest(), "counts": {k: len(v) for k, v in result.items()}, "migrations": migrations, "members": members}
+        return {"live_business_sha256": hashlib.sha256(live_encoded).hexdigest(), "business_sha256": hashlib.sha256(encoded).hexdigest(), "counts": {k: len(v) for k, v in result.items()}, "migrations": migrations, "members": members}
 
 
 class Fixture(http.server.BaseHTTPRequestHandler):
@@ -363,6 +372,9 @@ class Suite:
             old.import_backup(json.dumps(self.seed).encode())
             self.chat(old)
             old.stop()
+            seed_legacy_hours(old.db)
+            self.hourly_expected = expected_archives(old.db)
+            require(len(self.hourly_expected) >= 32, "historical midnight fixture was not created")
             self.before = database_state(old.db)
             require(max(v for v, _ in self.before["migrations"]) == 15, "old schema was not produced by v0.1.2")
             self.old_copy = self.output / "healthy-preupgrade-complete"
@@ -377,8 +389,9 @@ class Suite:
         def upgrade():
             upgraded.start()
             after = database_state(upgraded.db)
-            require(after["business_sha256"] == self.before["business_sha256"], "upgrade changed prior business values")
-            require({16: 1, 17: 1}.items() <= dict(after["migrations"]).items(), "new migrations are not successful")
+            require(after["live_business_sha256"] == self.before["live_business_sha256"], "upgrade changed prior legitimate business values")
+            verify_archives(upgraded.db, self.hourly_expected)
+            require({16: 1, 17: 1, 18: 1}.items() <= dict(after["migrations"]).items(), "new migrations are not successful")
             detail = upgraded.api("/api/v1/channel/detail/1")
             detail["max_concurrency"] = 9
             detail["auto_add_groups"] = True
@@ -386,7 +399,7 @@ class Suite:
             require(len(upgraded.api("/api/v1/group/list")[0]["items"]) == 3, "first product save did not add exactly one member")
             upgraded.api("/api/v1/channel/update", "POST", detail)
             require(len(upgraded.api("/api/v1/group/list")[0]["items"]) == 3, "repeat product save duplicated a member")
-            return {"before": self.before["business_sha256"], "after": after["business_sha256"], "migrations": after["migrations"], "first_save_members": 3}
+            return {"before_live": self.before["live_business_sha256"], "after_live": after["live_business_sha256"], "archived_hourly_rows": len(self.hourly_expected), "migrations": after["migrations"], "first_save_members": 3}
         self.check("new-artifact-upgrade-first-save-repeat-save", upgrade)
 
         def routes():

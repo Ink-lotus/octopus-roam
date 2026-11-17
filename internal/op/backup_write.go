@@ -27,10 +27,10 @@ func lockBackupTables(tx *gorm.DB) error {
 	case "sqlite":
 		return tx.Exec("UPDATE channels SET id = id WHERE 1 = 0").Error
 	case "postgres":
-		return tx.Exec("LOCK TABLE llm_infos, settings, stats_totals, stats_dailies, stats_hourlies, stats_api_keys IN SHARE ROW EXCLUSIVE MODE").Error
+		return tx.Exec("LOCK TABLE llm_infos, settings, stats_totals, stats_dailies, stats_hourlies, stats_api_keys, stats_hourly_archives IN SHARE ROW EXCLUSIVE MODE").Error
 	case "mysql":
 		// Match the parent/child order of sequence.LockForImport and ordinary writes.
-		for _, row := range []any{&model.Channel{}, &model.ChannelKey{}, &model.ChannelModel{}, &model.ChannelGrant{}, &model.GroupCategory{}, &model.Group{}, &model.GroupItem{}, &model.APIKey{}, &model.WebhookEndpoint{}, &model.LLMInfo{}, &model.Setting{}, &model.StatsTotal{}, &model.StatsDaily{}, &model.StatsHourly{}, &model.StatsAPIKey{}} {
+		for _, row := range []any{&model.Channel{}, &model.ChannelKey{}, &model.ChannelModel{}, &model.ChannelGrant{}, &model.GroupCategory{}, &model.Group{}, &model.GroupItem{}, &model.APIKey{}, &model.WebhookEndpoint{}, &model.LLMInfo{}, &model.Setting{}, &model.StatsTotal{}, &model.StatsDaily{}, &model.StatsHourly{}, &model.StatsAPIKey{}, &model.StatsHourlyArchive{}} {
 			s, err := backupSchema(tx, row)
 			if err != nil {
 				return err
@@ -160,6 +160,25 @@ func verifyBackupWrites(plans []backupWritePlan, final *model.DBDump, categories
 			stored[backupField(s, row, table.key)] = row
 		}
 		input := reflect.ValueOf(table.rows)
+		if table.name == "stats_hourly_archives" {
+			wanted := map[any]reflect.Value{}
+			for key, row := range plan.existing {
+				wanted[key] = row
+			}
+			for i := 0; i < input.Len(); i++ {
+				row := input.Index(i)
+				wanted[backupField(s, row, table.key)] = row
+			}
+			if len(wanted) != len(stored) {
+				return backupProblem(ErrBackupWrite, table.name, 0, "archived evidence set changed")
+			}
+			for key, row := range wanted {
+				actual, ok := stored[key]
+				if !ok || !reflect.DeepEqual(row.Interface(), actual.Interface()) {
+					return backupProblem(ErrBackupWrite, table.name, 0, "archived evidence changed")
+				}
+			}
+		}
 		for i := 0; i < input.Len(); i++ {
 			row := input.Index(i)
 			key := backupField(s, row, table.key)

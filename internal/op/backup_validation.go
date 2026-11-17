@@ -47,6 +47,7 @@ func backupTables(d *model.DBDump) []backupTable {
 		{"stats_dailies", d.StatsDaily, "date", nil, nil, nil, true},
 		{"stats_hourlies", d.StatsHourly, "hour", nil, nil, nil, true},
 		{"stats_api_keys", d.StatsAPIKey, "api_key_id", nil, nil, nil, true},
+		{"stats_hourly_archives", d.StatsHourlyArchives, "id", nil, nil, nil, false},
 	}
 }
 

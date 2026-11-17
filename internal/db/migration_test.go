@@ -23,8 +23,8 @@ func TestInitDBRunsMigrationsForEveryDatabase(t *testing.T) {
 			if err := GetDB().Order("version").Find(&records).Error; err != nil {
 				t.Fatal(err)
 			}
-			if len(records) != 15 {
-				t.Fatalf("got %d migration records, want all versions 3 through 17", len(records))
+			if len(records) != 16 {
+				t.Fatalf("got %d migration records, want all versions 3 through 18", len(records))
 			}
 			for i, record := range records {
 				if record.Version != i+3 || record.Status != migrate.MigrationRecordStatusSuccess {

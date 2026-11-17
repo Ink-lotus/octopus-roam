@@ -185,6 +185,12 @@ func (s *suite) makeFixture() error {
 		if err != nil {
 			return nil, err
 		}
+		// This newly generated synthetic fixture targets authentic v0.1.2 as
+		// well as current builds. It has no archive and uses only 1003 fields.
+		if len(dump.StatsHourlyArchives) != 0 {
+			return nil, errors.New("synthetic legacy fixture unexpectedly contains an archive")
+		}
+		dump.Version = 1003
 		raw, err := op.EncryptBackup(dump, fixturePassword)
 		if err != nil {
 			return nil, err

@@ -21,12 +21,12 @@ import (
 
 const (
 	dumpProduct   = "octopus-roam"
-	dbDumpVersion = 1003
+	dbDumpVersion = 1004
 )
 
 // 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
 var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
-var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, 1002: {}, dbDumpVersion: {}}
+var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, 1002: {}, 1003: {}, dbDumpVersion: {}}
 
 var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
 
@@ -62,6 +62,12 @@ func DBExportAll(ctx context.Context) (*model.DBDump, error) {
 		return err
 	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
+		return nil, err
+	}
+	if err := validateStatsPrimaryKeys(dump.StatsTotal, dump.StatsHourly, dump.StatsAPIKey); err != nil {
+		return nil, err
+	}
+	if err := validateHourlyArchives(dump); err != nil {
 		return nil, err
 	}
 	return dump, nil
@@ -135,6 +141,9 @@ func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 		return nil, fmt.Errorf("export stats_api_key: %w", err)
 	}
 
+	if err := conn.Order("id").Find(&d.StatsHourlyArchives).Error; err != nil {
+		return nil, fmt.Errorf("export stats_hourly_archives: %w", err)
+	}
 	return d, nil
 }
 
@@ -150,6 +159,9 @@ func DBImportIncrementalAndPublish(ctx context.Context, source *model.DBDump, pu
 		return nil, &backupError{kind: ErrBackupInput, table: "backup", reason: err.Error()}
 	}
 	dump := cloneBackupInput(source)
+	if err := validateHourlyArchives(dump); err != nil {
+		return nil, &backupError{kind: ErrBackupInput, table: "stats_hourly_archives", reason: err.Error()}
+	}
 	if err := validateStatsPrimaryKeys(dump.StatsTotal, dump.StatsHourly, dump.StatsAPIKey); err != nil {
 		return nil, &backupError{kind: ErrBackupInput, table: "statistics", reason: err.Error()}
 	}

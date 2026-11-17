@@ -144,14 +144,14 @@ class Suite:
         def upgrade():
             upgraded.start()
             require(self.snapshot()["sha256"] == self.before["sha256"], "upgrade changed existing business content")
-            require(self.sql("SELECT MAX(version) FROM migration_records WHERE status=1") == "17", "upgrade migrations did not finish")
+            require(self.sql("SELECT MAX(version) FROM migration_records WHERE status=1") == "18", "upgrade migrations did not finish")
             detail = upgraded.api("/api/v1/channel/detail/1")
             detail["auto_add_groups"] = True
             upgraded.api("/api/v1/channel/update", "POST", detail)
             require(self.sql("SELECT COUNT(*) FROM group_items") == "3", "first upgraded save did not add exactly one member")
             upgraded.api("/api/v1/channel/update", "POST", detail)
             require(self.sql("SELECT COUNT(*) FROM group_items") == "3", "repeated save duplicated a member")
-            return {"migrations": [16, 17], "first_save_http_status": 200, "members_after_first_and_repeat": 3}
+            return {"migrations": [16, 17, 18], "first_save_http_status": 200, "members_after_first_and_repeat": 3}
         self.check("current-artifact-upgrade-first-save-and-repeat", upgrade)
 
         def insert():

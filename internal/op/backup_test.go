@@ -21,7 +21,8 @@ func TestValidateDumpOrigin(t *testing.T) {
 		{"roam legacy", &model.DBDump{Product: "octopus-roam", Version: 1000}, ""},
 		{"roam legacy", &model.DBDump{Product: "octopus-roam", Version: 1001}, ""},
 		{"roam previous", &model.DBDump{Product: "octopus-roam", Version: 1002}, ""},
-		{"roam current", &model.DBDump{Product: "octopus-roam", Version: 1003}, ""},
+		{"roam previous 1003", &model.DBDump{Product: "octopus-roam", Version: 1003}, ""},
+		{"roam current", &model.DBDump{Product: "octopus-roam", Version: 1004}, ""},
 		{"upstream zero", &model.DBDump{Version: 0}, ""},
 		{"upstream five", &model.DBDump{Version: 5}, ""},
 		{"nil", nil, "empty dump"},
@@ -34,7 +35,7 @@ func TestValidateDumpOrigin(t *testing.T) {
 		{"whitespace", &model.DBDump{Product: " octopus-roam ", Version: 1002}, "product"},
 		{"roam zero", &model.DBDump{Product: "octopus-roam", Version: 0}, "unsupported octopus-roam"},
 		{"roam six", &model.DBDump{Product: "octopus-roam", Version: 6}, "unsupported octopus-roam"},
-		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1004}, "unsupported octopus-roam"},
+		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1005}, "unsupported octopus-roam"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateDumpOrigin(tc.dump)
@@ -51,7 +52,7 @@ func TestValidateDumpOrigin(t *testing.T) {
 
 func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 	// 后续上游同步不能带入其版本或扩大接受白名单，否则重新引入备份撞号。
-	if dumpProduct != "octopus-roam" || dbDumpVersion != 1003 {
+	if dumpProduct != "octopus-roam" || dbDumpVersion != 1004 {
 		t.Fatal("backup identity changed")
 	}
 	if len(upstreamDumpVersions) != 2 {
@@ -62,10 +63,10 @@ func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 			t.Fatalf("missing upstream %d", version)
 		}
 	}
-	if len(roamDumpVersions) != 4 {
+	if len(roamDumpVersions) != 5 {
 		t.Fatal("roam whitelist changed")
 	}
-	for _, version := range []int{1000, 1001, 1002, 1003} {
+	for _, version := range []int{1000, 1001, 1002, 1003, 1004} {
 		if _, ok := roamDumpVersions[version]; !ok {
 			t.Fatalf("missing roam %d", version)
 		}
@@ -200,7 +201,7 @@ func TestBackupExportJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dump.Product != "octopus-roam" || dump.Version != 1003 {
+	if dump.Product != "octopus-roam" || dump.Version != 1004 {
 		t.Fatal("export lacks roam identity")
 	}
 	raw, err := json.Marshal(dump)

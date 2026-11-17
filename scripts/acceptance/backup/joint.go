@@ -233,7 +233,7 @@ func (s *suite) verifyCrossDatabase(base *model.DBDump) error {
 			return err
 		}
 		seed, err = op.DecryptBackup(encrypted, fixturePassword)
-		if err != nil || seed.Product != "octopus-roam" || seed.Version != 1003 || len(seed.Channels) != 1 || seed.Channels[0].Name != fixtureChannel || len(seed.StatsHourly) != 24 || len(seed.StatsTotal) != 1 || seed.StatsTotal[0].InputToken != 300 {
+		if err != nil || seed.Product != "octopus-roam" || seed.Version != 1004 || len(seed.Channels) != 1 || seed.Channels[0].Name != fixtureChannel || len(seed.StatsHourly) != 24 || len(seed.StatsTotal) != 1 || seed.StatsTotal[0].InputToken != 300 {
 			return errors.New("cross-database input is not the synthetic source export")
 		}
 	}

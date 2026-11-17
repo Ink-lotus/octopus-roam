@@ -507,6 +507,19 @@ func statsRefreshCacheAt(ctx context.Context, now time.Time) error {
 		return fmt.Errorf("invalid stored statistics: %w", err)
 	}
 
+	var archives []model.StatsHourlyArchive
+	if err := dbConn.Find(&archives).Error; err != nil {
+		return fmt.Errorf("failed to read hourly archive: %w", err)
+	}
+	for _, archive := range archives {
+		if err := archive.Validate(); err != nil {
+			return err
+		}
+	}
+	if len(archives) > 0 {
+		log.Warnf("Preserved %d legacy hourly snapshots in stats_hourly_archives; excluded from live statistics and included in encrypted backups; use db-audit for verification", len(archives))
+	}
+
 	statsDailyCacheLock.Lock()
 	statsDailyCache = loadedDaily
 	statsDailyCacheLock.Unlock()

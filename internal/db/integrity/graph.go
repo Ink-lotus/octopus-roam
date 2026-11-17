@@ -45,6 +45,18 @@ func ReadGraph(conn *gorm.DB) (*model.DBDump, error) {
 	for _, c := range categories {
 		d.GroupCategories = append(d.GroupCategories, model.BackupGroupCategory{ID: c.ID})
 	}
+	// Audit old releases without creating the optional archive table.
+	tables, err := conn.Migrator().GetTables()
+	if err != nil {
+		return nil, err
+	}
+	for _, table := range tables {
+		if table == "stats_hourly_archives" {
+			if err := conn.Order("id").Find(&d.StatsHourlyArchives).Error; err != nil {
+				return nil, err
+			}
+		}
+	}
 	return d, nil
 }
 
@@ -148,6 +160,16 @@ func Inspect(d *model.DBDump) []Issue {
 		if !apiKeys[s.APIKeyID] {
 			add("stats_api_keys", s.APIKeyID, "missing_api_key", s.APIKeyID)
 		}
+	}
+	archiveIDs := map[string]bool{}
+	for _, archive := range d.StatsHourlyArchives {
+		if archive.Validate() != nil {
+			add("stats_hourly_archives", 0, "invalid_archive", 0)
+		}
+		if archiveIDs[archive.ID] {
+			add("stats_hourly_archives", 0, "duplicate_archive", 0)
+		}
+		archiveIDs[archive.ID] = true
 	}
 	sort.SliceStable(issues, func(i, j int) bool {
 		if issues[i].Table != issues[j].Table {

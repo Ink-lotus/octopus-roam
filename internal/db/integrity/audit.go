@@ -82,6 +82,10 @@ func Audit(ctx context.Context, dialect, dsn string) (*AuditReport, error) {
 			return err
 		}
 		report.Issues = Inspect(d)
+		report.Counts["stats_hourly_archives"] = int64(len(d.StatsHourlyArchives))
+		if len(d.StatsHourlyArchives) > 0 {
+			report.Limitations = append(report.Limitations, "Archived legacy hourly snapshots are retained as evidence, excluded from live statistics and included in version 1004 backups; their hashes do not prove provenance or reconstruct midnight totals.")
+		}
 		for _, table := range []string{"channels", "channel_keys", "channel_models", "channel_grants", "group_categories", "groups", "group_items", "api_keys", "webhook_endpoints", "llm_infos", "settings", "stats_totals", "stats_dailies", "stats_hourlies", "stats_api_keys", "migration_records"} {
 			var count int64
 			if err := tx.Table(table).Count(&count).Error; err != nil {

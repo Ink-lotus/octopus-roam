@@ -62,12 +62,15 @@ func TestLegacyStatisticsPreparationUsesSeparateModelStatements(t *testing.T) {
 		t.Fatalf("legacy total fixture changed: %+v, %v", total, err)
 	}
 	var rows []model.StatsHourly
-	if err := conn.Order("hour").Find(&rows).Error; err != nil || len(rows) != 3 || rows[0].Hour != 0 || rows[0].InputToken != 100 || rows[1].Hour != 1 || rows[1].InputToken != 200 || rows[2].Hour != 23 || rows[2].InputToken != 999 {
+	if err := conn.Order("hour").Find(&rows).Error; err != nil || len(rows) != 35 || rows[0].Hour != 0 || rows[0].InputToken != 100 || rows[1].Hour != 1 || rows[1].InputToken != 200 || rows[2].Hour != 23 || rows[2].InputToken != 999 {
 		t.Fatalf("legacy hours moved: %+v, %v", rows, err)
 	}
 	var key model.StatsAPIKey
 	if err := conn.First(&key, "api_key_id=7").Error; err != nil || key.InputToken != 333 {
 		t.Fatalf("legacy API key fixture changed: %+v, %v", key, err)
+	}
+	if rows[3].Hour != 24 || rows[34].Hour != 55 {
+		t.Fatal("old midnight fixture did not create overflow")
 	}
 	if err := s.verifyStatisticsUpgrade(dump); err != nil {
 		t.Fatal(err)

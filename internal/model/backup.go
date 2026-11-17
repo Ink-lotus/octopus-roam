@@ -31,10 +31,11 @@ type DBDump struct {
 	WebhookEndpoints []WebhookEndpoint     `json:"webhook_endpoints,omitempty"`
 	GroupCategories  []BackupGroupCategory `json:"group_categories"`
 
-	StatsTotal  []StatsTotal  `json:"stats_total,omitempty"`
-	StatsDaily  []StatsDaily  `json:"stats_daily,omitempty"`
-	StatsHourly []StatsHourly `json:"stats_hourly,omitempty"`
-	StatsAPIKey []StatsAPIKey `json:"stats_api_key,omitempty"`
+	StatsTotal          []StatsTotal         `json:"stats_total,omitempty"`
+	StatsDaily          []StatsDaily         `json:"stats_daily,omitempty"`
+	StatsHourly         []StatsHourly        `json:"stats_hourly,omitempty"`
+	StatsAPIKey         []StatsAPIKey        `json:"stats_api_key,omitempty"`
+	StatsHourlyArchives []StatsHourlyArchive `json:"stats_hourly_archives,omitempty"`
 
 	explicitNullCooldownRules   bool `json:"-"`
 	explicitNullGroupCategories bool `json:"-"`

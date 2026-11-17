@@ -173,7 +173,7 @@ func (s *suite) run() error {
 	if err != nil {
 		return err
 	}
-	if dump.Product != "octopus-roam" || dump.Version != 1003 || len(dump.Channels) != 1 ||
+	if dump.Product != "octopus-roam" || (dump.Version != 1003 && dump.Version != 1004) || len(dump.Channels) != 1 ||
 		dump.Channels[0].ID != 1 || dump.Channels[0].Name != fixtureChannel || len(dump.ChannelKeys) != 3 ||
 		len(dump.ChannelModels) != 2 || len(dump.ChannelGrants) != 3 || len(dump.Groups) != 1 ||
 		dump.Groups[0].Name != fixtureModel || len(dump.GroupItems) != 2 || len(dump.GroupCategories) != 1 {
