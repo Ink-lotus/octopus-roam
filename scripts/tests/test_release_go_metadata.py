@@ -25,8 +25,7 @@ def package_fixture(root):
 
 def refresh_delivery_and_manifest(root):
     delivery = root / 'delivery'
-    (delivery / 'SHA256SUMS').write_text(''.join(f'{contract.digest(p)}  {p.name}\n'
-        for p in sorted(delivery.iterdir()) if p.name != 'SHA256SUMS'), encoding='utf-8')
+    (delivery / 'SHA256SUMS').write_text(contract.delivery_checksums(delivery), encoding='utf-8')
     manifest = contract.read_json(root / 'artifact.json')
     manifest['files'] = contract.tree(root)
     manifest['files'].pop('artifact.json')

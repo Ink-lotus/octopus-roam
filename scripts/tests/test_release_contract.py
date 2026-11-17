@@ -401,6 +401,16 @@ class ContractTests(unittest.TestCase):
         args.command = 'verify'
         contract.seal_or_verify(args)
 
+    def test_delivery_checksums_use_host_independent_name_order(self):
+        delivery = self.root / 'delivery'
+        delivery.mkdir()
+        names = ('zeta.txt', 'Alpha.txt', 'beta.txt', 'Zulu.txt')
+        for name in names:
+            (delivery / name).write_text(name, encoding='utf-8')
+        expected = ''.join(f'{contract.digest(delivery / name)}  {name}\n'
+                           for name in sorted(names))
+        self.assertEqual(contract.delivery_checksums(delivery), expected)
+
     def test_extra_archive_fails_before_seal(self):
         args = release_fixture(self.root / 'artifact')
         (self.root / 'artifact/archives/unexpected.zip').write_bytes(b'fixture')

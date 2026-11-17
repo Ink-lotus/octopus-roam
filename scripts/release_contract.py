@@ -50,6 +50,12 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def delivery_checksums(directory):
+    files = sorted((path for path in Path(directory).iterdir() if path.name != 'SHA256SUMS'),
+                   key=lambda path: path.name)
+    return ''.join(f'{digest(path)}  {path.name}\n' for path in files)
+
+
 def safe(name):
     require(isinstance(name, str) and name and '\\' not in name, 'Invalid relative path')
     p = PurePosixPath(name)
@@ -600,8 +606,7 @@ def seal_or_verify(args):
         shutil.copyfile(root / 'build.json', delivery / 'BUILD.json')
         shutil.copyfile(material_root / 'materials.json', delivery / 'MATERIALS.json')
         write_json(delivery / 'IMAGE-MANIFEST.json', images)
-        (delivery / 'SHA256SUMS').write_text(''.join(f'{digest(p)}  {p.name}\n' for p in sorted(delivery.iterdir())
-                                                  if p.name != 'SHA256SUMS'), encoding='utf-8')
+        (delivery / 'SHA256SUMS').write_text(delivery_checksums(delivery), encoding='utf-8')
         write_json(root / 'artifact.json', {'schema': 1, 'version': args.version, 'commit': args.commit,
                                           'materials_sha256': args.materials_sha,
                                           **notes_binding(notes), 'files': tree(root)})
@@ -625,7 +630,7 @@ def seal_or_verify(args):
     for target in TARGETS:
         name = f'{APP}-{target}.zip'
         require(digest(delivery / name) == digest(root / 'archives' / name), 'Published program archive differs')
-    sums = ''.join(f'{digest(p)}  {p.name}\n' for p in sorted(delivery.iterdir()) if p.name != 'SHA256SUMS')
+    sums = delivery_checksums(delivery)
     require((delivery / 'SHA256SUMS').read_text(encoding='utf-8') == sums, 'Published checksums differ')
 
 
