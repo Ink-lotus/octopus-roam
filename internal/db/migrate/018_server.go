@@ -29,7 +29,7 @@ func serverHourlyColumns(tx *gorm.DB) ([]serverHourlyColumn, error) {
 	case "postgres":
 		err = tx.Raw(`SELECT a.attname AS column_name,
 			pg_catalog.format_type(a.atttypid,a.atttypmod) AS sql_type,
-			a.attgenerated AS generated, a.attidentity AS identity_kind
+			a.attgenerated AS generated_value, a.attidentity AS identity_kind
 			FROM pg_catalog.pg_attribute a
 			WHERE a.attrelid=to_regclass('stats_hourlies') AND a.attnum>0 AND NOT a.attisdropped
 			ORDER BY a.attnum`).Scan(&columns).Error

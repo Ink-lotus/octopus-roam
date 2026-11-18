@@ -249,7 +249,7 @@ func TestServerMigration18FailureRollsBackAndRetries(t *testing.T) {
 }
 
 func TestServerMigration18RejectsUnreviewedSchemas(t *testing.T) {
-	for _, kind := range []string{"column", "reference", "trigger", "engine-or-rls", "type"} {
+	for _, kind := range []string{"column", "generated", "reference", "trigger", "engine-or-rls", "type"} {
 		t.Run(kind, func(t *testing.T) {
 			db := serverHourly18Fixture(t)
 			if err := migrateStatisticsBusinessKeys(db); err != nil {
@@ -258,6 +258,9 @@ func TestServerMigration18RejectsUnreviewedSchemas(t *testing.T) {
 			switch kind {
 			case "column":
 				migrationExec(t, db, "ALTER TABLE stats_hourlies ADD COLUMN unknown_evidence TEXT")
+			case "generated":
+				migrationExec(t, db, "ALTER TABLE stats_hourlies DROP COLUMN input_token")
+				migrationExec(t, db, "ALTER TABLE stats_hourlies ADD COLUMN input_token bigint GENERATED ALWAYS AS (output_token + 1) STORED")
 			case "reference":
 				migrationExec(t, db, "CREATE TABLE custom_hourly_ref (hour bigint, FOREIGN KEY(hour) REFERENCES stats_hourlies(hour) ON DELETE CASCADE)")
 			case "trigger":
