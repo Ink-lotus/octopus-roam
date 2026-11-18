@@ -16,10 +16,6 @@ func init() {
 }
 
 func migrateLegacyHourly(tx *gorm.DB) error {
-	tables, err := tx.Migrator().GetTables()
-	if err != nil {
-		return fmt.Errorf("inspect hourly archive tables: %w", err)
-	}
 	// The archive schema is created by AutoMigrate before this transaction.
 	// This keeps MySQL DDL implicit commits out of the atomic data operation.
 	var existing []model.StatsHourlyArchive
@@ -38,16 +34,23 @@ func migrateLegacyHourly(tx *gorm.DB) error {
 	if count == 0 {
 		return nil
 	}
-	if tx.Dialector.Name() != "sqlite" {
-		return fmt.Errorf("legacy hourly quarantine is supported only for SQLite; preserve the database and request a reviewed repair")
-	}
 	// Custom triggers/references can change unrelated rows on DELETE. Refuse
 	// those schemas rather than disable constraints or guess their effects.
-	if err := checkHourlyQuarantineSchema(tx, tables); err != nil {
-		return err
-	}
-	if err := tx.Exec("UPDATE stats_hourlies SET hour = hour WHERE 1 = 0").Error; err != nil {
-		return err
+	if tx.Dialector.Name() == "sqlite" {
+		tables, err := tx.Migrator().GetTables()
+		if err != nil {
+			return fmt.Errorf("inspect hourly archive tables: %w", err)
+		}
+		if err := checkHourlyQuarantineSchema(tx, tables); err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE stats_hourlies SET hour = hour WHERE 1 = 0").Error; err != nil {
+			return err
+		}
+	} else {
+		if err := checkServerHourlyQuarantine(tx); err != nil {
+			return err
+		}
 	}
 	before, err := readHourlyArchives(tx)
 	if err != nil {
@@ -152,6 +155,9 @@ func checkHourlyQuarantineSchema(tx *gorm.DB, tables []string) error {
 }
 
 func readHourlyArchives(tx *gorm.DB) ([]model.StatsHourlyArchive, error) {
+	if tx.Dialector.Name() != "sqlite" {
+		return readServerHourlyArchives(tx)
+	}
 	columns := model.HourlyArchiveColumns()
 	selects := make([]string, len(columns)*2)
 	for i, name := range columns {

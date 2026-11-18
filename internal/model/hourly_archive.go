@@ -11,7 +11,7 @@ import (
 )
 
 // StatsHourlyArchive is evidence, never a source for live statistics. The payload
-// preserves SQLite values AND storage classes, including NULLs and float bits.
+// preserves values and storage types, including NULLs and float bits.
 // Content addressing makes restoration/replay idempotent without merging snapshots.
 type StatsHourlyArchive struct {
 	ID           string `json:"id" gorm:"primaryKey;size:64"`
@@ -24,9 +24,10 @@ type StatsHourlyArchive struct {
 func (StatsHourlyArchive) TableName() string { return "stats_hourly_archives" }
 
 type HourlyArchiveCell struct {
-	Column string `json:"column"`
-	Type   string `json:"type"`
-	Value  string `json:"value"`
+	Column  string `json:"column"`
+	Type    string `json:"type"`
+	Value   string `json:"value"`
+	SQLType string `json:"sql_type,omitempty"`
 }
 
 func HourlyArchiveColumns() []string {
@@ -45,6 +46,9 @@ func NewHourlyArchive(source string, cells []HourlyArchiveCell) (StatsHourlyArch
 		return StatsHourlyArchive{}, fmt.Errorf("invalid hourly archive key")
 	}
 	a := StatsHourlyArchive{Format: 1, Source: source, OriginalHour: hour, Payload: string(raw)}
+	if source == "mysql-migration-18" || source == "postgres-migration-18" {
+		a.Format = 2
+	}
 	a.ID = a.digest()
 	return a, a.Validate()
 }
@@ -57,11 +61,18 @@ func (a StatsHourlyArchive) digest() string {
 
 func (a StatsHourlyArchive) Validate() error {
 	bad := func() error { return fmt.Errorf("invalid hourly archive; inspect an independent copy") }
-	if a.Format != 1 || a.OriginalHour < 24 || a.ID != a.digest() {
+	if (a.Format != 1 && a.Format != 2) || a.OriginalHour < 24 || a.ID != a.digest() {
 		return bad()
 	}
 	switch a.Source {
 	case "sqlite-migration-18", "backup-1000", "backup-1001", "backup-1002", "backup-1003":
+		if a.Format != 1 {
+			return bad()
+		}
+	case "mysql-migration-18", "postgres-migration-18":
+		if a.Format != 2 {
+			return bad()
+		}
 	default:
 		return bad()
 	}
@@ -76,6 +87,15 @@ func (a StatsHourlyArchive) Validate() error {
 	for i, column := range HourlyArchiveColumns() {
 		cell := cells[i]
 		if cell.Column != column {
+			return bad()
+		}
+		if a.Format == 2 {
+			if validateServerHourlyCell(a.Source, cell) != nil {
+				return bad()
+			}
+			continue
+		}
+		if cell.SQLType != "" {
 			return bad()
 		}
 		switch cell.Type {

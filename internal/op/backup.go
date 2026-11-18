@@ -26,7 +26,7 @@ const (
 
 // 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
 var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
-var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, 1002: {}, 1003: {}, dbDumpVersion: {}}
+var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, 1002: {}, 1003: {}, dbDumpVersion: {}, 1005: {}}
 
 var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
 
@@ -143,6 +143,11 @@ func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 
 	if err := conn.Order("id").Find(&d.StatsHourlyArchives).Error; err != nil {
 		return nil, fmt.Errorf("export stats_hourly_archives: %w", err)
+	}
+	for _, archive := range d.StatsHourlyArchives {
+		if archive.Format == 2 {
+			d.Version = 1005
+		}
 	}
 	return d, nil
 }

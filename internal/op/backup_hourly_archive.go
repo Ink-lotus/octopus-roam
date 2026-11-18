@@ -8,11 +8,14 @@ import (
 )
 
 func validateHourlyArchives(d *model.DBDump) error {
-	if len(d.StatsHourlyArchives) > 0 && (d.Product != dumpProduct || d.Version != 1004) {
-		return fmt.Errorf("stats_hourly_archives requires backup version 1004")
+	if len(d.StatsHourlyArchives) > 0 && (d.Product != dumpProduct || (d.Version != 1004 && d.Version != 1005)) {
+		return fmt.Errorf("stats_hourly_archives requires backup version 1004 or 1005")
 	}
 	seen := map[string]bool{}
 	for _, row := range d.StatsHourlyArchives {
+		if row.Format == 2 && d.Version != 1005 {
+			return fmt.Errorf("native server hourly archives require backup version 1005")
+		}
 		if row.Validate() != nil || seen[row.ID] {
 			return fmt.Errorf("invalid or duplicate hourly archive")
 		}
