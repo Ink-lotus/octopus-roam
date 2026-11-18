@@ -11,12 +11,15 @@ import (
 func TestCodexCatalogConfigDefaultsFileAndEnvironment(t *testing.T) {
 	for _, test := range []struct {
 		name, input    string
-		environment    bool
+		environment    string
 		enabled, proxy bool
 	}{
-		{"defaults", `{}`, false, false, false},
-		{"file", `{"codex_catalog":{"enabled":true,"use_proxy":true}}`, false, true, true},
-		{"environment", `{"codex_catalog":{"enabled":false,"use_proxy":true}}`, true, true, false},
+		{"defaults", `{}`, "", true, false},
+		{"missing enabled", `{"codex_catalog":{"use_proxy":true}}`, "", true, true},
+		{"file", `{"codex_catalog":{"enabled":true,"use_proxy":true}}`, "", true, true},
+		{"file disabled", `{"codex_catalog":{"enabled":false,"use_proxy":true}}`, "", false, true},
+		{"environment", `{"codex_catalog":{"enabled":false,"use_proxy":true}}`, "true", true, false},
+		{"environment disabled", `{"codex_catalog":{"enabled":true,"use_proxy":true}}`, "false", false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			viper.Reset()
@@ -25,8 +28,8 @@ func TestCodexCatalogConfigDefaultsFileAndEnvironment(t *testing.T) {
 			// Isolate the process's inherited runtime settings.
 			t.Setenv("OCTOPUS_ROAM_CODEX_CATALOG_ENABLED", "")
 			t.Setenv("OCTOPUS_ROAM_CODEX_CATALOG_USE_PROXY", "")
-			if test.environment {
-				t.Setenv("OCTOPUS_ROAM_CODEX_CATALOG_ENABLED", "true")
+			if test.environment != "" {
+				t.Setenv("OCTOPUS_ROAM_CODEX_CATALOG_ENABLED", test.environment)
 				t.Setenv("OCTOPUS_ROAM_CODEX_CATALOG_USE_PROXY", "false")
 			}
 			path := filepath.Join(t.TempDir(), "config.json")

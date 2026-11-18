@@ -2,7 +2,7 @@
 
 使用生产构建在仓库外运行，建议源码目录为 `D:\tool\AI\octopus-roam`，运行目录为同级的 `D:\tool\AI\octopus-roam-runtime`。运行目录无需 Git 仓库，也无需安装 Go、Node.js 或 pnpm。
 
-以下是目录安排；本机部署结果见文末记录。升级到 v0.1.4 前保留旧程序、配置和完整数据副本。若 v0.1.3 因历史小时越界无法启动，先在隔离副本上核验[迁移 18 与归档恢复](hourly-statistics-recovery.md)，再按当前实例的授权执行实际更新。新加密备份内容为 1004，不能交给旧程序恢复。
+以下是目录安排；本机部署结果见文末记录。升级到 v0.1.5 前保留旧程序、配置和完整数据副本。若 v0.1.3 因历史小时越界无法启动，先在隔离副本上核验[迁移 18 与归档恢复](hourly-statistics-recovery.md)，再按当前实例的授权执行实际更新。SQLite/格式 1 小时归档备份使用 1004；包含 MySQL/PostgreSQL 格式 2 归档的备份使用 1005，不能交给旧程序恢复。
 
 ```text
 D:\tool\AI\octopus-roam-runtime\
@@ -50,7 +50,8 @@ Windows 用户将整个压缩包解压到固定目录后，双击 `octopus-roam.
 {
   "server": { "host": "127.0.0.1", "port": 8080 },
   "database": { "type": "sqlite", "path": "data/data.db" },
-  "log": { "level": "info" }
+  "log": { "level": "info" },
+  "codex_catalog": { "enabled": true, "use_proxy": false }
 }
 ```
 

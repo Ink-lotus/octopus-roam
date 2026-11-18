@@ -26,7 +26,8 @@ function Initialize-OctopusDeployment {
 {
   "server": { "host": "127.0.0.1", "port": 8080 },
   "database": { "type": "sqlite", "path": "data/data.db" },
-  "log": { "level": "info" }
+  "log": { "level": "info" },
+  "codex_catalog": { "enabled": true, "use_proxy": false }
 }
 '@
         $stream = [IO.File]::Open($configPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)

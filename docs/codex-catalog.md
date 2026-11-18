@@ -10,7 +10,7 @@ GET /codex/models?client_version=<major.minor.patch>
 
 ## 启用和接入
 
-在现有运行配置中增加以下对象，保留原有其他配置，然后重启网关：
+新部署和缺少该字段的旧配置默认启用目录，无需为此额外修改网关配置。若要显式设置或关闭，可在现有运行配置中增加以下对象，并保留其他配置：
 
 ```json
 {
@@ -21,7 +21,9 @@ GET /codex/models?client_version=<major.minor.patch>
 }
 ```
 
-两项默认均为 `false`，首版通过重启生效。也可使用 `OCTOPUS_ROAM_CODEX_CATALOG_ENABLED` 和 `OCTOPUS_ROAM_CODEX_CATALOG_USE_PROXY` 环境变量覆盖。Windows 启动进程或容器须实际继承这些变量。
+`enabled` 默认 `true`，`use_proxy` 默认 `false`；显式配置或环境变量变更后重启生效。也可使用 `OCTOPUS_ROAM_CODEX_CATALOG_ENABLED` 和 `OCTOPUS_ROAM_CODEX_CATALOG_USE_PROXY` 环境变量覆盖。Windows 启动进程或容器须实际继承这些变量。
+
+v0.1.5 将目录默认值改为开启：缺少 `enabled` 的旧配置在重启后采用新默认值；已有显式 `enabled: false` 保持关闭，也可使用 `OCTOPUS_ROAM_CODEX_CATALOG_ENABLED=false` 关闭。配置加载不改写原文件，客户端仍须自行配置 `model_catalog_url`。
 
 `use_proxy=false` 显式直连，不读取 HTTP_PROXY 等环境代理；`true` 使用应用现有的 `proxy_url` 设置。所选代理缺失或无效时返回 503，不自动直连。取源不需要 OpenAI Key、ChatGPT 凭据或 GitHub Token。
 

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Exact reviewed version: v0.1.4-rc.N (positive N, no leading zero) or v0.1.4'
+        description: 'Exact reviewed version: v0.1.5-rc.N (positive N, no leading zero) or v0.1.5'
         required: true
         type: string
       commit:
