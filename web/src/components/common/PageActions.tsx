@@ -91,6 +91,7 @@ interface PageActionsProps {
     onFilterChange: (value: string) => void; // 更新当前页面的筛选条件。
     additionalFilters?: ReactNode; // 视图选项面板中的页面专用筛选。
     actions?: ReactNode; // 筛选之后、创建之前的页面专用操作。
+    suspendInteraction?: boolean; // 子弹窗打开期间暂停创建弹窗的键盘处理。
     children: ReactNode; // 当前页面提供的创建表单内容。
 }
 
@@ -108,6 +109,7 @@ export function PageActions({
     onFilterChange,
     additionalFilters,
     actions,
+    suspendInteraction = false,
     children,
 }: PageActionsProps) {
     const t = useTranslations('toolbar');
@@ -278,6 +280,7 @@ export function PageActions({
                 <MorphingDialogContainer>
                     <MorphingDialogContent
                         dismissOnClickOutside={false}
+                        suspendInteraction={suspendInteraction}
                         className="flex max-h-[calc(100vh-2rem)] w-fit max-w-full flex-col overflow-hidden rounded-3xl bg-card px-6 py-4 text-card-foreground"
                     >
                         {children}

@@ -41,6 +41,7 @@ function ChannelCard({ channel, now }: { channel: ChannelStatsFormatted; now: nu
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     // 点击卡片查看统计，独立编辑按钮直接打开表单。
     const [openInEditing, setOpenInEditing] = useState(false);
+    const [filterEditorOpen, setFilterEditorOpen] = useState(false);
     const autoAddGroups = useChannelPreferences((preferences) => preferences.autoAddGroups[channel.channel_id] ?? true);
     const [showRefreshDetails, setShowRefreshDetails] = useState(false);
     const refreshDetailsRef = useRef<HTMLDivElement>(null);
@@ -312,6 +313,7 @@ function ChannelCard({ channel, now }: { channel: ChannelStatsFormatted; now: nu
             <MorphingDialogContainer>
                 <MorphingDialogContent
                     dismissOnClickOutside={!openInEditing}
+                    suspendInteraction={filterEditorOpen}
                     className="relative w-full md:max-w-3xl h-fit bg-card text-card-foreground p-4 rounded-3xl overflow-hidden"
                 >
                     {/* 高度固定在外层, 与表单自带的高度取同一值: 切换时两者同高, 弹窗才不会随内容缩放。
@@ -332,6 +334,7 @@ function ChannelCard({ channel, now }: { channel: ChannelStatsFormatted; now: nu
                                     <ChannelForm
                                         channelId={channel.channel_id}
                                         onBack={() => setOpenInEditing(false)}
+                                        onFilterEditorOpenChange={setFilterEditorOpen}
                                     />
                                 </motion.div>
                             ) : (

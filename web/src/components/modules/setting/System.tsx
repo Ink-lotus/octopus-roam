@@ -7,7 +7,6 @@ import { useSettingList, useSetSetting, SettingKey } from '@/api/setting';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { RegexFilterField } from '@/components/common/RegexFilterField';
-import { isValidRegex } from '@/lib/regex';
 
 export function SettingSystem() {
     const t = useTranslations('setting');
@@ -62,12 +61,18 @@ export function SettingSystem() {
                     initialStatsSaveInterval.current = value;
                 } else if (key === SettingKey.CORSAllowOrigins) {
                     initialCorsAllowOrigins.current = value;
-                } else if (key === SettingKey.ModelFilter) {
-                    initialModelFilter.current = value;
                 }
             },
             onError: (error) => toast.error(t('saveFailed'), { description: error.message }),
         });
+    };
+
+    const saveModelFilter = async (value: string) => {
+        if (value === initialModelFilter.current) return;
+        await setSetting.mutateAsync({ key: SettingKey.ModelFilter, value });
+        initialModelFilter.current = value;
+        setModelFilter(value);
+        toast.success(t('saved'));
     };
 
     const corsAllowOriginsList = useMemo(() => {
@@ -168,12 +173,8 @@ export function SettingSystem() {
                 label={t('modelFilter.label')}
                 labelIcon={<Filter className="h-5 w-5 text-muted-foreground" />}
                 value={modelFilter}
-                onChange={setModelFilter}
-                onBlur={() => {
-                    if (isValidRegex(modelFilter)) {
-                        handleSave(SettingKey.ModelFilter, modelFilter, initialModelFilter.current);
-                    }
-                }}
+                onChange={saveModelFilter}
+                saveImmediately
                 placeholder={t('modelFilter.placeholder')}
             />
 

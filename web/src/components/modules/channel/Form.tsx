@@ -46,17 +46,22 @@ function cooldownRuleError(rule: CooldownRule): CooldownRuleError {
 
 // ChannelForm 新建与编辑共用; 编辑时按 id 取回整份配置, 到齐后再进表单。
 // 配置不随渠道列表下发, 故编辑必然要等这一趟请求; 占位与表单同高, 弹窗不会因此跳动。
-export function ChannelForm({ channelId, onBack }: {
+export function ChannelForm({ channelId, onBack, onFilterEditorOpenChange }: {
     channelId?: number;
     onBack?: () => void; // 编辑态由统计视图切入, 给出返回入口; 新建态没有可返回的视图。
+    onFilterEditorOpenChange?: (open: boolean) => void;
 }) {
     if (channelId === undefined) {
-        return <ChannelFormFields />;
+        return <ChannelFormFields onFilterEditorOpenChange={onFilterEditorOpenChange} />;
     }
-    return <ChannelEditForm key={channelId} channelId={channelId} onBack={onBack} />;
+    return <ChannelEditForm key={channelId} channelId={channelId} onBack={onBack} onFilterEditorOpenChange={onFilterEditorOpenChange} />;
 }
 
-function ChannelEditForm({ channelId, onBack }: { channelId: number; onBack?: () => void }) {
+function ChannelEditForm({ channelId, onBack, onFilterEditorOpenChange }: {
+    channelId: number;
+    onBack?: () => void;
+    onFilterEditorOpenChange?: (open: boolean) => void;
+}) {
     const t = useTranslations('channel.form');
     const { data: detail, isFetchedAfterMount, isError, error } = useChannelDetail(channelId);
     const [initialDetail, setInitialDetail] = useState<ChannelDetail>();
@@ -73,13 +78,17 @@ function ChannelEditForm({ channelId, onBack }: { channelId: number; onBack?: ()
             </div>
         );
     }
-    return <ChannelFormFields channel={initialDetail} onBack={onBack} />;
+    return <ChannelFormFields channel={initialDetail} onBack={onBack} onFilterEditorOpenChange={onFilterEditorOpenChange} />;
 }
 
 // ChannelFormFields 承载表单本体; 初始状态在挂载时定稿, 故必须等配置到齐后才渲染。
 // 新建从模板步骤起, 编辑跳过模板直接进连接步骤; 步骤顺序即数据依赖顺序:
 // 模板给出地址与路径 -> 拉取需要地址与凭据 -> 授权引用凭据与模型。
-function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBack?: () => void }) {
+function ChannelFormFields({ channel, onBack, onFilterEditorOpenChange }: {
+    channel?: ChannelDetail;
+    onBack?: () => void;
+    onFilterEditorOpenChange?: (open: boolean) => void;
+}) {
     const t = useTranslations('channel.form');
     const tAuto = useTranslations('automation');
     const tRefresh = useTranslations('channel.card.refresh');
@@ -449,7 +458,8 @@ function ChannelFormFields({ channel, onBack }: { channel?: ChannelDetail; onBac
                                 label={t('matchRegex')}
                                 value={state.match_regex}
                                 validationValue={state.match_regex.trim()}
-                                onChange={(value) => setState({ ...state, match_regex: value })}
+                                onChange={(value) => setState(previous => ({ ...previous, match_regex: value }))}
+                                onOpenChange={onFilterEditorOpenChange}
                             />
                             <div className="space-y-2">
                                 <Label htmlFor={`${idPrefix}-param-override`}>{t('paramOverride')}</Label>

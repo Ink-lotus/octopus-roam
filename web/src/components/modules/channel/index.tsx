@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ArrowUpAZ } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import { useChannelStats } from '@/api/channel';
@@ -14,6 +14,7 @@ import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 // ChannelActions 向稳定顶栏提供渠道页面的搜索、视图选项和创建入口。
 export function ChannelActions() {
     const t = useTranslations('toolbar');
+    const [filterEditorOpen, setFilterEditorOpen] = useState(false);
     const searchTerm = usePageActionsStore((state) => state.searchTerms.channel || '');
     const layout = usePageActionsStore((state) => state.layouts.channel || 'grid');
     const sortOrder = usePageActionsStore((state) => state.sortOrders.channel === 'desc' ? 'desc' : 'asc');
@@ -47,10 +48,11 @@ export function ChannelActions() {
                 if (value === 'all' || value === 'enabled' || value === 'disabled') setFilter(value);
             }}
             actions={<RefreshAllButton />}
+            suspendInteraction={filterEditorOpen}
         >
             <div className="w-screen max-w-full md:max-w-3xl flex flex-col">
                 <MorphingDialogDescription disableLayoutAnimation>
-                    <ChannelForm />
+                    <ChannelForm onFilterEditorOpenChange={setFilterEditorOpen} />
                 </MorphingDialogDescription>
             </div>
         </PageActions>
