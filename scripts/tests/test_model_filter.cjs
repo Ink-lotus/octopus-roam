@@ -121,7 +121,7 @@ test('handwritten and malformed expressions never undergo a lossy conversion', (
 });
 
 test('new filter messages are present and valid in every supported locale', () => {
-    const keys = ['add', 'edit', 'preview', 'editExpression', 'finishEditing', 'readonlyHint', 'apply', 'save', 'applyFailed'];
+    const keys = ['add', 'edit', 'preview', 'editExpression', 'finishEditing', 'clearToVisual', 'apply', 'save', 'applyFailed'];
     for (const [file, locale] of [['zh_hans', 'zh-CN'], ['zh_hant', 'zh-TW'], ['en', 'en']]) {
         const localeMessages = JSON.parse(fs.readFileSync(path.join(root, `web/src/locales/${file}.json`), 'utf8'));
         const t = createTranslator({ locale, messages: localeMessages, namespace: 'regexFilter', onError: error => { throw error; } });
@@ -211,6 +211,60 @@ function editor(value, onApply = async () => {}) {
     fixture.render();
     return fixture;
 }
+
+test('the saved filter is displayed as its full expression for visual and handwritten rules', () => {
+    for (const original of ['gpt|claude', filter.compileModelFilter([rule('keep', 'starts', 'gpt-'), rule('exclude', 'contains', 'preview')])]) {
+        const fixture = runtime(components.RegexFilterField, {
+            id: 'saved-filter', label: '模型过滤', value: original, onChange() {},
+        });
+        fixture.render();
+        assert.equal(text(find(fixture, node => node.type === 'pre')), original);
+        assert.equal(nodes(fixture.tree).some(node => node.type === 'ul'), false);
+    }
+});
+
+test('the dialog keeps editable visual conditions for canonical expressions', () => {
+    const fixture = editor(filter.compileModelFilter([rule('keep', 'starts', 'gpt-'), rule('exclude', 'contains', 'preview')]));
+    const inputs = nodes(fixture.tree).filter(node => node.type === 'input');
+    assert.deepEqual(inputs.map(node => node.props.value), ['gpt-', 'preview']);
+    inputs[0].props.onChange({ target: { value: 'gemini-' } });
+    fixture.render();
+    const updated = new RegExp(text(find(fixture, node => node.type === 'pre')));
+    assert.equal(updated.test('gemini-2.5-flash'), true);
+    assert.equal(updated.test('gpt-4.1'), false);
+    assert.equal(updated.test('gemini-preview'), false);
+});
+
+test('clearing a handwritten expression returns to visual editing before any apply or save', async () => {
+    for (const editing of [false, true]) {
+        const changes = [];
+        const fixture = editor('gpt|claude', async pattern => { changes.push(pattern); });
+        if (editing) {
+            button(fixture, '编辑表达式').props.onClick();
+            fixture.render();
+            find(fixture, node => node.type === 'textarea').props.onChange({ target: { value: '[' } });
+            fixture.render();
+        }
+        const clear = () => button(fixture, '清空并使用可视化编辑');
+        assert.equal(clear().props.type, 'button', 'reset must not submit a parent form');
+        fixture.props.isApplying = true;
+        fixture.render();
+        assert.equal(clear().props.disabled, true);
+        fixture.props.isApplying = false;
+        fixture.render();
+        clear().props.onClick();
+        fixture.render();
+        assert.equal(find(fixture, node => node.type === 'input').props.value, '');
+        assert.equal(nodes(fixture.tree).some(node => node.type === 'textarea'), false);
+        assert.deepEqual(changes, [], 'reset only changes the local draft');
+        assert.equal(button(fixture, '应用').props.disabled, true);
+        find(fixture, node => node.type === 'input').props.onChange({ target: { value: 'gpt-' } });
+        fixture.render();
+        find(fixture, node => node.type === 'form').props.onSubmit({ preventDefault() {}, stopPropagation() {} });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(changes, [filter.compileModelFilter([rule('keep', 'contains', 'gpt-')])]);
+    }
+});
 
 test('preview is non-interactive; only Edit expression creates an editable control', () => {
     const original = 'gpt|claude';

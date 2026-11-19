@@ -70,7 +70,6 @@ export function RegexFilterField({
     const [open, setOpen] = useState(false);
     const [isApplying, setIsApplying] = useState(false);
     const applyPending = useRef(false);
-    const restored = parseVisualRules(value);
     const isValid = isValidRegex(validationValue ?? value);
     const errorId = `${id}-error`;
 
@@ -98,7 +97,7 @@ export function RegexFilterField({
 
     return (
         <Dialog.Root open={open} onOpenChange={changeOpen}>
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
                 <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
                         {labelIcon}
@@ -114,29 +113,10 @@ export function RegexFilterField({
                         </Button>
                     </Dialog.Trigger>
                 </div>
-                <div className="min-w-0 rounded-xl border border-border px-3 py-3 text-sm">
-                    {value === '' ? (
-                        <p className="text-muted-foreground">{t('notSet')}</p>
-                    ) : restored ? (
-                        <div className="space-y-2">
-                            <p className="text-xs text-muted-foreground">{t('conditionCount', { count: restored.length })}</p>
-                            <ul className="space-y-1.5">
-                                {restored.map((rule, index) => (
-                                    <li key={index} className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-                                        {index > 0 && <span className="text-xs font-medium text-muted-foreground">{rule.join.toUpperCase()}</span>}
-                                        <span className="shrink-0">{t(`actions.${rule.action}`)} · {t(`operators.${rule.operator}`)}</span>
-                                        <code className="min-w-0 whitespace-pre-wrap break-all font-mono text-xs">{rule.value}</code>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ) : (
-                        <div className="space-y-1.5">
-                            <p className="text-xs text-muted-foreground">{t('customExpression')}</p>
-                            <code className="block whitespace-pre-wrap break-all font-mono text-xs">{value}</code>
-                        </div>
-                    )}
-                </div>
+                <pre role="region" aria-label={`${label}: ${t('preview')}`} tabIndex={value ? 0 : undefined}
+                    className="h-36 min-w-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-all rounded-xl border border-border px-3 py-3 font-mono text-xs leading-relaxed text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    {value || t('notSet')}
+                </pre>
                 <p className="text-xs text-muted-foreground">{t('combined')}</p>
                 {!isValid && <p id={errorId} role="alert" className="text-sm text-destructive">{t('invalid')}</p>}
             </div>
@@ -209,6 +189,7 @@ function ModelFilterEditor({ label, value, placeholder, onApply, onCancel, isApp
         const rules = previous.rules.filter(rule => rule.id !== id).map((rule, nextIndex) => nextIndex === 0 ? { ...rule, join: 'and' as const } : rule);
         return { ...previous, rules, focusRuleId: rules[Math.max(0, index - 1)]?.id ?? null };
     });
+    const clearToVisual = () => updateDraft(() => createDraft(''));
     const toggleExpressionEditing = () => updateDraft(previous => {
         if (!previous.editingExpression) {
             const rawPattern = previous.source === 'visual'
@@ -316,8 +297,13 @@ function ModelFilterEditor({ label, value, placeholder, onApply, onCancel, isApp
                         {incomplete ? t('incompletePreview') : pattern || t('emptyPreview')}
                     </pre>
                 )}
-                {draft.source === 'raw' && parseVisualRules(draft.rawPattern) === null && <p className="text-xs text-muted-foreground">{t('customHint')}</p>}
-                <p className="text-xs text-muted-foreground">{t('readonlyHint')}</p>
+                {draft.source === 'raw' && parseVisualRules(draft.rawPattern) === null && (
+                    <p className="text-xs text-muted-foreground">
+                        {t('customHint')}{' '}
+                        <Button type="button" variant="link" disabled={isApplying} onClick={clearToVisual}
+                            className="h-auto px-0 py-1 text-xs">{t('clearToVisual')}</Button>
+                    </p>
+                )}
             </div>
             {error && <p id={errorId} role="alert" className="text-sm text-destructive">{error}</p>}
             <div className="flex items-center justify-end gap-2 pt-1">
