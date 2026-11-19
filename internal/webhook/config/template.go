@@ -131,23 +131,17 @@ func NormalizeAndValidate(endpoint *model.WebhookEndpoint) error {
 	if endpoint.BodyTemplate == "" {
 		endpoint.BodyTemplate = DefaultBodyTemplate
 	}
-	for _, event := range []Event{
-		{Event: "failure", Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
-			GroupID: 1, GroupName: "model", Mode: model.GroupModeManual, CurrentChannel: "channel",
-			FailureStreak: 10, Threshold: 10, RetryCount: 9, LastError: "upstream failure"},
-		{Event: "cooldown", Timestamp: "2026-01-01T00:00:00Z", ChannelID: 1, CurrentChannel: "channel",
-			KeyID: 1, KeyName: "key", UpstreamModel: "model", Scope: model.CooldownScopeKey,
-			RuleNumber: 1, CooldownSeconds: 60, CooldownUntil: "2026-01-01T00:01:00Z", ErrorCode: "429", Keyword: "quota", LastError: "custom cooldown"},
-	} {
-		body, err := Render(endpoint.BodyTemplate, event)
-		if err != nil {
-			return err
-		}
-		if err := ValidateRenderedJSON(endpoint.ContentType, body); err != nil {
-			return err
-		}
+	// Keep the legacy configuration check so templates can ignore newer event types.
+	// Delivery still validates the actual rendered body for every event.
+	body, err := Render(endpoint.BodyTemplate, Event{
+		Event: "failure", Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		GroupID: 1, GroupName: "model", Mode: model.GroupModeManual, CurrentChannel: "channel",
+		FailureStreak: 10, Threshold: 10, RetryCount: 9, LastError: "upstream failure",
+	})
+	if err != nil {
+		return err
 	}
-	return nil
+	return ValidateRenderedJSON(endpoint.ContentType, body)
 }
 
 func Render(bodyTemplate string, event Event) ([]byte, error) {

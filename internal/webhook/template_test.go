@@ -2,11 +2,79 @@ package webhook
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 )
+
+const legacyEventBodyTemplate = `{{if eq .Event "failure"}}{"text":{{.LastError | json}}}{{else if eq .Event "recovery"}}{"text":"recovered"}{{else if eq .Event "test"}}{"text":"test"}{{end}}`
+
+func TestLegacyWebhookTemplateNormalization(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		enabled bool
+	}{{"enabled", true}, {"disabled", false}} {
+		t.Run(test.name, func(t *testing.T) {
+			endpoint := model.WebhookEndpoint{
+				Name: "legacy fixture", Enabled: test.enabled, URL: "https://fixture.example/hook",
+				BodyTemplate: legacyEventBodyTemplate,
+			}
+			if err := NormalizeAndValidate(&endpoint); err != nil {
+				t.Fatalf("previously valid template was rejected: %v", err)
+			}
+			if endpoint.Enabled != test.enabled || endpoint.BodyTemplate != legacyEventBodyTemplate {
+				t.Fatal("normalization changed the legacy template or enabled state")
+			}
+		})
+	}
+}
+
+func TestCooldownDeliveryValidatesActualJSON(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		body    string
+		success bool
+	}{
+		{"legacy template", legacyEventBodyTemplate, false},
+		{"invalid cooldown branch", `{{if eq .Event "cooldown"}}{"text":}{{else}}{"text":{{json .LastError}}}{{end}}`, false},
+		{"default template", DefaultBodyTemplate, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requests atomic.Int32
+			target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				requests.Add(1)
+				var body map[string]any
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil || body["title"] != "🧊 Octopus Roam 冷却通知" {
+					t.Error("default cooldown delivery did not contain the expected JSON notification")
+					writer.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				writer.WriteHeader(http.StatusNoContent)
+			}))
+			defer target.Close()
+			endpoint := model.WebhookEndpoint{Name: "delivery fixture", URL: target.URL, BodyTemplate: test.body}
+			if err := NormalizeAndValidate(&endpoint); err != nil {
+				t.Fatalf("configuration validation rejected a valid failure template: %v", err)
+			}
+			result := sendOnce(t.Context(), endpoint, Event{
+				Event: "cooldown", Timestamp: "2026-11-19T00:00:00Z", ChannelID: 1,
+				CurrentChannel: "fixture channel", KeyID: 1, KeyName: "fixture key", UpstreamModel: "fixture model",
+				Scope: model.CooldownScopeKey, RuleNumber: 1, CooldownSeconds: 60, CooldownUntil: "2026-11-19T00:01:00Z",
+			})
+			if test.success {
+				if !result.Success || result.StatusCode != http.StatusNoContent || requests.Load() != 1 {
+					t.Fatalf("default cooldown delivery failed: result=%+v requests=%d", result, requests.Load())
+				}
+			} else if result.Success || result.Error != "rendered body is invalid for the configured content type" || requests.Load() != 0 {
+				t.Fatalf("invalid cooldown JSON reached the HTTP target: result=%+v requests=%d", result, requests.Load())
+			}
+		})
+	}
+}
 
 func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
 	endpoint := model.WebhookEndpoint{
