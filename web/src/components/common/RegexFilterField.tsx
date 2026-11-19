@@ -114,7 +114,7 @@ export function RegexFilterField({
                     </Dialog.Trigger>
                 </div>
                 <pre role="region" aria-label={`${label}: ${t('preview')}`} tabIndex={value ? 0 : undefined}
-                    className="h-36 min-w-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-all rounded-xl border border-border px-3 py-3 font-mono text-xs leading-relaxed text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    className="max-h-36 min-w-0 overflow-y-auto overscroll-contain whitespace-pre-wrap break-all rounded-xl border border-border px-3 py-3 font-mono text-xs leading-relaxed text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     {value || t('notSet')}
                 </pre>
                 <p className="text-xs text-muted-foreground">{t('combined')}</p>
