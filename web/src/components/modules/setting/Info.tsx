@@ -143,15 +143,6 @@ export function SettingInfo() {
                 <p className="text-sm text-destructive">{t('info.updateFailed')}</p>
             )}
 
-            <a
-                href={`${GITHUB_REPO}/releases`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block text-sm text-primary hover:underline"
-            >
-                {t('info.manualUpgrade')}
-            </a>
-
             {/* 浏览器缓存问题警告 */}
             {isCacheMismatch && (
                 <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl space-y-2">

@@ -439,7 +439,6 @@
             }
         },
         "info": {
-            "manualUpgrade": "Open the Octopus Roam Releases page for manual installation or container upgrades.",
             "title": "Version Info",
             "currentVersion": "Current Version",
             "latestVersion": "Latest Version",

@@ -439,7 +439,6 @@
             }
         },
         "info": {
-            "manualUpgrade": "可从 Octopus Roam 发布页手动安装，或按容器升级说明替换镜像。",
             "title": "版本信息",
             "currentVersion": "当前版本",
             "latestVersion": "最新版本",
