@@ -41,17 +41,17 @@ Octopus Roam is a fork of [bestruirui/octopus](https://github.com/bestruirui/oct
 
 ## Support scope
 
-Supported deployments are the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on a Linux amd64 host running Docker Engine, including Compose. The first Linux application acceptance run passed on the C02 development build from commit `9a7ed524bf763bc776ef291a0998aeb715700ad4`; each v0.1.5 candidate and publication run must still validate its own artifacts. See the [exact inputs and acceptance scope](docs/support.md). WSL2 / WSL Containers is expected to be compatible and is not a separate required release test environment.
+Supported deployments are the native Windows amd64 application with SQLite, and the Linux amd64 image with SQLite on a Linux amd64 host running Docker Engine, including Compose. The first Linux application acceptance run passed on the C02 development build from commit `9a7ed524bf763bc776ef291a0998aeb715700ad4`; each v0.1.6 candidate and publication run must still validate its own artifacts. See the [exact inputs and acceptance scope](docs/support.md). WSL2 / WSL Containers is expected to be compatible and is not a separate required release test environment.
 
 Published versions retain their original support statements and acceptance records; see the [v0.1.2 release notes](docs/releases/v0.1.2.md). Native Linux, macOS and Android builds and other image architectures remain experimental. MySQL/PostgreSQL functionality and tests remain available outside the official support scope. All 11 program ZIPs, four image architectures and corresponding source remain available. See the [current support matrix and acceptance status](docs/support.md).
 
 ## 🚀 Quick Start
 
-The instructions below describe the **v0.1.5** delivery layout. Before installation, confirm that this version is publicly available in this repository's Releases and verify its checksums. Candidate artifacts are for isolated acceptance. When upgrading from v0.1.0, follow the [current upgrade guide](docs/upgrade-r1.md). The first Windows migration from the old layout requires manually updating both the executable and cmd entry.
+The instructions below describe the **v0.1.6** delivery layout. Before installation, confirm that this version is publicly available in this repository's Releases and verify its checksums. Candidate artifacts are for isolated acceptance. When upgrading from v0.1.0, follow the [current upgrade guide](docs/upgrade-r1.md). The first Windows migration from the old layout requires manually updating both the executable and cmd entry.
 
 ### 🐳 Linux amd64 / Docker Engine
 
-Use the verified **v0.1.5** image after it is published. On a Linux amd64 host with Docker Engine installed, create a dedicated data directory on a Linux filesystem and start a new instance:
+Use the verified **v0.1.6** image after it is published. On a Linux amd64 host with Docker Engine installed, create a dedicated data directory on a Linux filesystem and start a new instance:
 
 ```bash
 mkdir ./octopus-roam-data
@@ -59,7 +59,7 @@ docker run --detach --name octopus-roam \
   --publish 127.0.0.1:8080:8080 \
   --volume "$(pwd)/octopus-roam-data:/app/data" \
   --env PUID="$(id -u)" --env PGID="$(id -g)" \
-  ghcr.io/ink-lotus/octopus-roam:v0.1.5-amd64
+  ghcr.io/ink-lotus/octopus-roam:v0.1.6-amd64
 ```
 
 Data persists in the host directory. The example maps the application user to your Linux UID/GID and listens on the host's loopback address at `http://127.0.0.1:8080`; use SSH port forwarding to access a remote host. Change the default password after first login. For an existing deployment, follow the [upgrade and recovery steps](docs/upgrade-r1.md) and retain its data and permission settings.
@@ -71,7 +71,7 @@ In the repository's `docker-compose.yml`, replace `/path/to/data` with the absol
 For a new instance, choose either Docker run or Compose. The Compose file requires an explicit published tag; from its directory in a Linux shell, run:
 
 ```bash
-export OCTOPUS_ROAM_VERSION='v0.1.5-amd64'
+export OCTOPUS_ROAM_VERSION='v0.1.6-amd64'
 docker compose config --quiet
 docker compose up -d
 ```
@@ -81,7 +81,7 @@ The stable release updates `latest`; RC releases do not. Use an exact published 
 
 ### 📦 Download from Release
 
-Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.5/octopus-roam-windows-amd64.zip), or an experimental ZIP for another platform, and [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.5/SHA256SUMS) from [v0.1.5](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.5), verify the checksum, and extract the entire archive into a permanent folder. The same release includes [corresponding source](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.5/octopus-roam-source-v0.1.5.zip), original notices and rebuild instructions.
+Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.6/octopus-roam-windows-amd64.zip), or an experimental ZIP for another platform, and [SHA256SUMS](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.6/SHA256SUMS) from [v0.1.6](https://github.com/Ink-lotus/octopus-roam/releases/tag/v0.1.6), verify the checksum, and extract the entire archive into a permanent folder. The same release includes [corresponding source](https://github.com/Ink-lotus/octopus-roam/releases/download/v0.1.6/octopus-roam-source-v0.1.6.zip), original notices and rebuild instructions.
 
 **Windows:** double-click `octopus-roam.cmd` and choose a numbered option:
 
@@ -90,7 +90,7 @@ Download the [Windows amd64 ZIP](https://github.com/Ink-lotus/octopus-roam/relea
 3. Stop the service.
 4. Stop the service and disable automatic startup.
 
-The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Closing the menu leaves the service running; choose `3` or `4` to stop it. v0.1.5 uses one cmd entry and native executable commands, with a per-user scheduled logon task. Published v0.1.0 packages still require their `windows` support folder. The first migration to the native layout requires manually updating both the executable and cmd entry; see the [migration instructions](docs/local-deployment.md#从旧脚本布局迁移).
+The first start creates the configuration and data directories automatically. The default management address is `http://127.0.0.1:8080`; existing configuration is preserved. Closing the menu leaves the service running; choose `3` or `4` to stop it. v0.1.6 uses one cmd entry and native executable commands, with a per-user scheduled logon task. Published v0.1.0 packages still require their `windows` support folder. The first migration to the native layout requires manually updating both the executable and cmd entry; see the [migration instructions](docs/local-deployment.md#从旧脚本布局迁移).
 
 **Experimental native Linux / macOS and other builds:** run in the extracted directory; native process upgrade and recovery remain unvalidated:
 
@@ -117,7 +117,7 @@ go run . start
 
 > 💡 **Tip**: The frontend build artifacts are embedded into the Go binary, so you must build the frontend before starting the backend.
 
-For an offline local build, use `pwsh -NoProfile -File scripts/build-local.ps1`. The default version is `v0.1.5-local.<timestamp>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable. Reviewed release materials use the separate [release contract](docs/release-ci.md).
+For an offline local build, use `pwsh -NoProfile -File scripts/build-local.ps1`. The default version is `v0.1.6-local.<timestamp>`. The helper writes only to a new `build/release-local/` directory, uses existing caches, and reports when the third-party license report is unavailable. Reviewed release materials use the separate [release contract](docs/release-ci.md).
 
 For local deployment validation, keep the executable, configuration, database, and logs in a separate directory outside the repository. See the [local deployment guide (Chinese)](docs/local-deployment.md).
 
@@ -298,17 +298,21 @@ All keys must refresh successfully before model changes commit. A successful emp
 
 The channel and group pages share one bulk refresh task and progress display. It selects enabled channels that follow global updates, rechecks before probing, and normally skips channels disabled, deleted, opted out, or already being refreshed while waiting. Switching pages does not stop it and repeated clicks do not start another task. Group search and category filters do not narrow its targets. Explicit single-channel refresh keeps its existing behavior; requests already sent cannot be recalled, and reloading the browser does not resume the task.
 
-In channel advanced settings, add cooldown rules only when needed. Each rule has an exact HTTP status/upstream code or type, a plain-text keyword, an integer duration in seconds (`1..2147483647`), and a model or channel scope. At least one matching condition is required; filling both uses AND. Keywords ignore English letter case and inspect the bounded upstream error message (up to 4096 UTF-8 bytes), without regex or scripts. Empty rules preserve existing retry and member backoff behavior.
+In channel advanced settings, add cooldown rules only when needed. Each rule has an exact HTTP status/upstream code or type, a plain-text keyword, an integer duration in seconds (`1..2147483647`), a model/key/channel scope, and an optional Webhook notification. At least one matching condition is required; filling both uses AND. Keywords ignore English letter case and inspect the bounded upstream error message (up to 4096 UTF-8 bytes), without regex or scripts. Empty rules preserve existing retry and member backoff behavior.
 
-Model scope covers the actual upstream model on that channel across keys, protocol grants and groups; channel scope covers the whole channel. Multiple cooldown sources use the latest deadline. Only actual Relay upstream failures trigger rules, including streamed errors within HTTP 200; normal output, prompts, client cancellation and model-list probes do not. Success and refresh do not clear a rule cooldown. Waiting releases channel capacity, and the existing member-cooldown release action does not clear shared rule cooldowns. Rules persist, while active timers reset on process restart and are not backed up. Rule or outbound connection/credential changes invalidate old rule state; display names and categories do not.
+Model scope covers the actual upstream model on that channel across keys, protocol grants and groups; key scope covers all models using that key on the same channel without affecting other keys; channel scope covers the whole channel. Multiple cooldown sources use the latest deadline. Only actual Relay upstream failures trigger rules, including streamed errors within HTTP 200; normal output, prompts, client cancellation and model-list probes do not. Success and refresh do not clear a rule cooldown. Waiting releases channel capacity, and the existing member-cooldown release action does not clear shared rule cooldowns. Rules persist, while active timers reset on process restart and are not backed up. Rule or outbound connection/credential changes invalidate old rule state; display names and categories do not.
 
-Channel advanced settings can remove only the top-level `previous_response_id` and first-level `input` items of type `item_reference` from outbound Responses requests, preserving all other client-provided history, IDs and encrypted content. The separate custom-header option limits all channel custom headers to model discovery and refresh. Both default to off and persist with the channel. See the [history contract](docs/responses-history-cleanup.md) and [v0.1.5 notes](docs/releases/v0.1.5.md).
+Rules missing `notify_webhook` default to off. Notifications fire for a new cooldown period; extending an active deadline does not send another notification. Existing Webhook templates retain the failure-sample configuration check, and the final JSON is checked before delivery. To receive cooldown events, an old custom template needs a valid `cooldown` branch; the new default template includes one.
 
-Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep the password separately: it cannot be recovered. Export scripts use authenticated `POST /api/v1/setting/export` with the password in the JSON body; the former GET returns 405. v0.1.5 continues to export `octopus-roam` content **1004** for format 1 hourly archives, rules, categories, group assignments and both channel compatibility options, in encrypted container **1**. Exports containing native MySQL/PostgreSQL format 2 hourly archives use content **1005** and require a compatible reader. It accepts product content 1000–1005 and audited unmarked upstream formats 0/5; unmarked 6 and unknown identities remain rejected. Incremental import accepts only compatible identities and references; conflicting configurations, credentials or unique keys reject the entire import with 409. Compatible replay retains the documented local state, including a group's category and active member. Use an empty instance for complete restoration; see the [integrity contract](docs/backup-integrity.md).
+Global and channel model filters share a visual dialog with keep/exclude, exact/prefix/suffix/contains matches and AND/OR conditions. Unrecognized handwritten expressions keep their original value; switching to visual editing clears only the draft, and cancel preserves the saved expression. External expression previews grow with content from one line up to 144px, then scroll internally. The dialog retains editable condition rows and explicit expression editing. Actual-model previews and sample tests are outside this release.
+
+Channel advanced settings can remove only the top-level `previous_response_id` and first-level `input` items of type `item_reference` from outbound Responses requests, preserving all other client-provided history, IDs and encrypted content. The separate custom-header option limits all channel custom headers to model discovery and refresh. Both default to off and persist with the channel. See the [history contract](docs/responses-history-cleanup.md) and [v0.1.6 notes](docs/releases/v0.1.6.md).
+
+Backups require a separate password of at least 12 characters and download as encrypted JSON. Keep it separately: it cannot be recovered. Export uses authenticated `POST /api/v1/setting/export` with the password in the JSON body; the former GET returns 405. v0.1.6 exports content **1006** when any rule uses key scope or enables `notify_webhook`, including backups with format 1/2 hourly archives. Without extended rules, exports retain **1004** unless a native MySQL/PostgreSQL format 2 archive requires **1005**. The encrypted container remains **1**. Product content 1000–1006 and audited unmarked upstream formats 0/5 are accepted; unmarked 6 and unknown identities remain rejected. Conflicting configurations, credentials or unique keys reject an incremental import with 409. Compatible replay preserves the documented local state. Use an empty instance for complete restoration; see the [integrity contract](docs/backup-integrity.md).
 
 v0.1.4 added SQLite migration 18; v0.1.5 extends it to MySQL and PostgreSQL. It archives legacy hourly rows with `hour >= 24` before removing them from active statistics, fixing the v0.1.3 startup failure. It preserves original values without summing or assigning them to another hour. Archives are included in encrypted backups and empty-instance restoration. MySQL/PostgreSQL remain outside the official support scope and require the documented schema and metadata permissions. Old encrypted backups containing invalid hours require the explicit offline `backup-convert-hourly` command; see [hourly recovery](docs/hourly-statistics-recovery.md).
 
-Save the old executable, configuration and complete database snapshot before upgrading. Content 1004 requires v0.1.4 or a later compatible release; content 1005 requires v0.1.5 or a later compatible release. The old program is not promised to read the migrated database. Rollback restores the pre-upgrade snapshot and loses data added after that snapshot. The [upgrade guide](docs/upgrade-r1.md) explains the first Windows migration, incremental import, defaults and troubleshooting.
+Save the old executable, configuration and complete database snapshot before upgrading. Content 1004 requires v0.1.4 or a later compatible release; content 1005 requires v0.1.5 or a later compatible release; content 1006 requires v0.1.6 or a later compatible release. v0.1.5 and earlier cannot restore 1006, and changing the version number does not make it compatible. The old program is not promised to read the migrated database. Rollback restores the pre-upgrade snapshot and loses data added after that snapshot. The [upgrade guide](docs/upgrade-r1.md) explains the first Windows migration, incremental import, defaults and troubleshooting.
 
 The Settings page checks only the Octopus Roam release source. Stable builds update only to a higher stable version; an official RC may update to a later RC or the corresponding stable version. Development and local builds show their status without inferring an upgrade order. A candidate is downloaded into an isolated directory and must match the same release's `SHA256SUMS` before replacement. The running program, configuration, database, and backup directories are kept separate. Container deployments are upgraded by replacing the image and restarting the container; the program is not replaced from inside the container.
 

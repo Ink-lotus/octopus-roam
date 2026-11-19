@@ -61,7 +61,7 @@ func WriteJSON(path string, value any) error {
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporary, path)
+	return renameJSONFile(temporary, path)
 }
 
 func prepare(directory string) error {
