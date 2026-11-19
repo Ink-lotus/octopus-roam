@@ -64,7 +64,7 @@ export function MemberStatus({ group, itemId, now, active = false, activeClassNa
 
     const item = itemId === undefined ? undefined : group.items.find((entry) => entry.id === itemId);
     const ruleHits = item
-        ? cooldownHitsForModel(group.runtime.rule_cooldowns, item.channel_id, item.model_name)
+        ? cooldownHitsForModel(group.runtime.rule_cooldowns, item.channel_id, item.model_name, item.channel_key_id)
         : [];
     const ruleStatus = <CooldownHitList hits={ruleHits} now={now} compact={compact} />;
 

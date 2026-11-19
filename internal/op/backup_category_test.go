@@ -297,7 +297,7 @@ func TestBackupCategoriesVersionDefaultsAndOrigins(t *testing.T) {
 		`{"product":"octopus-roam","version":1002,"group_categories":null}`,
 		`{"product":"octopus-roam","version":1002,"group_categories":[null]}`,
 		`{"product":"octopus-roam","version":1002,"channels":[{"cooldown_rules":null}]}`,
-		`{"version":6}`, `{"version":1000}`, `{"version":1001}`, `{"product":"other","version":1001}`, `{"product":"octopus-roam","version":1006}`,
+		`{"version":6}`, `{"version":1000}`, `{"version":1001}`, `{"product":"other","version":1001}`, `{"product":"octopus-roam","version":1007}`,
 	} {
 		var dump model.DBDump
 		if err := json.Unmarshal([]byte(raw), &dump); err != nil {

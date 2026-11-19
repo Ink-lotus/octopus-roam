@@ -20,13 +20,14 @@ import (
 )
 
 const (
-	dumpProduct   = "octopus-roam"
-	dbDumpVersion = 1004
+	dumpProduct           = "octopus-roam"
+	dbDumpVersion         = 1004
+	dbDumpCooldownVersion = 1006
 )
 
 // 只接受逐表审计过的上游格式。同步上游时不得带入其常量或扩大白名单。
 var upstreamDumpVersions = map[int]struct{}{0: {}, 5: {}}
-var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, 1002: {}, 1003: {}, dbDumpVersion: {}, 1005: {}}
+var roamDumpVersions = map[int]struct{}{1000: {}, 1001: {}, 1002: {}, 1003: {}, dbDumpVersion: {}, 1005: {}, dbDumpCooldownVersion: {}}
 
 var ErrBackupWrite = errors.New("backup could not be imported; no changes were applied")
 
@@ -147,6 +148,13 @@ func exportBackupSnapshot(conn *gorm.DB) (*model.DBDump, error) {
 	for _, archive := range d.StatsHourlyArchives {
 		if archive.Format == 2 {
 			d.Version = 1005
+		}
+	}
+	for _, channel := range d.Channels {
+		for _, rule := range channel.CooldownRules {
+			if rule.Scope == model.CooldownScopeKey || rule.NotifyWebhook {
+				d.Version = dbDumpCooldownVersion
+			}
 		}
 	}
 	return d, nil
@@ -337,6 +345,7 @@ func validateBackupFeatureFields(dump *model.DBDump) error {
 	hasRulesAndCategories := dump.Product == dumpProduct && dump.Version >= 1001
 	hasResponsesHistory := dump.Product == dumpProduct && dump.Version >= 1002
 	hasModelOnlyHeaders := dump.Product == dumpProduct && dump.Version >= 1003
+	hasExtendedCooldowns := dump.Product == dumpProduct && dump.Version >= dbDumpCooldownVersion
 	if hasRulesAndCategories && dump.HasExplicitNullCooldownRules() {
 		return fmt.Errorf("cooldown_rules cannot be null")
 	}
@@ -350,6 +359,11 @@ func validateBackupFeatureFields(dump *model.DBDump) error {
 		}
 		if !hasRulesAndCategories && len(rules) > 0 {
 			return fmt.Errorf("backup version %d cannot contain cooldown_rules", dump.Version)
+		}
+		for _, rule := range rules {
+			if !hasExtendedCooldowns && (rule.Scope == model.CooldownScopeKey || rule.NotifyWebhook) {
+				return fmt.Errorf("backup version %d cannot contain extended cooldown_rules", dump.Version)
+			}
 		}
 		if !hasResponsesHistory && dump.Channels[i].StripResponsesHistory {
 			return fmt.Errorf("backup version %d cannot contain strip_responses_history", dump.Version)

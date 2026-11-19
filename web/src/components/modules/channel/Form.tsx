@@ -40,7 +40,7 @@ function cooldownRuleError(rule: CooldownRule): CooldownRuleError {
     if (!Number.isSafeInteger(rule.cooldown_seconds)
         || rule.cooldown_seconds < 1
         || rule.cooldown_seconds > MAX_COOLDOWN_SECONDS) return 'seconds';
-    if (rule.scope !== 'model' && rule.scope !== 'channel') return 'scope';
+    if (rule.scope !== 'model' && rule.scope !== 'key' && rule.scope !== 'channel') return 'scope';
     return null;
 }
 
@@ -322,6 +322,7 @@ function ChannelFormFields({ channel, onBack, onFilterEditorOpenChange }: {
                                                 keyword: '',
                                                 cooldown_seconds: Number.NaN,
                                                 scope: 'model',
+                                                notify_webhook: false,
                                             }],
                                         })}
                                         className="size-9 shrink-0"
@@ -397,9 +398,22 @@ function ChannelFormFields({ channel, onBack, onFilterEditorOpenChange }: {
                                                                 className="border-input h-9 w-full rounded-md border bg-transparent px-3 py-1 text-base outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] md:text-sm"
                                                             >
                                                                 <option value="model">{t('cooldownScopeModel')}</option>
+                                                                <option value="key">{t('cooldownScopeKey')}</option>
                                                                 <option value="channel">{t('cooldownScopeChannel')}</option>
                                                             </select>
                                                         </div>
+                                                    </div>
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="space-y-1">
+                                                            <Label htmlFor={`${idPrefix}-cooldown-${index}-notify`}>{t('cooldownNotifyWebhook')}</Label>
+                                                            <p id={`${idPrefix}-cooldown-${index}-notify-hint`} className="text-xs text-muted-foreground">{t('cooldownNotifyWebhookHint')}</p>
+                                                        </div>
+                                                        <Switch
+                                                            id={`${idPrefix}-cooldown-${index}-notify`}
+                                                            checked={rule.notify_webhook ?? false}
+                                                            onCheckedChange={(notify_webhook) => updateRule({ notify_webhook })}
+                                                            aria-describedby={`${idPrefix}-cooldown-${index}-notify-hint`}
+                                                        />
                                                     </div>
                                                     <div className="flex items-start justify-between gap-2">
                                                         <p id={errorId} role={error ? 'alert' : undefined} className="text-xs text-destructive">

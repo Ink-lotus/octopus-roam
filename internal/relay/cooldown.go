@@ -38,9 +38,19 @@ type CooldownHit struct {
 	ChannelID int                 `json:"channel_id"`
 	Scope     model.CooldownScope `json:"scope"`
 	ModelName string              `json:"model_name,omitempty"`
+	KeyID     int                 `json:"key_id,omitempty"`
+	KeyName   string              `json:"key_name,omitempty"`
 	Until     int64               `json:"until"`
 	RuleIndex int                 `json:"rule_index"`
 	Rule      model.CooldownRule  `json:"rule"`
+}
+
+// CooldownTrigger 只在规则开始新一轮冷却时产生，不含凭据或上游错误正文。
+type CooldownTrigger struct {
+	Hit           CooldownHit
+	KeyID         int
+	UpstreamModel string
+	At            time.Time
 }
 
 type CooldownObservation struct {
@@ -59,11 +69,13 @@ type CooldownToken struct {
 	channelID  int
 	generation uint64
 	modelName  string
+	keyID      int
 }
 
 type cooldownKey struct {
 	ruleIndex int
 	modelName string
+	keyID     int
 }
 
 type cooldownEntry struct {
@@ -84,12 +96,13 @@ type cooldownChannel struct {
 // CooldownEngine 仅管理进程内的用户规则状态，与分组成员健康和数据库独立。
 // 所有回调均在引擎锁外执行。W06 才注册生产配置及接通 Record/选路/通知。
 type CooldownEngine struct {
-	mu       sync.Mutex
-	clock    CooldownClock
-	channels map[int]*cooldownChannel
-	onChange func(int)
-	closed   bool
-	stopped  chan struct{}
+	mu        sync.Mutex
+	clock     CooldownClock
+	channels  map[int]*cooldownChannel
+	onChange  func(int)
+	onTrigger func(CooldownTrigger)
+	closed    bool
+	stopped   chan struct{}
 }
 
 func NewCooldownEngine(clock CooldownClock, onChange func(channelID int)) *CooldownEngine {
@@ -159,19 +172,19 @@ func (e *CooldownEngine) Remove(channelID int, generation uint64) (notify func()
 	return e.notificationLocked(channelID, channel), nil
 }
 
-func (e *CooldownEngine) Capture(channelID int, generation uint64, upstreamModel string) (CooldownToken, bool) {
+func (e *CooldownEngine) Capture(channelID int, generation uint64, upstreamModel string, keyID int) (CooldownToken, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	channel := e.channels[channelID]
-	if e.closed || channel == nil || !channel.configured || channel.generation != generation || upstreamModel == "" {
+	if e.closed || channel == nil || !channel.configured || channel.generation != generation || upstreamModel == "" || keyID <= 0 {
 		return CooldownToken{}, false
 	}
-	return CooldownToken{engine: e, channel: channel, channelID: channelID, generation: generation, modelName: upstreamModel}, true
+	return CooldownToken{engine: e, channel: channel, channelID: channelID, generation: generation, modelName: upstreamModel, keyID: keyID}, true
 }
 
 // Observe 在同一锁内取得截止时间、命中副本和 changed；读取不运行回调，
 // 也不进入 op/route。到期项立即从视图排除，计时器负责实际清理与通知。
-func (e *CooldownEngine) Observe(channelID int, upstreamModel string) CooldownObservation {
+func (e *CooldownEngine) Observe(channelID int, upstreamModel string, keyID int) CooldownObservation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed {
@@ -186,7 +199,9 @@ func (e *CooldownEngine) Observe(channelID int, upstreamModel string) CooldownOb
 		Generation: channel.generation, Configured: channel.configured}
 	now := e.clock.Now()
 	for _, entry := range channel.hits {
-		if !entry.until.After(now) || (entry.hit.Scope == model.CooldownScopeModel && entry.hit.ModelName != upstreamModel) {
+		if !entry.until.After(now) ||
+			(entry.hit.Scope == model.CooldownScopeModel && entry.hit.ModelName != upstreamModel) ||
+			(entry.hit.Scope == model.CooldownScopeKey && entry.hit.KeyID != keyID) {
 			continue
 		}
 		observation.Hits = append(observation.Hits, entry.hit)
@@ -219,7 +234,7 @@ func (e *CooldownEngine) Snapshot(channelID int) []CooldownHit {
 // 调用者必须先释放 op/route 锁；本方法在解锁后同步通知。
 func (e *CooldownEngine) Record(token CooldownToken, failure UpstreamFailure) bool {
 	if token.engine != e || !failure.eligible() || token.channelID != failure.ChannelID ||
-		token.generation != failure.Generation || token.modelName != failure.UpstreamModel {
+		token.generation != failure.Generation || token.modelName != failure.UpstreamModel || token.keyID != failure.KeyID {
 		return false
 	}
 	e.mu.Lock()
@@ -230,6 +245,7 @@ func (e *CooldownEngine) Record(token CooldownToken, failure UpstreamFailure) bo
 	}
 	now := e.clock.Now()
 	changed := false
+	var triggers []CooldownTrigger
 	for index, rule := range channel.rules {
 		if !matchesCooldownRule(rule, failure) {
 			continue
@@ -237,13 +253,20 @@ func (e *CooldownEngine) Record(token CooldownToken, failure UpstreamFailure) bo
 		key := cooldownKey{ruleIndex: index}
 		if rule.Scope == model.CooldownScopeModel {
 			key.modelName = token.modelName
+		} else if rule.Scope == model.CooldownScopeKey {
+			key.keyID = token.keyID
 		}
 		until := now.Add(time.Duration(rule.CooldownSeconds) * time.Second)
-		if previous, ok := channel.hits[key]; ok && !until.After(previous.until) {
+		previous, exists := channel.hits[key]
+		if exists && !until.After(previous.until) {
 			continue
 		}
-		channel.hits[key] = cooldownEntry{until: until, hit: CooldownHit{ChannelID: token.channelID,
-			Scope: rule.Scope, ModelName: key.modelName, Until: until.UnixMilli(), RuleIndex: index, Rule: rule}}
+		hit := CooldownHit{ChannelID: token.channelID, Scope: rule.Scope, ModelName: key.modelName,
+			KeyID: key.keyID, Until: until.UnixMilli(), RuleIndex: index, Rule: rule}
+		channel.hits[key] = cooldownEntry{until: until, hit: hit}
+		if rule.NotifyWebhook && (!exists || !previous.until.After(now)) {
+			triggers = append(triggers, CooldownTrigger{Hit: hit, KeyID: token.keyID, UpstreamModel: token.modelName, At: now})
+		}
 		changed = true
 	}
 	var notify func()
@@ -254,6 +277,11 @@ func (e *CooldownEngine) Record(token CooldownToken, failure UpstreamFailure) bo
 	e.mu.Unlock()
 	if notify != nil {
 		notify()
+	}
+	if e.onTrigger != nil {
+		for _, trigger := range triggers {
+			e.onTrigger(trigger)
+		}
 	}
 	return changed
 }
@@ -287,6 +315,9 @@ func sortCooldownHits(hits []CooldownHit) {
 				return -1
 			}
 			return 1
+		}
+		if a.KeyID != b.KeyID {
+			return a.KeyID - b.KeyID
 		}
 		return strings.Compare(a.ModelName, b.ModelName)
 	})

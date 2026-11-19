@@ -5,14 +5,58 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Ink-lotus/octopus-roam/internal/model"
 	"github.com/Ink-lotus/octopus-roam/internal/op"
+	"github.com/charmbracelet/log"
 )
 
 var ruleCooldownEngine atomic.Pointer[CooldownEngine]
+
+// Trigger events are transient notifications, independent of route/SSE snapshots.
+// Only a non-blocking queue write runs on the Relay producer; there is no replay.
+var cooldownTriggerStreams = struct {
+	sync.Mutex
+	streams map[chan CooldownTrigger]struct{}
+}{streams: make(map[chan CooldownTrigger]struct{})}
+
+func OpenCooldownTriggerStream() chan CooldownTrigger {
+	cooldownTriggerStreams.Lock()
+	defer cooldownTriggerStreams.Unlock()
+	stream := make(chan CooldownTrigger, routeStreamBuffer)
+	cooldownTriggerStreams.streams[stream] = struct{}{}
+	return stream
+}
+
+func CloseCooldownTriggerStream(stream chan CooldownTrigger) {
+	cooldownTriggerStreams.Lock()
+	defer cooldownTriggerStreams.Unlock()
+	if _, exists := cooldownTriggerStreams.streams[stream]; exists {
+		delete(cooldownTriggerStreams.streams, stream)
+		close(stream)
+	}
+}
+
+func publishCooldownTrigger(trigger CooldownTrigger) {
+	cooldownTriggerStreams.Lock()
+	defer cooldownTriggerStreams.Unlock()
+	for stream := range cooldownTriggerStreams.streams {
+		select {
+		case stream <- trigger:
+		default:
+			log.Warnf("cooldown notification queue is full; dropped event for channel %d", trigger.Hit.ChannelID)
+		}
+	}
+}
+
+func newRuleCooldownEngine(clock CooldownClock) *CooldownEngine {
+	engine := NewCooldownEngine(clock, notifyChannelRuleCooldown)
+	engine.onTrigger = publishCooldownTrigger
+	return engine
+}
 
 // These maps/streams share routeMu. The only nested reads are immutable op
 // snapshots/cache reads and engine Observe/Snapshot; neither invokes callbacks.
@@ -27,7 +71,7 @@ type ChannelCooldownState struct {
 }
 
 func init() {
-	engine := NewCooldownEngine(nil, notifyChannelRuleCooldown)
+	engine := newRuleCooldownEngine(nil)
 	ruleCooldownEngine.Store(engine)
 	if err := op.RegisterChannelCooldownPublisher(engine); err != nil {
 		panic(err)
@@ -42,6 +86,7 @@ func channelRuleStateLocked(id int, advance bool) ChannelCooldownState {
 		channelRuleStates[id] = state
 	}
 	state.RuleCooldowns = slices.Clone(state.RuleCooldowns)
+	labelCooldownKeys(state.RuleCooldowns)
 	return state
 }
 
@@ -127,11 +172,14 @@ func notifyChannelRuleCooldown(id int) {
 
 func ruleCooldownsForItemsLocked(items []model.GroupItem) []CooldownHit {
 	models := make(map[int]map[string]struct{})
+	keys := make(map[int]map[int]struct{})
 	for _, item := range items {
 		if models[item.ChannelID] == nil {
 			models[item.ChannelID] = make(map[string]struct{})
+			keys[item.ChannelID] = make(map[int]struct{})
 		}
 		models[item.ChannelID][item.ModelName] = struct{}{}
+		keys[item.ChannelID][item.ChannelKeyID] = struct{}{}
 	}
 	engine := ruleCooldownEngine.Load()
 	hits := []CooldownHit{}
@@ -139,7 +187,11 @@ func ruleCooldownsForItemsLocked(items []model.GroupItem) []CooldownHit {
 		// One channel snapshot avoids mixing deadlines if Record extends a
 		// shared rule between two Key references to the same upstream model.
 		for _, hit := range engine.Snapshot(id) {
-			if _, referenced := names[hit.ModelName]; referenced || hit.Scope == model.CooldownScopeChannel {
+			_, modelReferenced := names[hit.ModelName]
+			_, keyReferenced := keys[id][hit.KeyID]
+			if hit.Scope == model.CooldownScopeChannel ||
+				(hit.Scope == model.CooldownScopeModel && modelReferenced) ||
+				(hit.Scope == model.CooldownScopeKey && keyReferenced) {
 				hits = append(hits, hit)
 			}
 		}
@@ -154,13 +206,25 @@ func ruleCooldownsForItemsLocked(items []model.GroupItem) []CooldownHit {
 		if a.RuleIndex != b.RuleIndex {
 			return a.RuleIndex - b.RuleIndex
 		}
+		if a.KeyID != b.KeyID {
+			return a.KeyID - b.KeyID
+		}
 		return strings.Compare(a.ModelName, b.ModelName)
 	})
+	labelCooldownKeys(hits)
 	return hits
 }
 
+func labelCooldownKeys(hits []CooldownHit) {
+	for index := range hits {
+		if hits[index].Scope == model.CooldownScopeKey {
+			hits[index].KeyName, _ = op.ChannelKeyName(hits[index].ChannelID, hits[index].KeyID)
+		}
+	}
+}
+
 func ruleCooldownDeadline(item model.GroupItem) time.Time {
-	return ruleCooldownEngine.Load().Observe(item.ChannelID, item.ModelName).Until
+	return ruleCooldownEngine.Load().Observe(item.ChannelID, item.ModelName, item.ChannelKeyID).Until
 }
 
 func cooldownWaitLocked(route *routeRuntime, item model.GroupItem, now time.Time) (time.Time, bool) {
@@ -204,7 +268,8 @@ func checkCooldownSend(ctx context.Context, capture *upstreamFailureCapture) err
 		capture.mu.Lock()
 		identity := capture.identity
 		capture.mu.Unlock()
-		if identity.ChannelID != attempt.token.channelID || identity.Generation != attempt.token.generation || identity.UpstreamModel != attempt.token.modelName {
+		if identity.ChannelID != attempt.token.channelID || identity.Generation != attempt.token.generation ||
+			identity.UpstreamModel != attempt.token.modelName || identity.KeyID != attempt.token.keyID {
 			return errCooldownSendChanged
 		}
 	}
@@ -224,10 +289,11 @@ func checkCooldownSend(ctx context.Context, capture *upstreamFailureCapture) err
 	if err != nil || !current.Channel.Enabled || current.Channel.ID != attempt.config.Channel.ID ||
 		current.Generation != attempt.config.Generation || current.Grant.Protocols != attempt.config.Grant.Protocols ||
 		current.Grant.ChannelKeyID != attempt.config.Grant.ChannelKeyID || current.Grant.ChannelModelID != attempt.config.Grant.ChannelModelID ||
+		current.Grant.ChannelKeyID != attempt.token.keyID ||
 		current.Grant.ChannelModel.Name != attempt.token.modelName {
 		return errCooldownSendChanged
 	}
-	observation := attempt.token.engine.Observe(current.Channel.ID, attempt.token.modelName)
+	observation := attempt.token.engine.Observe(current.Channel.ID, attempt.token.modelName, current.Grant.ChannelKeyID)
 	if !observation.Configured || observation.Generation != attempt.token.generation || !observation.Until.IsZero() {
 		return errCooldownSendChanged
 	}

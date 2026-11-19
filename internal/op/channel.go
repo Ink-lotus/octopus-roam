@@ -452,6 +452,20 @@ func ChannelGet(id int) (model.Channel, error) {
 	return channel, nil
 }
 
+// ChannelKeyName 只读取指定渠道下凭据的展示名称，不向调用方返回凭据内容。
+func ChannelKeyName(channelID, keyID int) (string, bool) {
+	backupCacheMu.RLock()
+	defer backupCacheMu.RUnlock()
+	if backupUnavailable.Load() {
+		return "", false
+	}
+	key, exists := channelKeyCache.Get(keyID)
+	if !exists || key.ChannelID != channelID {
+		return "", false
+	}
+	return key.Name, true
+}
+
 // ChannelGrantGet 返回可用于转发的渠道授权, 并补齐其模型与凭据。
 // 凭据被停用, 以及模型, 凭据缺失时一律返回错误, 使调用方拿到的授权必然可直接转发, 无需再逐项检查。
 // 授权本身没有停用状态: 不再授权就删掉该组合, 无需保留一行停用记录。

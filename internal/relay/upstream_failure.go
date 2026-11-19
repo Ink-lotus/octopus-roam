@@ -34,6 +34,7 @@ const (
 // 反推 code/type。Generation 由发送前的 CooldownToken 绑定，未接入时为 0。
 type UpstreamFailure struct {
 	ChannelID        int
+	KeyID            int
 	UpstreamModel    string
 	Protocol         model.Protocol
 	Generation       uint64
@@ -47,7 +48,7 @@ type UpstreamFailure struct {
 }
 
 func (f UpstreamFailure) eligible() bool {
-	if !f.confirmed || f.ChannelID <= 0 || f.UpstreamModel == "" || f.Generation == 0 {
+	if !f.confirmed || f.ChannelID <= 0 || f.KeyID <= 0 || f.UpstreamModel == "" || f.Generation == 0 {
 		return false
 	}
 	switch f.Protocol {
@@ -126,8 +127,10 @@ func (c *upstreamFailureCapture) requestModel(upstreamModel string) {
 	defer c.mu.Unlock()
 	c.identity.UpstreamModel = strings.Clone(upstreamModel)
 	c.identity.Generation = 0
+	c.identity.KeyID = 0
 	if c.token.channelID == c.identity.ChannelID && c.token.modelName == upstreamModel {
 		c.identity.Generation = c.token.generation
+		c.identity.KeyID = c.token.keyID
 	}
 }
 

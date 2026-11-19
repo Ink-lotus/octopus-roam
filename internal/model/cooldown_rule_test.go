@@ -17,6 +17,13 @@ func TestValidateCooldownRulesJSONNormalizesAndPreservesOrder(t *testing.T) {
 	if len(rules) != 2 || rules[0].ErrorCode != "429" || rules[0].Keyword != "quota" || rules[1].Keyword != "Overloaded" || rules[1].Scope != CooldownScopeChannel {
 		t.Fatalf("unexpected normalized rules: %+v", rules)
 	}
+	if rules[0].NotifyWebhook || rules[1].NotifyWebhook {
+		t.Fatal("omitted Webhook flags must preserve the disabled default")
+	}
+	keyRules, err := ValidateCooldownRulesJSON([]byte(`[{"error_code":"429","cooldown_seconds":60,"scope":"key","notify_webhook":true}]`))
+	if err != nil || len(keyRules) != 1 || keyRules[0].Scope != CooldownScopeKey || !keyRules[0].NotifyWebhook {
+		t.Fatalf("key and Webhook rule was not accepted: rules=%+v err=%v", keyRules, err)
+	}
 	rules[0].Keyword = "changed"
 	if rules[1].Keyword != "Overloaded" {
 		t.Fatal("rule order or values were aliased")
@@ -37,6 +44,8 @@ func TestValidateCooldownRulesJSONRejectsInvalidShapeAndBounds(t *testing.T) {
 		{"overflow", `[{"error_code":"429","cooldown_seconds":2147483648,"scope":"model"}]`, "cooldown_seconds"},
 		{"bad scope", `[{"error_code":"429","cooldown_seconds":30,"scope":"group"}]`, "scope"},
 		{"null scope", `[{"error_code":"429","cooldown_seconds":30,"scope":null}]`, "scope"},
+		{"invalid Webhook flag", `[{"error_code":"429","cooldown_seconds":30,"scope":"model","notify_webhook":"true"}]`, "notify_webhook"},
+		{"null Webhook flag", `[{"error_code":"429","cooldown_seconds":30,"scope":"model","notify_webhook":null}]`, "notify_webhook"},
 		{"unknown field", `[{"error_code":"429","cooldown_seconds":30,"scope":"model","extra":true}]`, "unknown field"},
 		{"null rule", `[null]`, "cooldown_rules[0]"},
 		{"null array", `null`, "cooldown_rules must be an array"},

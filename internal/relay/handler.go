@@ -241,8 +241,8 @@ func Forward(format llm.APIFormat) gin.HandlerFunc {
 				channelKey, channelModel = grant.ChannelKey, grant.ChannelModel
 				engine := ruleCooldownEngine.Load()
 				var captured bool
-				cooldownToken, captured = engine.Capture(channel.ID, attemptConfig.Generation, channelModel.Name)
-				observation := engine.Observe(channel.ID, channelModel.Name)
+				cooldownToken, captured = engine.Capture(channel.ID, attemptConfig.Generation, channelModel.Name, channelKey.ID)
+				observation := engine.Observe(channel.ID, channelModel.Name, channelKey.ID)
 				if !captured || observation.Generation != attemptConfig.Generation || !observation.Until.IsZero() {
 					releaseCapacity()
 					releaseCapacity = nil

@@ -136,7 +136,7 @@ func TestUpstreamFailureHTTPDirections(t *testing.T) {
 				if len(sender.engine.Snapshot(301)) != 0 {
 					t.Fatal("W05 send path implicitly recorded production cooldown")
 				}
-				if !sender.engine.Record(sender.token, failure) || !sender.engine.Observe(301, "fixture-model-a").Until.Equal(sender.clock.Now().Add(17*time.Second)) {
+				if !sender.engine.Record(sender.token, failure) || !sender.engine.Observe(301, "fixture-model-a", 1).Until.Equal(sender.clock.Now().Add(17*time.Second)) {
 					t.Fatal("Retry-After replaced the configured duration")
 				}
 			})
@@ -287,7 +287,7 @@ func TestUpstreamFailureNormalOutputAndSuccess(t *testing.T) {
 				sender := newUpstreamFailureSender(t, direction, server.URL)
 				failure := failureForCooldownTest(t, sender.token, direction.upstream.protocol, 429, upstreamFailureTestBody)
 				sender.engine.Record(sender.token, failure)
-				before := sender.engine.Observe(301, "fixture-model-a")
+				before := sender.engine.Observe(301, "fixture-model-a", 1)
 				sender.clock.advance(5 * time.Second)
 				result, sent, err := sender.send(t, t.Context(), streaming)
 				if err != nil || !sent || result == nil {
@@ -297,7 +297,7 @@ func TestUpstreamFailureNormalOutputAndSuccess(t *testing.T) {
 				if failure, ok := result.upstreamFailure(); ok {
 					t.Fatalf("normal output/prompt was treated as an error: %+v", failure)
 				}
-				if !sender.engine.Observe(301, "fixture-model-a").Until.Equal(before.Until) {
+				if !sender.engine.Observe(301, "fixture-model-a", 1).Until.Equal(before.Until) {
 					t.Fatal("successful request shortened configured cooldown")
 				}
 				assertCooldownSignal(t, before.Changed, false)
@@ -432,13 +432,13 @@ func TestUpstreamFailureModelProbeIsIndependent(t *testing.T) {
 	}
 	failure := failureForCooldownTest(t, sender.token, model.ProtocolOpenAIChatCompletion, 429, upstreamFailureTestBody)
 	sender.engine.Record(sender.token, failure)
-	before := sender.engine.Observe(301, sender.token.modelName)
+	before := sender.engine.Observe(301, sender.token.modelName, 1)
 	success.Store(true)
 	result, err = op.ChannelFetchModelsWithClient(ctx, sender.channel.ChannelConfig, "fixture-credential", server.Client())
 	if err != nil || result.OpenAIError != "" || len(result.Models) != 1 || calls.Load() != 2 {
 		t.Fatalf("model probe success fixture failed: %v", err)
 	}
-	if !sender.engine.Observe(301, sender.token.modelName).Until.Equal(before.Until) {
+	if !sender.engine.Observe(301, sender.token.modelName, 1).Until.Equal(before.Until) {
 		t.Fatal("model probe success cleared a user cooldown")
 	}
 	assertCooldownSignal(t, before.Changed, false)

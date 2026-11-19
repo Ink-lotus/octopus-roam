@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -57,7 +58,48 @@ func runtimeCooldownToken(t *testing.T, engine *CooldownEngine, grantID int) Coo
 	if err != nil {
 		t.Fatal(err)
 	}
-	return captureCooldownTest(t, engine, config.Channel.ID, config.Generation, config.Grant.ChannelModel.Name)
+	return captureCooldownTest(t, engine, config.Channel.ID, config.Generation, config.Grant.ChannelModel.Name, config.Grant.ChannelKeyID)
+}
+
+func TestCooldownKeyScopeIsolationThroughRelay(t *testing.T) {
+	_, clock := useCooldownRuntimeClock(t)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		if calls.Add(1) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = io.WriteString(w, cooldownFailureBody)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(request.URL.Path, "messages") {
+			_, _ = io.WriteString(w, upstreamFailureNormalBody(model.ProtocolAnthropicMessage))
+			return
+		}
+		_, _ = io.WriteString(w, chatCompletionBody)
+	}))
+	t.Cleanup(server.Close)
+	fixture := newCooldownRelayFixture(t, server.URL, model.CooldownScopeKey)
+	first := serveCooldownChat(t, fixture.grants["fixture-model-a/a"], 1)
+	if compatState(t, first).Status != StatusFailed {
+		t.Fatal("trigger request did not fail")
+	}
+	secondKey := serveCooldownChat(t, fixture.grants["fixture-model-a/b"], 1)
+	if compatState(t, secondKey).Status != StatusSuccess || calls.Load() != 2 {
+		t.Fatal("cooldown for key a blocked a separate key")
+	}
+	sharedKeyGroup := manualWaitGroup(t, newTestGroup(t, model.GroupModeManual, testRelayConfig(3), fixture.grants["fixture-model-b/a"]))
+	waitingResponse, done, _, updates := startManualWaitForward(t, sharedKeyGroup.Name)
+	waiting := awaitManualRequestState(t, updates, sharedKeyGroup.Name, isManualWaiting)
+	if waiting.Attempt != 0 || waiting.ErrorCount != 0 || calls.Load() != 2 || len(RouteStateOf(sharedKeyGroup).RuleCooldowns) != 1 {
+		t.Fatal("key a cooldown did not cover another model on the same key")
+	}
+	clock.advance(10 * time.Second)
+	awaitManualForwardDone(t, done)
+	if waitingResponse.Code != http.StatusOK || compatState(t, sharedKeyGroup).Attempt != 1 || calls.Load() != 3 {
+		t.Fatal("key-level expiry did not release only the matching key")
+	}
 }
 
 func recordRuntimeCooldown(t *testing.T, engine *CooldownEngine, grantID int) CooldownToken {
@@ -305,9 +347,9 @@ func TestCooldownRuntimeConcurrentConfigurationExpiryAndStreams(t *testing.T) {
 						t.Error(err)
 						return
 					}
-					token, ok := engine.Capture(id, config.Generation, "fixture-model-a")
+					token, ok := engine.Capture(id, config.Generation, "fixture-model-a", 1)
 					if ok {
-						failure, _ := extractUpstreamFailure(UpstreamFailure{ChannelID: id, UpstreamModel: "fixture-model-a", Generation: token.generation, Protocol: model.ProtocolOpenAIChatCompletion, HTTPStatus: 429}, []byte(cooldownFailureBody), "", false, "application/json")
+						failure, _ := extractUpstreamFailure(UpstreamFailure{ChannelID: id, KeyID: token.keyID, UpstreamModel: "fixture-model-a", Generation: token.generation, Protocol: model.ProtocolOpenAIChatCompletion, HTTPStatus: 429}, []byte(cooldownFailureBody), "", false, "application/json")
 						engine.Record(token, failure)
 					}
 				case 1:
@@ -494,7 +536,7 @@ func TestCooldownRuntimeDeletedIDReloadRejectsOldToken(t *testing.T) {
 	if _, err := op.ChannelUpdate(&detail, t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if current := engine.Observe(id, "fixture-model-a"); !current.Configured || current.Generation <= token.generation || len(current.Hits) != 0 {
+	if current := engine.Observe(id, "fixture-model-a", 1); !current.Configured || current.Generation <= token.generation || len(current.Hits) != 0 {
 		t.Fatal("reloaded ID reused its former runtime generation")
 	}
 	if engine.Record(token, failureForCooldownTest(t, token, model.ProtocolOpenAIChatCompletion, 429, cooldownFailureBody)) {

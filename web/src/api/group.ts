@@ -50,6 +50,7 @@ export interface GroupItem {
     channel_grant_id: number;
     priority: number;
     channel_id: number;
+    channel_key_id: number;
     channel_name: string;
     model_name: string;
     key_name: string;

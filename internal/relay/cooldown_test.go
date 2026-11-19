@@ -105,9 +105,13 @@ func configureCooldownTest(t *testing.T, engine *CooldownEngine, channelID int, 
 	}
 }
 
-func captureCooldownTest(t *testing.T, engine *CooldownEngine, channelID int, generation uint64, upstreamModel string) CooldownToken {
+func captureCooldownTest(t *testing.T, engine *CooldownEngine, channelID int, generation uint64, upstreamModel string, keyIDs ...int) CooldownToken {
 	t.Helper()
-	token, ok := engine.Capture(channelID, generation, upstreamModel)
+	keyID := 1
+	if len(keyIDs) > 0 {
+		keyID = keyIDs[0]
+	}
+	token, ok := engine.Capture(channelID, generation, upstreamModel, keyID)
 	if !ok {
 		t.Fatal("Capture rejected current configuration")
 	}
@@ -116,12 +120,72 @@ func captureCooldownTest(t *testing.T, engine *CooldownEngine, channelID int, ge
 
 func failureForCooldownTest(t *testing.T, token CooldownToken, protocol model.Protocol, status int, body string) UpstreamFailure {
 	t.Helper()
-	identity := UpstreamFailure{ChannelID: token.channelID, UpstreamModel: token.modelName, Generation: token.generation, Protocol: protocol, HTTPStatus: status}
+	identity := UpstreamFailure{ChannelID: token.channelID, KeyID: token.keyID, UpstreamModel: token.modelName, Generation: token.generation, Protocol: protocol, HTTPStatus: status}
 	failure, ok := extractUpstreamFailure(identity, []byte(body), "", false, "application/json")
 	if !ok {
 		t.Fatal("fixture did not describe an upstream failure")
 	}
 	return failure
+}
+
+func TestCooldownKeyScopeAndWebhookTriggerDeduplication(t *testing.T) {
+	clock := newCooldownTestClock()
+	engine := NewCooldownEngine(clock, nil)
+	defer engine.Close()
+	var triggers []CooldownTrigger
+	engine.onTrigger = func(trigger CooldownTrigger) { triggers = append(triggers, trigger) }
+	configureCooldownTest(t, engine, 301, 1, model.CooldownRule{
+		ErrorCode: "429", CooldownSeconds: 30, Scope: model.CooldownScopeKey, NotifyWebhook: true,
+	})
+	keyAModelA := captureCooldownTest(t, engine, 301, 1, "fixture-model-a", 11)
+	keyAModelB, ok := engine.Capture(301, 1, "fixture-model-b", 11)
+	if !ok {
+		t.Fatal("Capture rejected second model on the same key")
+	}
+	keyBModelA, ok := engine.Capture(301, 1, "fixture-model-a", 12)
+	if !ok {
+		t.Fatal("Capture rejected second key for the same model")
+	}
+	if !engine.Record(keyAModelA, failureForCooldownTest(t, keyAModelA, model.ProtocolOpenAIChatCompletion, 429, cooldownFailureBody)) {
+		t.Fatal("matching key rule was not recorded")
+	}
+	if got := engine.Observe(301, "fixture-model-b", 11); len(got.Hits) != 1 || got.Hits[0].KeyID != 11 || got.Hits[0].ModelName != "" {
+		t.Fatalf("same key did not share across models: %+v", got)
+	}
+	if got := engine.Observe(301, "fixture-model-a", 12); !got.Until.IsZero() {
+		t.Fatalf("different key inherited cooldown: %+v", got)
+	}
+	if len(triggers) != 1 || triggers[0].KeyID != 11 || triggers[0].Hit.KeyID != 11 {
+		t.Fatalf("trigger did not capture the first failure identity: %+v", triggers)
+	}
+	clock.advance(time.Second)
+	if !engine.Record(keyAModelB, failureForCooldownTest(t, keyAModelB, model.ProtocolAnthropicMessage, 429, cooldownFailureBody)) {
+		t.Fatal("repeat matching failure did not extend key cooldown")
+	}
+	if len(triggers) != 1 {
+		t.Fatalf("repeated error notified again during active cooldown: %+v", triggers)
+	}
+	if !engine.Record(keyBModelA, failureForCooldownTest(t, keyBModelA, model.ProtocolOpenAIChatCompletion, 429, cooldownFailureBody)) {
+		t.Fatal("second key did not establish an independent cooldown")
+	}
+	if len(triggers) != 2 || triggers[1].KeyID != 12 || triggers[1].UpstreamModel != "fixture-model-a" {
+		t.Fatalf("second key did not create one independent notification: %+v", triggers)
+	}
+	if got := engine.Snapshot(301); len(got) != 2 || got[0].KeyID != 11 || got[1].KeyID != 12 {
+		t.Fatalf("key cooldown snapshot lost target identity: %+v", got)
+	}
+	clock.advance(31 * time.Second)
+	if engine.Observe(301, "fixture-model-a", 1).Until.IsZero() {
+		// The timer may expire on the next clock advance; inspect the snapshot below
+		// after invoking the remaining registered deadline.
+		clock.advance(time.Second)
+	}
+	if len(engine.Snapshot(301)) != 0 {
+		t.Fatal("expired key cooldown remained active")
+	}
+	if !engine.Record(keyAModelA, failureForCooldownTest(t, keyAModelA, model.ProtocolOpenAIChatCompletion, 429, cooldownFailureBody)) || len(triggers) != 3 {
+		t.Fatalf("a new cooldown cycle was not announced: triggers=%+v", triggers)
+	}
 }
 
 const cooldownFailureBody = `{"error":{"code":"quota_code","type":"quota_error","message":"Fixture QUOTA reached"}}`
@@ -171,7 +235,7 @@ func TestCooldownMatching(t *testing.T) {
 			if test.message != "" {
 				failure.Message = test.message
 			}
-			observation := engine.Observe(301, token.modelName)
+			observation := engine.Observe(301, token.modelName, 1)
 			if got := engine.Record(token, failure); got != test.want {
 				t.Fatalf("Record = %t, want %t", got, test.want)
 			}
@@ -200,15 +264,15 @@ func TestCooldownScopesAndRuleDeadlines(t *testing.T) {
 	if !engine.Record(token, failure) {
 		t.Fatal("matching rules were not recorded")
 	}
-	a, b := engine.Observe(301, "fixture-model-a"), engine.Observe(301, "fixture-model-b")
+	a, b := engine.Observe(301, "fixture-model-a", 1), engine.Observe(301, "fixture-model-b", 1)
 	if !a.Until.Equal(start.Add(30*time.Second)) || len(a.Hits) != 3 ||
 		!b.Until.Equal(start.Add(20*time.Second)) || len(b.Hits) != 1 || b.Hits[0].ModelName != "" {
 		t.Fatalf("scope/max deadline mismatch: a=%+v b=%+v", a, b)
 	}
-	if !engine.Observe(302, "fixture-model-a").Until.IsZero() {
+	if !engine.Observe(302, "fixture-model-a", 1).Until.IsZero() {
 		t.Fatal("same model on another channel was cooled")
 	}
-	if got := engine.Observe(301, "Fixture-model-a"); len(got.Hits) != 1 {
+	if got := engine.Observe(301, "Fixture-model-a", 1); len(got.Hits) != 1 {
 		t.Fatal("model identity was case-folded")
 	}
 	// Separate keys, grants and groups all capture the actual channel/model.
@@ -218,7 +282,7 @@ func TestCooldownScopesAndRuleDeadlines(t *testing.T) {
 			ChannelModel: &model.ChannelModel{ID: 101, ChannelID: 301, Name: "fixture-model-a"}, Protocols: protocol}
 		group := model.Group{ID: 501 + index}
 		shared := captureCooldownTest(t, engine, grant.ChannelModel.ChannelID, 1, grant.ChannelModel.Name)
-		if got := engine.Observe(shared.channelID, shared.modelName); !got.Until.Equal(a.Until) {
+		if got := engine.Observe(shared.channelID, shared.modelName, 1); !got.Until.Equal(a.Until) {
 			t.Fatalf("group %d/key %d bypassed shared state", group.ID, grant.ChannelKeyID)
 		}
 		if engine.Record(shared, failureForCooldownTest(t, shared, protocol, 429, cooldownFailureBody)) {
@@ -233,7 +297,7 @@ func TestCooldownScopesAndRuleDeadlines(t *testing.T) {
 		t.Fatal("snapshot mutation changed the engine")
 	}
 	clock.advance(20 * time.Second)
-	if len(engine.Observe(301, "fixture-model-a").Hits) != 1 || !engine.Observe(301, "fixture-model-b").Until.IsZero() {
+	if len(engine.Observe(301, "fixture-model-a", 1).Hits) != 1 || !engine.Observe(301, "fixture-model-b", 1).Until.IsZero() {
 		t.Fatal("independent rule deadlines were merged or added")
 	}
 }
@@ -263,7 +327,7 @@ func TestCooldownConcurrencyOnlyExtends(t *testing.T) {
 			if engine.Record(token, failure) {
 				writes.Add(1)
 			}
-			_ = engine.Observe(301, "fixture-model-b")
+			_ = engine.Observe(301, "fixture-model-b", 1)
 			_ = engine.Snapshot(301)
 		})
 	}
@@ -272,11 +336,11 @@ func TestCooldownConcurrencyOnlyExtends(t *testing.T) {
 	}
 	close(release)
 	workers.Wait()
-	if writes.Load() != 1 || notifications.Load() != 3 || !engine.Observe(301, "fixture-model-b").Until.Equal(start.Add(70*time.Second)) {
+	if writes.Load() != 1 || notifications.Load() != 3 || !engine.Observe(301, "fixture-model-b", 1).Until.Equal(start.Add(70*time.Second)) {
 		t.Fatalf("concurrent extension: writes=%d notifications=%d", writes.Load(), notifications.Load())
 	}
 	clock.move(-5 * time.Second)
-	if engine.Record(token, failure) || !engine.Observe(301, token.modelName).Until.Equal(start.Add(70*time.Second)) {
+	if engine.Record(token, failure) || !engine.Observe(301, token.modelName, 1).Until.Equal(start.Add(70*time.Second)) {
 		t.Fatal("an earlier candidate deadline shortened the active state")
 	}
 	if engine.Record(token, UpstreamFailure{}) {
@@ -318,19 +382,19 @@ func TestCooldownConfigurationGenerations(t *testing.T) {
 	if !reflect.DeepEqual(original, engine.Snapshot(301)) {
 		t.Fatal("failed Configure mutated runtime state")
 	}
-	oldObservation := engine.Observe(301, tokenA.modelName)
+	oldObservation := engine.Observe(301, tokenA.modelName, 1)
 	// Simulate changed outbound credentials with otherwise identical rules.
 	notify, err = engine.Configure(301, 11, []model.CooldownRule{original[0].Rule})
 	if err != nil || notify == nil || len(engine.Snapshot(301)) != 0 {
 		t.Fatal("new outbound generation did not clear old state")
 	}
 	assertCooldownSignal(t, oldObservation.Changed, false)
-	afterPublish := engine.Observe(301, tokenA.modelName)
+	afterPublish := engine.Observe(301, tokenA.modelName, 1)
 	notify()
 	notify() // Idempotent dispatch permits common cleanup paths.
 	assertCooldownSignal(t, oldObservation.Changed, true)
 	assertCooldownSignal(t, afterPublish.Changed, false)
-	if _, ok := engine.Capture(301, 10, tokenA.modelName); ok {
+	if _, ok := engine.Capture(301, 10, tokenA.modelName, 1); ok {
 		t.Fatal("old configuration could capture a new attempt")
 	}
 	lateReady, lateRelease, lateResult := make(chan struct{}), make(chan struct{}), make(chan bool)
@@ -363,7 +427,7 @@ func TestCooldownConfigurationGenerations(t *testing.T) {
 		t.Fatal(err)
 	}
 	notify()
-	if _, ok := engine.Capture(301, 14, tokenA.modelName); ok || engine.Record(emptyToken, failureNew) {
+	if _, ok := engine.Capture(301, 14, tokenA.modelName, 1); ok || engine.Record(emptyToken, failureNew) {
 		t.Fatal("deleted channel accepted an attempt")
 	}
 	if _, err := engine.Configure(301, 14, rules); !errors.Is(err, ErrCooldownGeneration) {
@@ -379,7 +443,7 @@ func TestCooldownExpiryAndNotifications(t *testing.T) {
 	clock := newCooldownTestClock()
 	engine := NewCooldownEngine(clock, nil)
 	defer engine.Close()
-	beforeConfiguration := engine.Observe(301, "fixture-model-a")
+	beforeConfiguration := engine.Observe(301, "fixture-model-a", 1)
 	configureCooldownTest(t, engine, 301, 1,
 		model.CooldownRule{ErrorCode: "429", CooldownSeconds: 5, Scope: model.CooldownScopeModel},
 		model.CooldownRule{Keyword: "quota", CooldownSeconds: 8, Scope: model.CooldownScopeChannel})
@@ -387,9 +451,9 @@ func TestCooldownExpiryAndNotifications(t *testing.T) {
 	token := captureCooldownTest(t, engine, 301, 1, "fixture-model-a")
 	failure := failureForCooldownTest(t, token, model.ProtocolOpenAIChatCompletion, 429, cooldownFailureBody)
 	engine.Record(token, failure)
-	beforeExpiry := engine.Observe(301, token.modelName)
+	beforeExpiry := engine.Observe(301, token.modelName, 1)
 	clock.move(5 * time.Second) // A delayed timer must not expose expired hits.
-	if got := engine.Observe(301, token.modelName); len(got.Hits) != 1 || got.Hits[0].Scope != model.CooldownScopeChannel {
+	if got := engine.Observe(301, token.modelName, 1); len(got.Hits) != 1 || got.Hits[0].Scope != model.CooldownScopeChannel {
 		t.Fatal("Observe retained an expired rule")
 	}
 	clock.advance(0)
@@ -397,7 +461,7 @@ func TestCooldownExpiryAndNotifications(t *testing.T) {
 	if len(engine.channels[301].hits) != 1 || clock.activeTimers() != 1 {
 		t.Fatal("timer did not remove its expired entry and schedule the next")
 	}
-	nextExpiry := engine.Observe(301, token.modelName)
+	nextExpiry := engine.Observe(301, token.modelName, 1)
 	clock.advance(3 * time.Second)
 	assertCooldownSignal(t, nextExpiry.Changed, true)
 	if len(engine.Snapshot(301)) != 0 || len(engine.channels[301].hits) != 0 || clock.activeTimers() != 0 {
@@ -413,10 +477,10 @@ func TestCooldownExpiryAndNotifications(t *testing.T) {
 	configureCooldownTest(t, engine, 301, 2, model.CooldownRule{ErrorCode: "429", CooldownSeconds: 60, Scope: model.CooldownScopeModel})
 	newToken := captureCooldownTest(t, engine, 301, 2, token.modelName)
 	engine.Record(newToken, failureForCooldownTest(t, newToken, model.ProtocolOpenAIChatCompletion, 429, cooldownFailureBody))
-	current := engine.Observe(301, token.modelName)
+	current := engine.Observe(301, token.modelName, 1)
 	oldCallback()
 	assertCooldownSignal(t, current.Changed, false)
-	if !engine.Observe(301, token.modelName).Until.Equal(current.Until) || clock.activeTimers() != 1 {
+	if !engine.Observe(301, token.modelName, 1).Until.Equal(current.Until) || clock.activeTimers() != 1 {
 		t.Fatal("stopped timer callback changed the new generation")
 	}
 	engine.Close()
@@ -465,7 +529,7 @@ func TestCooldownDurationBounds(t *testing.T) {
 			duration := time.Duration(seconds) * time.Second
 			start := clock.Now()
 			engine.Record(token, failureForCooldownTest(t, token, model.ProtocolOpenAIChatCompletion, 429, cooldownFailureBody))
-			if !engine.Observe(301, token.modelName).Until.Equal(start.Add(duration)) {
+			if !engine.Observe(301, token.modelName, 1).Until.Equal(start.Add(duration)) {
 				t.Fatal("seconds conversion lost precision or overflowed")
 			}
 			clock.advance(duration - time.Nanosecond)
@@ -506,7 +570,7 @@ func TestCooldownConcurrentConfigurationAndTimers(t *testing.T) {
 		},
 		func() {
 			for range 256 {
-				_ = engine.Observe(301, "fixture-model-b")
+				_ = engine.Observe(301, "fixture-model-b", 1)
 				snapshot := engine.Snapshot(301)
 				if len(snapshot) > 0 {
 					snapshot[0].Rule.ErrorCode = "mutated copy"
@@ -527,7 +591,7 @@ func TestCooldownConcurrentConfigurationAndTimers(t *testing.T) {
 	}
 	close(release)
 	workers.Wait()
-	if observation := engine.Observe(301, "fixture-model-a"); observation.Generation != 40 || !observation.Configured {
+	if observation := engine.Observe(301, "fixture-model-a", 1); observation.Generation != 40 || !observation.Configured {
 		t.Fatal("concurrent operations rolled back configuration generation")
 	}
 	notify, err := engine.Remove(301, 41)

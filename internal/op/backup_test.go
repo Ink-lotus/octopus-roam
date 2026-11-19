@@ -36,7 +36,8 @@ func TestValidateDumpOrigin(t *testing.T) {
 		{"roam zero", &model.DBDump{Product: "octopus-roam", Version: 0}, "unsupported octopus-roam"},
 		{"roam six", &model.DBDump{Product: "octopus-roam", Version: 6}, "unsupported octopus-roam"},
 		{"roam server archives", &model.DBDump{Product: "octopus-roam", Version: 1005}, ""},
-		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1006}, "unsupported octopus-roam"},
+		{"roam extended cooldown", &model.DBDump{Product: "octopus-roam", Version: 1006}, ""},
+		{"future roam", &model.DBDump{Product: "octopus-roam", Version: 1007}, "unsupported octopus-roam"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateDumpOrigin(tc.dump)
@@ -64,10 +65,10 @@ func TestDumpConstantsAreIndependentOfUpstream(t *testing.T) {
 			t.Fatalf("missing upstream %d", version)
 		}
 	}
-	if len(roamDumpVersions) != 6 {
+	if len(roamDumpVersions) != 7 {
 		t.Fatal("roam whitelist changed")
 	}
-	for _, version := range []int{1000, 1001, 1002, 1003, 1004, 1005} {
+	for _, version := range []int{1000, 1001, 1002, 1003, 1004, 1005, 1006} {
 		if _, ok := roamDumpVersions[version]; !ok {
 			t.Fatalf("missing roam %d", version)
 		}

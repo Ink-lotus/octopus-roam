@@ -18,15 +18,17 @@ type CooldownScope string
 
 const (
 	CooldownScopeModel   CooldownScope = "model"
+	CooldownScopeKey     CooldownScope = "key"
 	CooldownScopeChannel CooldownScope = "channel"
 )
 
-// CooldownRule 是一条渠道级自定义冷却规则。规则配置只允许这四个字段。
+// CooldownRule 是一条渠道级自定义冷却规则。旧规则缺少通知开关时默认关闭。
 type CooldownRule struct {
 	ErrorCode       string        `json:"error_code"`
 	Keyword         string        `json:"keyword"`
 	CooldownSeconds int64         `json:"cooldown_seconds"`
 	Scope           CooldownScope `json:"scope"`
+	NotifyWebhook   bool          `json:"notify_webhook,omitempty"`
 }
 
 // CloneCooldownRules 返回稳定的非 nil 副本，避免详情或缓存调用方共享切片底层数组。
@@ -62,8 +64,8 @@ func normalizeCooldownRule(rule CooldownRule, index int) (CooldownRule, error) {
 	if rule.CooldownSeconds > int64((time.Duration(1<<63-1))/time.Second) {
 		return rule, cooldownRuleError(index, "cooldown_seconds", "overflows time.Duration")
 	}
-	if rule.Scope != CooldownScopeModel && rule.Scope != CooldownScopeChannel {
-		return rule, cooldownRuleError(index, "scope", "must be model or channel")
+	if rule.Scope != CooldownScopeModel && rule.Scope != CooldownScopeKey && rule.Scope != CooldownScopeChannel {
+		return rule, cooldownRuleError(index, "scope", "must be model, key or channel")
 	}
 	return rule, nil
 }
@@ -113,7 +115,7 @@ func (rule *CooldownRule) UnmarshalJSON(data []byte) error {
 	}
 	for field := range fields {
 		switch field {
-		case "error_code", "keyword", "cooldown_seconds", "scope":
+		case "error_code", "keyword", "cooldown_seconds", "scope", "notify_webhook":
 		default:
 			return fmt.Errorf("%w: unknown field %q", ErrInvalidCooldownRule, field)
 		}
@@ -148,7 +150,13 @@ func (rule *CooldownRule) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(scopeRaw, &scope); err != nil {
 		return fmt.Errorf("%w: scope must be a string", ErrInvalidCooldownRule)
 	}
-	*rule = CooldownRule{ErrorCode: errorCode, Keyword: keyword, CooldownSeconds: seconds, Scope: scope}
+	var notifyWebhook bool
+	if raw, present := fields["notify_webhook"]; present {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &notifyWebhook) != nil {
+			return fmt.Errorf("%w: notify_webhook must be a boolean", ErrInvalidCooldownRule)
+		}
+	}
+	*rule = CooldownRule{ErrorCode: errorCode, Keyword: keyword, CooldownSeconds: seconds, Scope: scope, NotifyWebhook: notifyWebhook}
 	return nil
 }
 

@@ -410,6 +410,7 @@ func groupSnapshot(group model.Group) model.Group {
 			continue
 		}
 		group.Items[i].ChannelID = channelModel.ChannelID
+		group.Items[i].ChannelKeyID = channelKey.ID
 		group.Items[i].ModelName = channelModel.Name
 		group.Items[i].KeyName = channelKey.Name
 		if channelModel.ChannelID != channelKey.ChannelID {

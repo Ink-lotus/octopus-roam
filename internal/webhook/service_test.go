@@ -252,6 +252,59 @@ func TestNotificationEnqueueDoesNotWaitForDeliveryCapacity(t *testing.T) {
 	}
 }
 
+func TestCooldownTriggerBuildsRuleSpecificWebhookEvent(t *testing.T) {
+	detail, err := op.ChannelCreate(&model.ChannelDetail{
+		ChannelConfig: model.ChannelConfig{Name: "webhook-cooldown-trigger", BaseURL: "https://fixture.example"},
+		Keys:          []model.ChannelKeyConfig{{Name: "quota-key", Key: "fixture-key", Enabled: true}},
+		Models:        []string{"fixture-model"},
+		Grants:        []model.ChannelGrantConfig{{ModelName: "fixture-model", KeyName: "quota-key", Protocols: model.ProtocolOpenAIChatCompletion}},
+	}, t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = op.ChannelDel(detail.ID, t.Context()) })
+	var grantID int
+	for _, candidate := range op.ChannelGrantCandidates() {
+		if candidate.ChannelID == detail.ID {
+			grantID = candidate.ID
+			break
+		}
+	}
+	if grantID == 0 {
+		t.Fatal("created cooldown grant was not available")
+	}
+	grant, err := op.ChannelGrantGet(grantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := testService()
+	trigger := relay.CooldownTrigger{
+		Hit: relay.CooldownHit{
+			ChannelID: detail.ID, Scope: model.CooldownScopeKey, KeyID: grant.ChannelKey.ID,
+			Until: time.Date(2026, 11, 19, 1, 2, 3, 0, time.UTC).UnixMilli(), RuleIndex: 1,
+			Rule: model.CooldownRule{ErrorCode: "429", Keyword: "quota", CooldownSeconds: 60,
+				Scope: model.CooldownScopeKey, NotifyWebhook: true},
+		},
+		KeyID: grant.ChannelKey.ID, UpstreamModel: "fixture-model", At: time.Date(2026, 11, 19, 1, 1, 3, 0, time.UTC),
+	}
+	service.observeCooldown(trigger)
+	if len(service.events) != 1 {
+		t.Fatal("rule cooldown did not enqueue a webhook event")
+	}
+	event := <-service.events
+	if event.Event != "cooldown" || event.ChannelID != detail.ID || event.CurrentChannel != detail.Name ||
+		event.KeyID != grant.ChannelKey.ID || event.KeyName != "quota-key" || event.UpstreamModel != "fixture-model" ||
+		event.RuleNumber != 2 || event.Scope != model.CooldownScopeKey || event.CooldownSeconds != 60 ||
+		event.ErrorCode != "429" || event.Keyword != "quota" || event.CooldownUntil == "" {
+		t.Fatalf("cooldown webhook lost rule or target identity: %+v", event)
+	}
+	trigger.Hit.Rule.NotifyWebhook = false
+	service.observeCooldown(trigger)
+	if len(service.events) != 0 {
+		t.Fatal("disabled per-rule webhook generated a notification")
+	}
+}
+
 func createWebhookTestGroup(t *testing.T, name string, mode model.GroupMode) int {
 	t.Helper()
 	group := model.Group{Name: fmt.Sprintf("webhook-%s-%d", name, time.Now().UnixNano()), Mode: mode, RelayConfig: model.DefaultGroupRelayConfig()}

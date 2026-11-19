@@ -19,8 +19,10 @@ export function CooldownHitList({ hits = [], now, compact = false, className }: 
         <ul aria-label={t('listLabel')} className={cn('flex min-w-0 flex-wrap items-center gap-1', className)}>
             {activeHits.map((hit) => {
                 const seconds = Math.max(0, Math.ceil((hit.until - now) / 1000));
-                const scope = hit.scope === 'channel' ? t('channelScope') : t('modelScope');
-                const target = hit.scope === 'channel' ? t('allModels') : hit.model_name || t('unknownModel');
+                const scope = hit.scope === 'channel' ? t('channelScope') : hit.scope === 'key' ? t('keyScope') : t('modelScope');
+                const target = hit.scope === 'channel' ? t('allModels')
+                    : hit.scope === 'key' ? hit.key_name || t('unknownKey', { id: hit.key_id ?? 0 })
+                        : hit.model_name || t('unknownModel');
                 const conditions = [
                     hit.rule.error_code && `${t('errorCode')}: ${hit.rule.error_code}`,
                     hit.rule.keyword && `${t('keyword')}: ${hit.rule.keyword}`,
@@ -38,7 +40,7 @@ export function CooldownHitList({ hits = [], now, compact = false, className }: 
                     until,
                 });
                 return (
-                    <li key={`${hit.channel_id}:${hit.rule_index}:${hit.model_name ?? ''}:${hit.until}`}>
+                    <li key={`${hit.channel_id}:${hit.rule_index}:${hit.scope}:${hit.key_id ?? ''}:${hit.model_name ?? ''}:${hit.until}`}>
                         <Badge
                             variant="outline"
                             aria-label={label}

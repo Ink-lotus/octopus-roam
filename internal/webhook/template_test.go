@@ -48,6 +48,14 @@ func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
 			content: []string{"模式：故障转移", "连续失败：不适用", "失效成员：2 个", "通知阈值：3 个", "重试次数：1 次"},
 		},
 		{
+			name: "custom cooldown", title: "🧊 Octopus Roam 冷却通知",
+			event: Event{Event: "cooldown", ChannelID: 42, KeyID: 7, KeyName: "fixture-key",
+				UpstreamModel: "fixture-model", Scope: model.CooldownScopeKey, RuleNumber: 2,
+				CooldownSeconds: 60, CooldownUntil: "2026-01-01T00:01:00Z", ErrorCode: "429", Keyword: "quota"},
+			content: []string{"事件：自定义冷却", "🔌 渠道：channel one（ID：42）", "🔑 触发 Key：fixture-key",
+				"🤖 触发模型：fixture-model", "冷却范围：仅该 Key（全部模型）", "规则：#2", "错误码：429", "关键词：quota"},
+		},
+		{
 			name: "test preview", title: "🧪 Octopus Roam 测试通知", event: Event{Event: "test"},
 			content: []string{"测试预览", "示例数据", "事件：测试通知", "示例分组", "示例渠道", "示例错误"},
 		},
@@ -55,7 +63,9 @@ func TestNormalizeAndValidateAppliesDefaultsAndRendersJSON(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			event := test.event
 			event.Timestamp = "2026-01-01T00:00:00Z"
-			if event.Event != "test" {
+			if event.Event == "cooldown" {
+				event.CurrentChannel = "channel one"
+			} else if event.Event != "test" {
 				event.GroupID, event.GroupName = 42, `model "one"`
 				event.CurrentChannel, event.LastError = "channel one", "upstream \"unavailable\"\nretry later"
 				test.content = append(test.content, event.GroupName, "ID：42", event.CurrentChannel, event.LastError)

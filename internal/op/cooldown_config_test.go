@@ -118,3 +118,38 @@ func TestCooldownRulesBackupVersionAndRoundTrip(t *testing.T) {
 		t.Fatalf("non-null category reference was accepted: %v", err)
 	}
 }
+
+func TestExtendedCooldownBackupVersionAndLegacyRejection(t *testing.T) {
+	rules := []model.CooldownRule{{ErrorCode: "429", CooldownSeconds: 120, Scope: model.CooldownScopeKey, NotifyWebhook: true}}
+	detail, err := ChannelCreate(&model.ChannelDetail{ChannelConfig: model.ChannelConfig{
+		Name: "w04-extended-cooldown", BaseURL: "https://fixture.example", CooldownRules: rules,
+	}}, t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ChannelDel(detail.ID, t.Context()) })
+	exported, err := DBExportAll(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exported.Version != dbDumpCooldownVersion {
+		t.Fatalf("extended cooldown export version = %d", exported.Version)
+	}
+	dump := &model.DBDump{Product: dumpProduct, Version: exported.Version,
+		Channels: []model.Channel{{ID: detail.ID, ChannelConfig: model.ChannelConfig{Name: detail.Name, CooldownRules: rules}}}}
+	encrypted, err := EncryptBackup(dump, "w04-extended-cooldown-backup-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := DecryptBackup(encrypted, "w04-extended-cooldown-backup-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.Version != dbDumpCooldownVersion || len(roundTrip.Channels) != 1 || roundTrip.Channels[0].CooldownRules[0] != rules[0] {
+		t.Fatalf("extended cooldown backup round trip changed: %+v", roundTrip)
+	}
+	if err := validateBackupFeatureFields(&model.DBDump{Product: dumpProduct, Version: 1005,
+		Channels: []model.Channel{{ID: 840042, CooldownRules: rules}}}); err == nil || !strings.Contains(err.Error(), "extended cooldown_rules") {
+		t.Fatalf("legacy content version accepted extended rules: %v", err)
+	}
+}

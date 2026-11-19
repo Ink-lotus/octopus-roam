@@ -33,6 +33,7 @@ type Service struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	healthUpdates   chan relay.HealthSnapshot
+	cooldownUpdates chan relay.CooldownTrigger
 	initialHealth   []relay.HealthSnapshot
 	events          chan Event
 	deliveries      chan deliveryJob
@@ -50,15 +51,16 @@ func Start() *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	snapshot, updates := relay.OpenHealthStream()
 	service := &Service{
-		ctx:            ctx,
-		cancel:         cancel,
-		healthUpdates:  updates,
-		initialHealth:  snapshot,
-		events:         make(chan Event, eventBuffer),
-		deliveries:     make(chan deliveryJob, deliveryBuffer),
-		observeDone:    make(chan struct{}),
-		manualActive:   make(map[int]bool),
-		failoverActive: make(map[int]bool),
+		ctx:             ctx,
+		cancel:          cancel,
+		healthUpdates:   updates,
+		cooldownUpdates: relay.OpenCooldownTriggerStream(),
+		initialHealth:   snapshot,
+		events:          make(chan Event, eventBuffer),
+		deliveries:      make(chan deliveryJob, deliveryBuffer),
+		observeDone:     make(chan struct{}),
+		manualActive:    make(map[int]bool),
+		failoverActive:  make(map[int]bool),
 	}
 	service.wg.Add(2 + deliveryWorkers)
 	go service.observe()
@@ -73,6 +75,7 @@ func (service *Service) Close() {
 	service.cancel()
 	<-service.observeDone
 	relay.CloseHealthStream(service.healthUpdates)
+	relay.CloseCooldownTriggerStream(service.cooldownUpdates)
 	service.wg.Wait()
 }
 
@@ -87,6 +90,12 @@ func (service *Service) observe() {
 		select {
 		case <-service.ctx.Done():
 			return
+		case trigger, ok := <-service.cooldownUpdates:
+			if !ok {
+				service.cooldownUpdates = nil
+				continue
+			}
+			service.observeCooldown(trigger)
 		case state, ok := <-service.healthUpdates:
 			if !ok {
 				if service.ctx.Err() != nil {
@@ -206,12 +215,39 @@ func (service *Service) observeHealth(state relay.HealthSnapshot) {
 	}
 }
 
+func (service *Service) observeCooldown(trigger relay.CooldownTrigger) {
+	if !trigger.Hit.Rule.NotifyWebhook {
+		return
+	}
+	channelName := fmt.Sprintf("Channel #%d", trigger.Hit.ChannelID)
+	if channel, err := op.ChannelGet(trigger.Hit.ChannelID); err == nil {
+		channelName = channel.Name
+	}
+	keyName, exists := op.ChannelKeyName(trigger.Hit.ChannelID, trigger.KeyID)
+	if !exists {
+		keyName = fmt.Sprintf("Key #%d", trigger.KeyID)
+	}
+	rule := trigger.Hit.Rule
+	event := Event{
+		Event: "cooldown", Timestamp: trigger.At.UTC().Format(time.RFC3339Nano),
+		ChannelID: trigger.Hit.ChannelID, CurrentChannel: channelName, KeyID: trigger.KeyID, KeyName: keyName,
+		UpstreamModel: trigger.UpstreamModel, Scope: trigger.Hit.Scope, RuleNumber: trigger.Hit.RuleIndex + 1,
+		CooldownSeconds: rule.CooldownSeconds, CooldownUntil: time.UnixMilli(trigger.Hit.Until).UTC().Format(time.RFC3339Nano),
+		ErrorCode: rule.ErrorCode, Keyword: rule.Keyword,
+	}
+	// Existing saved templates can keep using LastError to show the full cooldown
+	// summary. Do not copy raw upstream bodies or credential values into the event.
+	event.LastError = fmt.Sprintf("自定义冷却规则 #%d：渠道 %s，Key %s，模型 %s，范围 %s，冷却 %d 秒（截止 %s）；错误码：%s；关键词：%s",
+		event.RuleNumber, channelName, keyName, event.UpstreamModel, event.Scope, event.CooldownSeconds, event.CooldownUntil, event.ErrorCode, event.Keyword)
+	service.enqueue(event)
+}
+
 func (service *Service) enqueue(event Event) bool {
 	select {
 	case service.events <- event:
 		return true
 	default:
-		log.Warnf("webhook notification queue is full; dropped %s event for group %d", event.Event, event.GroupID)
+		log.Warnf("webhook notification queue is full; dropped %s event for group %d/channel %d", event.Event, event.GroupID, event.ChannelID)
 		return false
 	}
 }

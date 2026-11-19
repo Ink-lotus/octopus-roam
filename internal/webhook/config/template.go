@@ -24,8 +24,11 @@ const (
 )
 
 const DefaultBodyTemplate = `{
-  "title": {{ if eq .Event "failure" }}"🚨 Octopus Roam 故障告警"{{ else if eq .Event "recovery" }}"✅ Octopus Roam 恢复通知"{{ else if eq .Event "test" }}"🧪 Octopus Roam 测试通知"{{ else }}"📣 Octopus Roam 通知"{{ end }},
-  "content": {{ if eq .Event "test" }}
+  "title": {{ if eq .Event "failure" }}"🚨 Octopus Roam 故障告警"{{ else if eq .Event "recovery" }}"✅ Octopus Roam 恢复通知"{{ else if eq .Event "cooldown" }}"🧊 Octopus Roam 冷却通知"{{ else if eq .Event "test" }}"🧪 Octopus Roam 测试通知"{{ else }}"📣 Octopus Roam 通知"{{ end }},
+  "content": {{ if eq .Event "cooldown" }}
+    {{ $scope := "整个渠道" }}{{ if eq .Scope "model" }}{{ $scope = "仅该模型（全部 Key）" }}{{ else if eq .Scope "key" }}{{ $scope = "仅该 Key（全部模型）" }}{{ end }}
+    {{ printf "事件：自定义冷却\n🕒 时间：%s\n\n🔌 渠道：%s（ID：%d）\n🔑 触发 Key：%s\n🤖 触发模型：%s\n\n🧊 冷却范围：%s\n规则：#%d\n冷却时间：%d 秒\n截止时间：%s\n\n📝 触发条件\n错误码：%s\n关键词：%s" .Timestamp .CurrentChannel .ChannelID .KeyName .UpstreamModel $scope .RuleNumber .CooldownSeconds .CooldownUntil (or .ErrorCode "未指定") (or .Keyword "未指定") | json }}
+  {{ else if eq .Event "test" }}
     {{ printf "🧪 测试预览\n以下分组、渠道、计数和错误为示例数据。\n\n事件：测试通知\n🕒 时间：%s\n\n📦 分组：示例分组（ID：1）\n⚙️ 模式：手动模式\n🔌 当前渠道：示例渠道\n\n📊 故障统计\n连续失败：10 次\n失效成员：不适用\n通知阈值：10 次\n重试次数：9 次\n\n📝 最近错误\n示例错误：上游请求超时" .Timestamp | json }}
   {{ else }}
     {{ $event := .Event }}{{ if eq .Event "failure" }}{{ $event = "故障告警" }}{{ else if eq .Event "recovery" }}{{ $event = "恢复通知" }}{{ end }}
@@ -38,17 +41,27 @@ const DefaultBodyTemplate = `{
 }`
 
 type Event struct {
-	Event          string          `json:"event"`
-	Timestamp      string          `json:"timestamp"`
-	GroupID        int             `json:"group_id,omitempty"`
-	GroupName      string          `json:"group_name,omitempty"`
-	Mode           model.GroupMode `json:"mode,omitempty"`
-	CurrentChannel string          `json:"current_channel,omitempty"`
-	FailureStreak  int             `json:"failure_streak,omitempty"`
-	FailedChannels int             `json:"failed_channels,omitempty"`
-	Threshold      int             `json:"threshold,omitempty"`
-	RetryCount     int             `json:"retry_count,omitempty"`
-	LastError      string          `json:"last_error,omitempty"`
+	Event           string              `json:"event"`
+	Timestamp       string              `json:"timestamp"`
+	GroupID         int                 `json:"group_id,omitempty"`
+	GroupName       string              `json:"group_name,omitempty"`
+	Mode            model.GroupMode     `json:"mode,omitempty"`
+	CurrentChannel  string              `json:"current_channel,omitempty"`
+	FailureStreak   int                 `json:"failure_streak,omitempty"`
+	FailedChannels  int                 `json:"failed_channels,omitempty"`
+	Threshold       int                 `json:"threshold,omitempty"`
+	RetryCount      int                 `json:"retry_count,omitempty"`
+	LastError       string              `json:"last_error,omitempty"`
+	ChannelID       int                 `json:"channel_id,omitempty"`
+	KeyID           int                 `json:"key_id,omitempty"`
+	KeyName         string              `json:"key_name,omitempty"`
+	UpstreamModel   string              `json:"upstream_model,omitempty"`
+	Scope           model.CooldownScope `json:"scope,omitempty"`
+	RuleNumber      int                 `json:"rule_number,omitempty"`
+	CooldownSeconds int64               `json:"cooldown_seconds,omitempty"`
+	CooldownUntil   string              `json:"cooldown_until,omitempty"`
+	ErrorCode       string              `json:"error_code,omitempty"`
+	Keyword         string              `json:"keyword,omitempty"`
 }
 
 var headerNamePattern = regexp.MustCompile(`^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$`)
@@ -118,15 +131,23 @@ func NormalizeAndValidate(endpoint *model.WebhookEndpoint) error {
 	if endpoint.BodyTemplate == "" {
 		endpoint.BodyTemplate = DefaultBodyTemplate
 	}
-	body, err := Render(endpoint.BodyTemplate, Event{
-		Event: "failure", Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
-		GroupID: 1, GroupName: "model", Mode: model.GroupModeManual, CurrentChannel: "channel",
-		FailureStreak: 10, Threshold: 10, RetryCount: 9, LastError: "upstream failure",
-	})
-	if err != nil {
-		return err
+	for _, event := range []Event{
+		{Event: "failure", Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
+			GroupID: 1, GroupName: "model", Mode: model.GroupModeManual, CurrentChannel: "channel",
+			FailureStreak: 10, Threshold: 10, RetryCount: 9, LastError: "upstream failure"},
+		{Event: "cooldown", Timestamp: "2026-01-01T00:00:00Z", ChannelID: 1, CurrentChannel: "channel",
+			KeyID: 1, KeyName: "key", UpstreamModel: "model", Scope: model.CooldownScopeKey,
+			RuleNumber: 1, CooldownSeconds: 60, CooldownUntil: "2026-01-01T00:01:00Z", ErrorCode: "429", Keyword: "quota", LastError: "custom cooldown"},
+	} {
+		body, err := Render(endpoint.BodyTemplate, event)
+		if err != nil {
+			return err
+		}
+		if err := ValidateRenderedJSON(endpoint.ContentType, body); err != nil {
+			return err
+		}
 	}
-	return ValidateRenderedJSON(endpoint.ContentType, body)
+	return nil
 }
 
 func Render(bodyTemplate string, event Event) ([]byte, error) {

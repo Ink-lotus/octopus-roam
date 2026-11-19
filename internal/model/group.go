@@ -227,6 +227,7 @@ type GroupItem struct {
 	Priority       int           `json:"priority" gorm:"not null"`                                                     // Priority 决定界面展示和故障转移模式下的成员切换顺序。
 
 	ChannelID         int      `json:"channel_id" gorm:"-"`                   // 授权所属渠道 ID。
+	ChannelKeyID      int      `json:"channel_key_id" gorm:"-"`               // 授权引用的凭据 ID，仅用于运行状态匹配。
 	ChannelName       string   `json:"channel_name" gorm:"-"`                 // 授权所属渠道名称。
 	ModelName         string   `json:"model_name" gorm:"-"`                   // 授权引用的上游模型名称。
 	KeyName           string   `json:"key_name" gorm:"-"`                     // 授权引用的凭据名称。
