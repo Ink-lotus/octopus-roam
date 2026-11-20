@@ -116,7 +116,7 @@ def main():
         run("03-locked-node-cache", [bash, "-c", 'pnpm --dir web install --offline --frozen-lockfile --ignore-scripts --store-dir "$ROAM_V016_PNPM_STORE"'])
         if sys.platform != "win32":
             version = run("04-actionlint-version", [settings["actionlint"], "-version"])
-            require(version.splitlines()[0] == "1.7.7", "actionlint version differs")
+            require(version.splitlines()[0] in ("1.7.7", "v1.7.7"), "actionlint version differs")
             run("05-actionlint", [settings["actionlint"], ".github/workflows/build.yaml", ".github/workflows/release.yaml", ".github/workflows/release-materials.yaml"])
         run("06-full-ci", [bash, "-x", "scripts/ci-test.sh"])
         run("07-model-filter", ["node", "--test", "scripts/tests/test_model_filter.cjs"])
