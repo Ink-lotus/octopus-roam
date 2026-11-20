@@ -166,6 +166,9 @@ class Runtime(base.Runtime):
 
     def api(self, endpoint, method="GET", body=None, expected=200, raw=False, headers=None):
         started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        # Action POST routes also require a JSON media type; refresh binds an object.
+        if body is None and method == "POST":
+            body = {}
         data = None if body is None else json.dumps(body).encode()
         request_headers = dict(headers or {})
         if data is not None:

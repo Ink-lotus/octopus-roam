@@ -189,6 +189,80 @@ class ExportInspectionTests(unittest.TestCase):
         self.assertFalse(list(self.runtime.root.glob("export-*.encrypted.json")))
 
 
+
+class ActionPostContractTests(unittest.TestCase):
+    """Exercise the actual urllib client against both existing action contracts."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.requests = []
+        test = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_POST(self):
+                raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                media_type = self.headers.get("Content-Type", "")
+                test.requests.append({"method": self.command, "path": self.path, "media_type": media_type, "raw": raw})
+                status = 200
+                if "application/json" not in media_type:
+                    status = 415
+                elif self.path.startswith("/api/v1/channel/refresh-model/"):
+                    try:
+                        if not isinstance(json.loads(raw), dict):
+                            status = 400
+                    except ValueError:
+                        status = 400
+                payload = json.dumps({"data": {"success": status == 200}}).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_GET(self):
+                raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                test.requests.append({"method": self.command, "path": self.path, "media_type": self.headers.get("Content-Type", ""), "raw": raw})
+                payload = b'{"data":[]}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        self.addCleanup(self.stop_server)
+        self.runtime = object.__new__(product.Runtime)
+        self.runtime.root = Path(self.temporary.name)
+        self.runtime.url = f"http://127.0.0.1:{self.server.server_port}"
+        self.runtime.client = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def stop_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+    def test_bodyless_webhook_test_and_model_refresh_use_valid_json(self):
+        paths = ("/api/v1/webhook/test/1", "/api/v1/channel/refresh-model/1")
+        for endpoint in paths:
+            with self.subTest(endpoint=endpoint):
+                self.assertEqual(self.runtime.api(endpoint, "POST"), {"success": True})
+        self.assertEqual([row["path"] for row in self.requests], list(paths))
+        self.assertTrue(all(row["media_type"] == "application/json" and json.loads(row["raw"]) == {} for row in self.requests))
+        evidence = [json.loads(line) for line in (self.runtime.root / "http.jsonl").read_text().splitlines()]
+        self.assertEqual([(row["path"], row["status"]) for row in evidence], [(path, 200) for path in paths])
+
+    def test_explicit_refresh_options_and_get_request_are_preserved(self):
+        options = {"auto_add_groups": False, "enabled_only": True}
+        self.assertEqual(self.runtime.api("/api/v1/channel/refresh-model/1", "POST", options), {"success": True})
+        self.assertEqual(json.loads(self.requests[-1]["raw"]), options)
+        self.assertEqual(self.runtime.api("/api/v1/webhook/list"), [])
+        self.assertEqual(self.requests[-1], {"method": "GET", "path": "/api/v1/webhook/list", "media_type": "", "raw": b""})
+
+
 class SourceSettingsTests(unittest.TestCase):
     def test_local_parameters_cannot_inject_database_or_arbitrary_environment(self):
         caches = {"gomodcache": "existing-go-modules", "gocache": "existing-go-build", "pnpm_store": "existing-pnpm-store"}
