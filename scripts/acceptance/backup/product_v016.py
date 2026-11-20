@@ -5,6 +5,7 @@ isolated-write permission and authentic old/current artifact identities.
 """
 import argparse
 import copy
+import datetime
 import hashlib
 import http.client
 import http.server
@@ -19,12 +20,15 @@ import tarfile
 import threading
 import time
 import urllib.parse
+import urllib.error
+import urllib.request
 
 import product as base
 
 PREVIOUS_COMMIT = "1856fd5fcfa52e5d27798dc2aeea549d58dd0fa6"
 PREVIOUS_MANIFEST = "832e5a010eb5ce0466bd44f9d302d58578f0b4a38212086a5a7ef171393bdbbb"
 FIXTURE_CONTRACT = "v016-product-fixtures-1"
+BACKUP_PASSWORD = "synthetic-v016-encrypted-backup-only"
 SOURCE_FILES = (
     "scripts/acceptance/backup/product_v016.py", "scripts/acceptance/backup/product.py",
     "scripts/acceptance/backup/hourly_archive.py", "scripts/acceptance/backup/browser.mjs",
@@ -38,7 +42,8 @@ def digest(value):
 
 
 def exported(runtime):
-    data = json.loads(runtime.api("/api/v1/setting/export", raw=True))
+    raw = runtime.export_backup()
+    data = runtime.suite.inspect_backup(raw)
     data.pop("exported_at", None)
     return data
 
@@ -157,6 +162,41 @@ class Runtime(base.Runtime):
     def __init__(self, suite, name, data_source=None, compose=False):
         super().__init__(suite, name, data_source=data_source, compose=compose)
         self.container = "roam-v016-" + suite.run_id + "-" + name
+        self.export_sequence = 0
+
+    def api(self, endpoint, method="GET", body=None, expected=200, raw=False, headers=None):
+        started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        data = None if body is None else json.dumps(body).encode()
+        request_headers = dict(headers or {})
+        if data is not None:
+            request_headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(self.url + endpoint, data=data, method=method, headers=request_headers)
+        record = {"started_at_utc": started, "method": method, "path": endpoint, "expected_status": expected, "status": None}
+        try:
+            try:
+                response = self.client.open(request, timeout=25)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                content = response.read()
+                record.update(status=response.status, response_bytes=len(content), response_sha256=hashlib.sha256(content).hexdigest())
+                require(response.status == expected, f"{endpoint} status {response.status}, expected {expected}")
+            return content if raw else json.loads(content).get("data") if content else None
+        finally:
+            record["finished_at_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            # Never persist login bodies, cookies, auth headers, or passwords.
+            with (self.root / "http.jsonl").open("a", encoding="utf-8") as evidence:
+                evidence.write(json.dumps(record) + "\n")
+
+    def export_backup(self):
+        raw = self.api("/api/v1/setting/export", "POST", {"password": BACKUP_PASSWORD}, raw=True)
+        self.export_sequence += 1
+        path = self.root / f"export-{self.export_sequence:03d}.encrypted.json"
+        with path.open("xb") as evidence:
+            evidence.write(raw)
+        with (self.root / "exports.jsonl").open("a", encoding="utf-8") as evidence:
+            evidence.write(json.dumps({"path": path.name, "bytes": len(raw), "sha256": sha(path), "version": self.suite.version}) + "\n")
+        return raw
 
     def import_backup(self, raw, password="", expected=200):
         response = super().import_backup(raw, password, expected)
@@ -207,6 +247,9 @@ class Suite(base.Suite):
         self.args, self.metadata, self.manifest, self.fixtures = args, metadata, manifest, fixtures
         self.platform, self.output, self.version = args.platform, args.output, "v0.1.6"
         self.output.mkdir(parents=True)
+        self.backup_inspector = self.output / ("inspect-backup.exe" if args.platform == "windows" else "inspect-backup")
+        self.command(["go", "build", "-o", str(self.backup_inspector), "./scripts/acceptance/v016"], {"GOTOOLCHAIN": "local", "GOPROXY": "off", "GOFLAGS": "-mod=readonly"})
+        base.write_json(self.output / "backup-inspector.json", {"source_commit": args.commit, "sha256": sha(self.backup_inspector), "database_connected": False})
         self.run_id = hashlib.sha256(str(self.output).encode()).hexdigest()[:10]
         self.archive = args.candidate / "archives/octopus-roam-windows-amd64.zip"
         self.binary_sha = next(row["sha256"] for row in metadata["binaries"] if row["target"] == "windows/amd64")
@@ -232,6 +275,42 @@ class Suite(base.Suite):
         self.fixture_thread = threading.Thread(target=self.fixture_server.serve_forever, daemon=True)
         self.fixture_thread.start()
         self.fixture_url = f"http://127.0.0.1:{self.fixture_server.server_port}"
+
+    def inspect_backup(self, raw):
+        request = json.dumps({"password": BACKUP_PASSWORD, "backup": json.loads(raw)}).encode()
+        started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        arguments = [str(self.backup_inspector), "--inspect-backup"]
+        result = subprocess.run(arguments, input=request, capture_output=True, timeout=30,
+                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        record = {"command": arguments, "exit_code": result.returncode, "started_at_utc": started,
+                  "finished_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                  "encrypted_sha256": hashlib.sha256(raw).hexdigest(),
+                  "plaintext_sha256": hashlib.sha256(result.stdout).hexdigest(),
+                  "stderr_sha256": hashlib.sha256(result.stderr).hexdigest()}
+        with (self.output / "backup-inspections.jsonl").open("a", encoding="utf-8") as evidence:
+            evidence.write(json.dumps(record) + "\n")
+        require(result.returncode == 0, "authenticated backup inspection failed; original encrypted bytes retained")
+        data = json.loads(result.stdout)
+        require(data.get("product") == "octopus-roam" and data.get("version") in range(1000, 1007), "inspected backup inner identity differs")
+        return data
+
+    def check(self, name, function):
+        started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        try:
+            return super().check(name, function)
+        finally:
+            self.checks[-1].update(started_at_utc=started, finished_at_utc=datetime.datetime.now(datetime.timezone.utc).isoformat())
+            base.write_json(self.output / "checks.json", self.checks)
+
+    def cleanup(self):
+        super().cleanup()
+        for runtime in self.runtimes:
+            if runtime.name == "real-v015" and not (self.output / "complete-v015-preupgrade").exists():
+                snapshot = self.output / "failure-preserved-v015-preupgrade"
+                before = base.data_manifest(runtime.root)
+                shutil.copytree(runtime.root, snapshot)
+                require(before == base.data_manifest(runtime.root) == base.data_manifest(snapshot), "failed old preparation snapshot differs")
+                base.write_json(self.output / "failure-preupgrade-manifest.json", before)
 
     def seed(self, name):
         value = copy.deepcopy(self.fixtures[name])
@@ -341,14 +420,14 @@ class Suite(base.Suite):
 
     def run(self):
         old = Runtime(self.previous_view, "real-v015")
-        password = "synthetic-v016-encrypted-backup-only"
+        password = BACKUP_PASSWORD
 
         def old_snapshot():
             old.start()
             old.import_backup(json.dumps(self.seed("dump-1005.json")).encode())
             self.chat(old)
             self.chat(old, "v016-other-key", stream=True)
-            self.old_encrypted = old.api("/api/v1/setting/export", "POST", {"password": password}, raw=True)
+            self.old_encrypted = old.export_backup()
             require(exported(old)["version"] == 1005, "real old export did not retain native archives")
             old.stop()
             self.before = base.database_state(old.db)
@@ -417,7 +496,7 @@ class Suite(base.Suite):
         self.check("actual-key-scope-notification-periods-and-extension", lambda: self.cooldown(upgraded))
 
         def restart_restore_and_failures():
-            self.encrypted = upgraded.api("/api/v1/setting/export", "POST", {"password": password}, raw=True)
+            self.encrypted = upgraded.export_backup()
             current = exported(upgraded)
             require(current["version"] == 1006 and len(current["stats_hourly_archives"]) == 3, "1006 and both archive formats did not coexist in the real export")
             require(b'"ciphertext"' in self.encrypted and b"synthetic-v016-upstream" not in self.encrypted, "current backup is not encrypted")
@@ -431,7 +510,7 @@ class Suite(base.Suite):
             expected = base.database_state(upgraded.db)
             # Export after the final normal stop via a fresh, unchanged startup.
             upgraded.start()
-            self.encrypted = upgraded.api("/api/v1/setting/export", "POST", {"password": password}, raw=True)
+            self.encrypted = upgraded.export_backup()
             (self.output / "real-v016-after-restart.encrypted.json").write_bytes(self.encrypted)
             upgraded.stop()
             restored = Runtime(self, "encrypted-empty-restore")

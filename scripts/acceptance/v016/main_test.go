@@ -1,13 +1,64 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Ink-lotus/octopus-roam/internal/db/integrity"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
 )
+
+func TestInspectActualEncryptedBackupPreservesInnerDump(t *testing.T) {
+	for _, version := range []int{1005, 1006} {
+		dump, err := fixture(version, "both")
+		if err != nil {
+			t.Fatal(err)
+		}
+		password := "synthetic-inspection-password"
+		encrypted, err := op.EncryptBackup(dump, password)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := json.Marshal(map[string]any{"password": password, "backup": json.RawMessage(encrypted)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var output bytes.Buffer
+		if err := inspectBackup(bytes.NewReader(request), &output); err != nil {
+			t.Fatal(err)
+		}
+		var actual model.DBDump
+		if err := json.Unmarshal(output.Bytes(), &actual); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(dump, &actual) {
+			t.Fatalf("inner version %d, entities, or archive bit patterns changed", version)
+		}
+		for _, invalid := range []map[string]any{
+			{"password": "wrong-synthetic-password", "backup": json.RawMessage(encrypted)},
+			{"password": password, "backup": dump},
+			{"password": password, "backup": map[string]any{"version": 1}},
+			{"password": password, "backup": json.RawMessage(encrypted), "unexpected": true},
+		} {
+			raw, err := json.Marshal(invalid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			output.Reset()
+			if err := inspectBackup(bytes.NewReader(raw), &output); err == nil || output.Len() != 0 {
+				t.Fatal("invalid backup emitted plaintext or was accepted")
+			}
+		}
+		output.Reset()
+		if err := inspectBackup(strings.NewReader(string(request)+"{}"), &output); err == nil || output.Len() != 0 {
+			t.Fatal("multiple request objects were accepted")
+		}
+	}
+}
 
 func TestFixtureFeatureBoundariesAndNativeArchiveRoundTrip(t *testing.T) {
 	files, err := inputs()

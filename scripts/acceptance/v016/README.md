@@ -66,6 +66,10 @@ Linux 在 Docker Engine 宿主使用 host network，但服务、fixture 和 Webh
 
 产品按顺序执行：真实 v0.1.5 HTTP 创建旧数据与普通/SSE 请求 → 正常停止 → 复制完整旧运行目录（包括配置/数据库/原程序）并留原字节 manifest → 候选从副本升级 → 原正则、旧规则默认关闭通知、旧模板创建/编辑/禁用/恢复/测试 → 可视化表达式与真实模型刷新 → 十一份 fixture 各在空库导入两次并重启 → 两个真实已进入上游的请求触发 Key 冷却及活动期延长 → 同 Key 的另一个模型受冷却、其他 Key 实际请求成功 → 延长不重复通知、真实到期后新一轮通知 → 1006 加密导出/空库恢复/重放/重启 → 错密码 400、冲突 409 保持数据 → 真实 v0.1.5 拒绝同一 1006 密文且数据不变 → 原旧程序+完整升级前副本恢复。Linux 最后执行卷权限、同卷重建和 Compose。
 
+导出始终调用真实产品的密码 POST 接口。每份原始密文先保存在对应 runtime 的 `export-NNN.encrypted.json`，然后由准确源码编译的 `inspect-backup` 辅助程序复用 `op.DecryptBackup` 验证并读取内层版本、实体和归档；不会调用明文 GET 或把密文容器版本 1 当作内容版本。密码和密文经 stdin 传入，解密结果只经捕获的 stdout 返回父验收进程；证据记录密文/明文摘要、命令与退出码，不记录密码、认证头或登录令牌。该辅助程序不打开数据库、不充当候选产品。
+
+`http.jsonl` 保存实际 API 方法、路径、状态、响应长度/摘要及起止时间，`exports.jsonl` 和 `backup-inspections.jsonl` 关联密文与解密结果，`checks.json` 保存场景起止时间。旧版准备失败时，在原 cleanup 正常停止成功后补存 `failure-preserved-v015-preupgrade` 完整运行目录与清单；这是故障保全，不代表原场景或升级通过。任何验收脚本修正都必须进入新准确 SHA 并重新绑定材料/候选，旧失败证据保留。
+
 Windows `--hold-for-browser` 强制在升级后保留真实原正则等待 UI 操作。`browser-ready.json` 绑定准确 commit/artifact，并列出五个必需动作。使用冻结的 `../backup/browser.mjs` 在新 browser profile 中操作当前页面：全局/渠道手写表达式分别打开、清空草稿、取消并核对原值；再分别以“保留 starts v016-model-、排除 contains preview/retired”应用、保存、重开并核对条件行；记录一行和超过 144px 时的预览/滚动、桌面和手机截图。截图/命令记录放在产品输出内；`browser-done.json` 填准确 commit/artifact、实际动作和每份文件摘要。入口继续通过真实 API/模型刷新核对保存结果，不能只提供 passed=true。
 
 Linux 的默认产品运行只记录 API/后端正则场景，浏览器标为 not_run。双平台最终报告须关联同一候选前端的 Windows 实际 UI 证据与 Linux 实际 API/镜像证据，不把生成器或开发浏览器结果称为 Linux 现场 UI 通过。

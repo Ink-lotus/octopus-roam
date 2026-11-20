@@ -2,11 +2,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/Ink-lotus/octopus-roam/internal/db/integrity"
 	"github.com/Ink-lotus/octopus-roam/internal/model"
+	"github.com/Ink-lotus/octopus-roam/internal/op"
 )
 
 const contractName = "v016-product-fixtures-1"
@@ -242,10 +245,52 @@ func run(output string, check bool) error {
 	return nil
 }
 
+// inspectBackup authenticates a real encrypted HTTP export without opening a DB.
+// Password and ciphertext arrive over stdin; plaintext is returned only to the
+// acceptance parent process, which records hashes rather than credentials.
+func inspectBackup(input io.Reader, output io.Writer) error {
+	const limit = op.MaxBackupRequestBytes + 8192
+	raw, err := io.ReadAll(io.LimitReader(input, limit+1))
+	if err != nil || len(raw) > limit {
+		return fmt.Errorf("invalid or oversized backup inspection request")
+	}
+	defer clear(raw)
+	var request struct {
+		Password string          `json:"password"`
+		Backup   json.RawMessage `json:"backup"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return fmt.Errorf("invalid backup inspection request")
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return fmt.Errorf("backup inspection requires one JSON object")
+	}
+	defer func() { request.Password = ""; clear(request.Backup) }()
+	dump, err := op.DecryptBackup(request.Backup, request.Password)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(dump)
+}
+
 func main() {
 	output := flag.String("output", "", "new fixture directory; with --check, read an existing directory")
 	check := flag.Bool("check", false, "only verify exact synthetic fixture bytes; no application or database")
+	inspect := flag.Bool("inspect-backup", false, "authenticate encrypted backup from stdin and return the inner dump; no database")
 	flag.Parse()
+	if *inspect {
+		if *output != "" || *check || flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "--inspect-backup cannot be combined with fixture options or positional arguments")
+			os.Exit(2)
+		}
+		if err := inspectBackup(os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *output == "" || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "--output is required; no positional arguments")
 		os.Exit(2)

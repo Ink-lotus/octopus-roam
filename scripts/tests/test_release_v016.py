@@ -1,13 +1,18 @@
 """Acceptance contracts: skips/missing tests and unsafe inputs cannot pass."""
 import argparse
+import copy
+import http.server
 import importlib.util
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import types
 import unittest
-from unittest.mock import patch
+import urllib.request
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -109,6 +114,79 @@ class ProductInputTests(unittest.TestCase):
     def test_rejects_floating_images(self):
         with self.assertRaisesRegex(AssertionError, "immutable"):
             product.immutable_image("ghcr.io/ink-lotus/octopus-roam:v0.1.5-amd64")
+
+
+class ExportInspectionTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.requests = []
+        self.ciphertext = b'{"product":"octopus-roam","format":"encrypted-backup","version":1,"ciphertext":"synthetic-test-envelope"}'
+        test = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                self.send_response(405)
+                self.send_header("Allow", "POST")
+                self.end_headers()
+
+            def do_POST(self):
+                data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                test.requests.append((self.command, self.path, data))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(test.ciphertext)))
+                self.end_headers()
+                self.wfile.write(test.ciphertext)
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        self.addCleanup(self.stop_server)
+        self.runtime = object.__new__(product.Runtime)
+        self.runtime.root = Path(self.temporary.name)
+        self.runtime.url = f"http://127.0.0.1:{self.server.server_port}"
+        self.runtime.client = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self.runtime.export_sequence = 0
+        self.runtime.suite = types.SimpleNamespace(version="v0.1.5", inspect_backup=Mock())
+
+    def stop_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+    def test_real_http_contract_uses_password_post_and_checks_inner_version(self):
+        for version in (1005, 1006):
+            inner = {"product": "octopus-roam", "version": version, "exported_at": "synthetic-time", "stats_hourly_archives": [{"format": 2, "payload": "native-bits"}]}
+            self.runtime.suite.inspect_backup.return_value = copy.deepcopy(inner)
+            actual = product.exported(self.runtime)
+            self.assertEqual(actual["version"], version)
+            self.assertEqual(actual["stats_hourly_archives"], inner["stats_hourly_archives"])
+            self.assertNotIn("exported_at", actual)
+            self.runtime.suite.inspect_backup.assert_called_with(self.ciphertext)
+        self.assertEqual(self.requests, [("POST", "/api/v1/setting/export", {"password": product.BACKUP_PASSWORD})] * 2)
+        for number in (1, 2):
+            self.assertEqual((self.runtime.root / f"export-{number:03d}.encrypted.json").read_bytes(), self.ciphertext)
+        records = [json.loads(line) for line in (self.runtime.root / "http.jsonl").read_text().splitlines()]
+        self.assertTrue(all(row["status"] == 200 and row["method"] == "POST" for row in records))
+        self.assertNotIn(product.BACKUP_PASSWORD, (self.runtime.root / "http.jsonl").read_text())
+
+    def test_failed_inspection_retains_original_ciphertext(self):
+        self.runtime.suite.inspect_backup.side_effect = AssertionError("authenticated inspection failed")
+        with self.assertRaisesRegex(AssertionError, "authenticated"):
+            product.exported(self.runtime)
+        self.assertEqual((self.runtime.root / "export-001.encrypted.json").read_bytes(), self.ciphertext)
+        self.assertTrue((self.runtime.root / "exports.jsonl").is_file())
+
+    def test_rejected_get_records_actual_status(self):
+        with self.assertRaisesRegex(AssertionError, "status 405"):
+            self.runtime.api("/api/v1/setting/export", raw=True)
+        record = json.loads((self.runtime.root / "http.jsonl").read_text())
+        self.assertEqual((record["method"], record["status"]), ("GET", 405))
+        self.assertFalse(list(self.runtime.root.glob("export-*.encrypted.json")))
 
 
 class SourceSettingsTests(unittest.TestCase):
