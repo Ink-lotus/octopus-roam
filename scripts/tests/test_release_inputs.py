@@ -246,9 +246,12 @@ class EntryVersionTests(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertFalse(self.output.exists())
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows entry: checked by windows-acceptance CI')
     def test_powershell_entry_passes_valid_versions_to_artifact_verification_only(self):
+        pwsh = shutil.which('pwsh')
+        self.assertIsNotNone(pwsh, 'PowerShell 7 is required to check the acceptance entry')
         for version, accepted in self.versions:
-            result = subprocess.run([shutil.which('pwsh'), '-NoProfile', '-File',
+            result = subprocess.run([pwsh, '-NoProfile', '-File',
                 str(REPOSITORY / 'scripts/prepare-database-acceptance.ps1'),
                 '-Candidate', str(self.root), '-OutputRoot', str(self.output), '-ExpectedVersion', version,
                 '-ExpectedCommit', '0' * 40, '-ArtifactSha256', 'a' * 64, '-MaterialsSha256', 'b' * 64,

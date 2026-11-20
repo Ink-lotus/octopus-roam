@@ -20,9 +20,11 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      docs_only: ${{ steps.changes.outputs.docs_only }}
     env:
       GOTOOLCHAIN: local
       COMMIT: ${{ inputs.commit || github.sha }}
@@ -81,3 +83,71 @@ jobs:
         run: bash scripts/ci-test.sh
       - name: Check source and lock files stayed unchanged
         run: git diff --exit-code
+
+  windows-acceptance:
+    needs: linux
+    if: needs.linux.outputs.docs_only != 'true'
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+      GOPROXY: off
+      GOFLAGS: -mod=readonly
+      COMMIT: ${{ inputs.commit || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Check immutable input
+        shell: pwsh
+        run: |
+          $actual = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:COMMIT) { throw 'Commit differs from the reviewed input.' }
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.6'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Record and check actual tools
+        shell: pwsh
+        run: |
+          python --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $actualGo = go env GOVERSION
+          if ($LASTEXITCODE -ne 0 -or $actualGo -cne 'go1.27.3') { throw 'Go 1.27.3 is required.' }
+          $PSVersionTable.PSVersion.ToString()
+          if ($PSVersionTable.PSVersion.Major -ne 7) { throw 'PowerShell 7 is required on Windows.' }
+      - name: Test Windows acceptance entries without skips
+        shell: pwsh
+        run: |
+          python -B scripts/ci_windows_acceptance.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check source and lock files stayed unchanged
+        shell: pwsh
+        run: |
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  test:
+    needs: [linux, windows-acceptance]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected platform check
+        env:
+          LINUX_RESULT: ${{ needs.linux.result }}
+          DOCS_ONLY: ${{ needs.linux.outputs.docs_only }}
+          WINDOWS_RESULT: ${{ needs.windows-acceptance.result }}
+        run: |
+          test "$LINUX_RESULT" = success
+          if [ "$DOCS_ONLY" = true ]; then
+            test "$WINDOWS_RESULT" = skipped
+          else
+            test "$WINDOWS_RESULT" = success
+          fi

@@ -4,12 +4,16 @@
 
 普通 push / pull_request 只运行测试。release workflow 仅接受 main 上的手动触发，`publish` 默认 false；即便开启，也必须经过 `prepare → test → build → publish`。publish 使用 `release` environment，其远端保护规则需另行核实和授权配置，文件本身不会替仓库创建审批规则。
 
-普通 CI 保留同名必需检查 `test`，按完整变更范围选择检查，不使用会令必需检查缺席的 workflow 路径过滤：
+普通 CI 保留同名必需检查 `test`，汇总 Linux 与 Windows 专项结果；按完整变更范围选择检查，不使用会令必需检查缺席的 workflow 路径过滤：
 
 - 仅修改根目录 `README.md`、`README_zh.md`、`CHANGELOG.md`、`web/README.md` 或 `docs/` 下的 Markdown（不含归档）时，使用 Python 标准库检查 UTF-8、代码围栏、行尾空白和本地链接目标。删除或改名文档时同时检查其他维护中文档的引用。此路径不安装 Go、Node.js、pnpm 或项目依赖，不执行产品全量测试。
 - 任意代码、依赖、脚本、workflow、运行时资源、其他路径或文档文件模式变更，均执行现有完整测试。没有差异、缺少比较基线或无法可靠判断时也执行完整测试。
 - main 的 push 比较事件中的前后提交；其他工作分支从与 main 的共同祖先比较全部待合入变更，首次 push 同样适用。PR 比较目标基线与实际受测合并提交，避免仅因最新提交改文档就漏测此前的代码变更。
 - release 调用始终执行完整测试；可复用 workflow 的 `force_full_test` 默认 true，指定准确 `commit` 时也强制全量。普通文档检查通过仍会产生成功的 `test` 结果，失败会阻止主分支门禁通过。
+
+Linux job 执行完整 `scripts/ci-test.sh`；其中五项 Windows PowerShell 入口测试仅在 Windows 执行，Node 入口及其他通用合同测试在 Linux 继续执行。`windows-acceptance` job 在 Windows 2025 上使用 Go 1.27.3、Python 3.14.6 和 PowerShell 7，执行 `python -B scripts/ci_windows_acceptance.py`，要求五项全部通过且无 skip；缺少 PowerShell 是失败。两边均检出同一准确 SHA。
+
+汇总 `test` 仅在 Linux 成功且 Windows 专项成功时通过；已确认纯文档变更时，允许 Windows job 按分流规则跳过。失败、取消、非文档范围的跳过均不能通过汇总门禁。release 的可复用调用执行两边检查。此专项不替代本机 Windows 完整源码检查或实际 ZIP/镜像应用验收。
 
 日常改动使用可复用的 `test` 分支同步 Windows 与 Linux 测试环境，按以下流程合入 `main`：
 

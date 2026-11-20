@@ -169,6 +169,7 @@ class AcceptanceTests(unittest.TestCase):
                 acceptance.portable_files(paths)
 
 
+@unittest.skipUnless(sys.platform == 'win32', 'Windows entry: checked by windows-acceptance CI')
 class EntryPointTests(unittest.TestCase):
     def setUp(self):
         self.root = fixtures.new_directory()
@@ -223,6 +224,12 @@ class EntryPointTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('release_acceptance.py prepare', result.stderr)
         self.assertFalse(self.output.exists())
+
+
+class NodeEntryPointTests(unittest.TestCase):
+    def setUp(self):
+        self.root = fixtures.new_directory()
+        self.output = REPOSITORY / 'build/release-local' / ('node-entry-test-' + uuid.uuid4().hex)
 
     def test_update_entry_requires_identity_before_opening_fixture_server(self):
         contract.write_json(self.root / 'build-info.json', {'role': acceptance.ROLE, 'schema': 2})

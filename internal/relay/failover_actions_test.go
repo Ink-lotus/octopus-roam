@@ -137,8 +137,29 @@ func TestFailoverCardSelectionPreservesSentRequestAndReroutesCapacityWaiter(t *t
 }
 
 func TestFailoverLogSelectionInterruptsOnlyOriginalWaitingRound(t *testing.T) {
-	blocked := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	arrived := make(chan struct{}, 1)
+	canceled := make(chan struct{}, 1)
+	release := make(chan struct{})
+	blocked := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		// net/http detects client disconnects after the request body reaches EOF.
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			return
+		}
+		select {
+		case arrived <- struct{}{}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+			select {
+			case canceled <- struct{}{}:
+			default:
+			}
+		case <-release:
+		}
+	}))
 	defer blocked.Close()
+	defer close(release) // Release the fixture even if a request assertion fails.
 	spare := newFakeUpstream(t, "log-spare", &upstreamCallLog{})
 	a := newTestChannel(t, testName(t, "a"), blocked.URL, "a-model")
 	b := newTestChannel(t, testName(t, "b"), spare.server.URL, "b-model")
@@ -166,11 +187,21 @@ func TestFailoverLogSelectionInterruptsOnlyOriginalWaitingRound(t *testing.T) {
 			t.Fatal("request did not enter the first round")
 		}
 	}
+	select {
+	case <-arrived:
+	case <-ctx.Done():
+		t.Fatal("original round did not reach the upstream")
+	}
 	state := RouteStateOf(group)
 	if _, err := SelectRouteItem(group, group.Items[1].ID, state.SelectionVersion); err != nil {
 		t.Fatal(err)
 	}
 	Interrupt(waiting.ID, waiting.Round)
+	select {
+	case <-canceled:
+	case <-ctx.Done():
+		t.Fatal("original upstream request was not canceled")
+	}
 	select {
 	case <-done:
 	case <-ctx.Done():
