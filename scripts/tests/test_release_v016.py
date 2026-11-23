@@ -5,6 +5,7 @@ import http.server
 import importlib.util
 import json
 import os
+import sqlite3
 from pathlib import Path
 import sys
 import tempfile
@@ -261,6 +262,73 @@ class ActionPostContractTests(unittest.TestCase):
         self.assertEqual(json.loads(self.requests[-1]["raw"]), options)
         self.assertEqual(self.runtime.api("/api/v1/webhook/list"), [])
         self.assertEqual(self.requests[-1], {"method": "GET", "path": "/api/v1/webhook/list", "media_type": "", "raw": b""})
+
+
+class BackupRestoreComparisonTests(unittest.TestCase):
+    def execute(self, path, statement, parameters=()):
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute(statement, parameters)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def make_database(self, directory, name):
+        path = directory / name
+        conn = sqlite3.connect(path)
+        for table in sorted(product.BACKUP_TABLES | product.NON_BACKUP_TABLES):
+            conn.execute('CREATE TABLE "' + table + '" (id INTEGER PRIMARY KEY, value TEXT)')
+            if table in product.BACKUP_TABLES:
+                conn.execute('INSERT INTO "' + table + '" VALUES (1, ?)', ("synthetic-" + table,))
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_recent_refresh_diagnostic_is_not_a_backup_row(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = self.make_database(directory, "source.db")
+            restored = self.make_database(directory, "restored.db")
+            self.execute(source, "INSERT INTO channel_refresh_records VALUES (1, 'synthetic-diagnostic')")
+            before = (source.read_bytes(), restored.read_bytes())
+            self.assertEqual(product.backup_database_state(source), product.backup_database_state(restored))
+            self.assertEqual(before, (source.read_bytes(), restored.read_bytes()))
+
+    def test_every_backup_table_mutation_is_detected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = self.make_database(Path(temporary), "source.db")
+            expected = product.backup_database_state(path)
+            for table in sorted(product.BACKUP_TABLES):
+                with self.subTest(table=table):
+                    self.execute(path, 'UPDATE "' + table + '" SET value = ?', ("synthetic-modified",))
+                    self.assertNotEqual(expected["business_sha256"], product.backup_database_state(path)["business_sha256"])
+                    self.execute(path, 'UPDATE "' + table + '" SET value = ?', ("synthetic-" + table,))
+
+    def test_missing_or_unknown_table_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            missing = self.make_database(directory, "missing.db")
+            extra = self.make_database(directory, "extra.db")
+            self.execute(missing, "DROP TABLE stats_hourly_archives")
+            self.execute(extra, "CREATE TABLE future_business (id INTEGER)")
+            for path in (missing, extra):
+                with self.subTest(path=path.name), self.assertRaisesRegex(AssertionError, "inventory"):
+                    product.backup_database_state(path)
+
+    def test_readonly_comparison_includes_existing_wal_rows(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = self.make_database(Path(temporary), "source.db")
+            writer = sqlite3.connect(path)
+            try:
+                writer.execute("PRAGMA journal_mode=WAL")
+                writer.execute("PRAGMA wal_autocheckpoint=0")
+                before = product.backup_database_state(path)
+                writer.execute("UPDATE channels SET value = 'synthetic-wal-value'")
+                writer.commit()
+                self.assertTrue(Path(str(path) + "-wal").is_file())
+                self.assertNotEqual(before["business_sha256"], product.backup_database_state(path)["business_sha256"])
+            finally:
+                writer.close()
 
 
 class SourceSettingsTests(unittest.TestCase):

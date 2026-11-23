@@ -68,6 +68,8 @@ Linux 在 Docker Engine 宿主使用 host network，但服务、fixture 和 Webh
 
 导出始终调用真实产品的密码 POST 接口。每份原始密文先保存在对应 runtime 的 `export-NNN.encrypted.json`，然后由准确源码编译的 `inspect-backup` 辅助程序复用 `op.DecryptBackup` 验证并读取内层版本、实体和归档；不会调用明文 GET 或把密文容器版本 1 当作内容版本。密码和密文经 stdin 传入，解密结果只经捕获的 stdout 返回父验收进程；证据记录密文/明文摘要、命令与退出码，不记录密码、认证头或登录令牌。该辅助程序不打开数据库、不充当候选产品。
 
+加密备份恢复只比较 `DBDump` 对应的十六张持久化表。`channel_refresh_records` 按模型合同仅保存最近刷新诊断，不属于备份恢复配置；不因真实模型刷新生成诊断而要求备份恢复它。比较使用包含 WAL 的只读事务，缺表或未知表明确失败，并将源/恢复摘要和逐表计数写入 `backup-restore-comparison.json`。正常启停、升级、错误密码、冲突拒绝和旧版失败恢复仍使用原完整 `database_state`，不全局排除诊断表。
+
 `http.jsonl` 保存实际 API 方法、路径、状态、响应长度/摘要及起止时间，`exports.jsonl` 和 `backup-inspections.jsonl` 关联密文与解密结果，`checks.json` 保存场景起止时间。旧版准备失败时，在原 cleanup 正常停止成功后补存 `failure-preserved-v015-preupgrade` 完整运行目录与清单；这是故障保全，不代表原场景或升级通过。任何验收脚本修正都必须进入新准确 SHA 并重新绑定材料/候选，旧失败证据保留。
 
 Windows `--hold-for-browser` 强制在升级后保留真实原正则等待 UI 操作。`browser-ready.json` 绑定准确 commit/artifact，并列出五个必需动作。使用冻结的 `../backup/browser.mjs` 在新 browser profile 中操作当前页面：全局/渠道手写表达式分别打开、清空草稿、取消并核对原值；再分别以“保留 starts v016-model-、排除 contains preview/retired”应用、保存、重开并核对条件行；记录一行和超过 144px 时的预览/滚动、桌面和手机截图。截图/命令记录放在产品输出内；`browser-done.json` 填准确 commit/artifact、实际动作和每份文件摘要。入口继续通过真实 API/模型刷新核对保存结果，不能只提供 passed=true。

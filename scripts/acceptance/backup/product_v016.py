@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -39,6 +40,35 @@ sha, require, until = base.sha, base.require, base.until
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+# These are the sixteen DBDump collections, mapped to SQLite table names.
+# ChannelRefreshRecord explicitly stores diagnostics outside backup configuration.
+BACKUP_TABLES = frozenset({
+    "channels", "channel_keys", "channel_models", "channel_grants", "groups",
+    "group_items", "group_categories", "llm_infos", "api_keys", "settings",
+    "webhook_endpoints", "stats_totals", "stats_dailies", "stats_hourlies",
+    "stats_api_keys", "stats_hourly_archives",
+})
+NON_BACKUP_TABLES = frozenset({"users", "migration_records", "channel_refresh_records"})
+
+
+def backup_database_state(path):
+    """Compare backup-covered rows only; full lifecycle checks keep database_state."""
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
+        names = {row[0] for row in conn.execute("SELECT name FROM sqlite_schema WHERE type='table'") if not row[0].startswith("sqlite_")}
+        require(names == BACKUP_TABLES | NON_BACKUP_TABLES, "backup comparison table inventory differs")
+        tables = {}
+        for name in sorted(BACKUP_TABLES):
+            rows = [list(row) for row in conn.execute('SELECT * FROM "' + name + '"')]
+            rows.sort(key=lambda row: json.dumps(row, sort_keys=True, default=str))
+            tables[name] = rows
+        return {"business_sha256": digest(tables), "counts": {name: len(rows) for name, rows in tables.items()}}
+    finally:
+        conn.close()
 
 
 def exported(runtime):
@@ -510,7 +540,7 @@ class Suite(base.Suite):
             require(base.database_state(upgraded.db)["business_sha256"] == before["business_sha256"] and not self.rule_state(upgraded, 1), "restart changed persisted rows or restored runtime cooldown")
             self.chat(upgraded)
             upgraded.stop()
-            expected = base.database_state(upgraded.db)
+            expected = backup_database_state(upgraded.db)
             # Export after the final normal stop via a fresh, unchanged startup.
             upgraded.start()
             self.encrypted = upgraded.export_backup()
@@ -524,7 +554,9 @@ class Suite(base.Suite):
             restored.import_backup(self.encrypted, password)
             restored.import_backup(self.encrypted, password)
             restored.stop()
-            require(base.database_state(restored.db)["business_sha256"] == expected["business_sha256"], "real encrypted restore/replay differs from saved source rows")
+            actual = backup_database_state(restored.db)
+            base.write_json(self.output / "backup-restore-comparison.json", {"source": expected, "restored": actual, "excluded_diagnostic_table": "channel_refresh_records"})
+            require(actual == expected, "real encrypted restore/replay differs from saved backup rows")
             restored.start()
             valid = exported(restored)
             bad = copy.deepcopy(valid)
