@@ -53,7 +53,15 @@ def owned_process(runtime, state):
     length = wintypes.DWORD(len(path))
     created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
     try:
-        require(library.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(length)), "cannot verify the owned process image")
+        if library.WaitForSingleObject(handle, 0) == 0:
+            library.CloseHandle(handle)
+            return None
+        if not library.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(length)):
+            # The process can exit between the first wait and the image query.
+            if library.WaitForSingleObject(handle, 0) == 0:
+                library.CloseHandle(handle)
+                return None
+            require(False, "cannot verify the owned process image")
         require(Path(path.value).resolve() == runtime.executable.resolve(), "PID does not belong to the isolated runtime")
         require(library.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)), "cannot verify process creation identity")
         require((created.dwHighDateTime << 32 | created.dwLowDateTime) == state["created"], "PID creation identity changed")
