@@ -40,7 +40,7 @@
 - C01/C02：新增按 `client_version` 匿名读取 GitHub Raw 的 Codex catalog，保留完整官方元数据、override 与网关权限过滤，不补模型或回退其他来源。实际 CLI 验收仅覆盖 0.169.0。
 - C02 补充：修复 SSE 重新编码后携带旧 Content-Length；三协议真实 HTTP 回归和双平台开发产物验证通过。
 - 修复 Windows 更新失败时临时 exe 占用导致的回滚问题；固定 Tailwind 扫描范围与 gzip 头，保证独立前端复建字节一致。
-- 后续正式支持 Windows amd64 原生 / SQLite 与 Linux amd64 Docker / Compose / SQLite；首次 Linux 开发产物应用验收已在 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成。本版候选仍须独立验收，见[支持与证据](docs/support.md)。WSL 预期兼容；实际登录按相关改动/异常触发，不设置独立 Paseo 门禁。
+- 后续正式支持 Windows amd64 原生 / SQLite 与 Linux amd64 Docker / Compose / SQLite；首次 Linux 开发产物应用验收已在 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成。本版候选仍须独立验收，见[支持与证据](docs/reference/support.md)。WSL 预期兼容；实际登录按相关改动/异常触发，不设置独立 Paseo 门禁。
 - 发布入口、Notes Git blob 绑定、脚本版本限制与维护文档同步到 v0.1.3；完整 CI、固定工具/锁文件、11 ZIP/四镜像及材料合同保持。已发布历史说明和附件保持原样。
 
 ## v0.1.2
@@ -69,7 +69,7 @@
 - 纳入选择性上游更新的文本协议兼容、九方向流式启动缓冲、工具身份及日志优化，已提交响应仍不重放。
 - 发布仅接受 v0.1.1 / v0.1.1-rc.N，说明统一绑定准确 commit 中的 `docs/releases/v0.1.1.md` 及其 SHA-256；保留手动发布、完整测试、11 ZIP、四架构镜像和来源/材料校验。
 
-支持范围沿用 Windows amd64 / SQLite，以及 Windows / WSL Containers 3.0.3.0 / Linux amd64 镜像 / SQLite。升级前保留旧程序及完整数据快照，回滚恢复旧快照会丢失升级后的新增数据，不承诺旧程序直接读取新数据库。操作步骤见[升级说明](docs/upgrade-r1.md)，[BUG-001](docs/known-bugs.md) 仍保留。
+支持范围沿用 Windows amd64 / SQLite，以及 Windows / WSL Containers 3.0.3.0 / Linux amd64 镜像 / SQLite。升级前保留旧程序及完整数据快照，回滚恢复旧快照会丢失升级后的新增数据，不承诺旧程序直接读取新数据库。操作步骤见[升级说明](docs/reference/upgrade-r1.md)，[BUG-001](docs/known-bugs.md) 仍保留。
 
 ## v0.1.0
 
@@ -103,4 +103,4 @@ Octopus Roam 的首个独立正式版本。fork 起点是 bestruirui/octopus v0.
 - 版本查询和一键更新改为只使用 Octopus Roam 独立发布源；版本通道按稳定版/RC 规则比较，归档必须匹配同版本 `SHA256SUMS` 后才替换。开发版、本地构建、无发布和不支持平台会显示明确状态。
 - 更新使用隔离临时目录和平台替换策略，保留配置、数据库、备份及更新前程序；容器部署按镜像替换。其历史验收范围以同版本发布说明为准。
 
-v0.1.0 的范围见[首版支持矩阵](docs/support-v0.1.0.md)。后续升级与回滚使用[当前升级说明](docs/upgrade-r1.md)，v0.1.1 的验收与交付使用该版本自己的发布记录。
+v0.1.0 的范围见[首版支持矩阵](docs/reference/support-v0.1.0.md)。后续升级与回滚使用[当前升级说明](docs/reference/upgrade-r1.md)，v0.1.1 的验收与交付使用该版本自己的发布记录。

@@ -9,5 +9,12 @@ static/out/*
 .tmp-go-mod/
 # 根目录临时文件
 /.tmp-*
-# 本地规划记录
-/plan/
+# 本地任务资料与连接工具
+/docs/known-bugs/
+/docs/future-features/
+/docs/release-plans/
+/docs/misc-changes/
+/tools/local/
+
+# 本地正式交付材料，不随 Git 同步
+/artifacts/

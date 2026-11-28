@@ -41,7 +41,7 @@
 
 ## 验证与交付边界
 
-仓库中的 [单元回归](../internal/relay/responses_cleanup_test.go) 覆盖合法历史项、历史长度变化、清理边界、大整数、幂等性、协议开关、缓存和失败原子性。[HTTP / SSE 回放](../internal/relay/responses_cleanup_integration_test.go) 通过实际 Relay HTTP 入口和本地合成上游验证代理消息回填后连续追加、两轮工具调用、压缩历史、参数覆盖顺序、转换出站及渠道故障转移。合成上游必须检查请求内容后才返回成功。
+仓库中的 [单元回归](../../internal/relay/responses_cleanup_test.go) 覆盖合法历史项、历史长度变化、清理边界、大整数、幂等性、协议开关、缓存和失败原子性。[HTTP / SSE 回放](../../internal/relay/responses_cleanup_integration_test.go) 通过实际 Relay HTTP 入口和本地合成上游验证代理消息回填后连续追加、两轮工具调用、压缩历史、参数覆盖顺序、转换出站及渠道故障转移。合成上游必须检查请求内容后才返回成功。
 
 ```powershell
 go test ./internal/relay -run 'ResponsesHistory|StripResponses|SanitizeResponses' -count=1
@@ -51,7 +51,7 @@ go test ./internal/relay -count=1
 
 这些测试使用合成密文，只证明数据被完整保留，不证明真实上游能够解密。客户端接入使用原生 Codex CLI 验证连续请求与工具调用，并记录实际 CLI、网关版本和请求结果；不再要求单独的 Paseo 现场测试。没有执行过的场景保持未实测，不把取消验收要求记为现场通过。
 
-C02 累计提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 已完成两平台/GitHub 完整 CI、开发产物应用验收和原生 Codex 0.169.0 八场景，包含工具后续轮次；准确边界见[支持证据](support.md)。独立的 SSE 旧 Content-Length 问题已修复，三协议回归见 [stream_framing_test.go](../internal/relay/stream_framing_test.go)。
+C02 累计提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 已完成两平台/GitHub 完整 CI、开发产物应用验收和原生 Codex 0.169.0 八场景，包含工具后续轮次；准确边界见[支持证据](support.md)。独立的 SSE 旧 Content-Length 问题已修复，三协议回归见 [stream_framing_test.go](../../internal/relay/stream_framing_test.go)。
 
 完整 CI、规定 race、准确提交的云端检查及正式 Windows ZIP / Linux 镜像验收仍遵守 [当前发布门禁](release-ci.md)。局部测试或开发程序回放不能替代实际发布产物的安装、升级、启停、持久化、备份恢复、卷权限和容器重建验收。
 

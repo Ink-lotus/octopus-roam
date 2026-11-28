@@ -12,7 +12,7 @@ v0.1.6 的说明与材料使用一致的支持范围，并区分开发验收、�
 
 - `INSTALL.md`：写明 Windows 原生与 Linux amd64 Docker / Compose 安装入口、Linux 专用数据目录和运行用户权限、正常停止、旧版升级及备份恢复；WSL2 / WSL Containers 仅标为预期兼容。按支持矩阵引用 C02 首次开发验收和本轮候选的各自准确产物，不混用结论。
 - 源码 ZIP 顶层 README 和 `application/` 下的双语 README：写明相同平台与数据库范围、实验性目标和完整交付矩阵。安装说明与源码包顶层 README 须自含支持范围，不能只给仓库文档链接。
-- 新版 Release Notes 与 CHANGELOG：记录可视化模型过滤、Key级冷却/规则通知、旧Webhook模板兼容和1006条件/降级限制，按本次真实平台结果绑定。1006允许格式1/2小时归档共存；无扩展冷却保留1004/1005。本轮变化见 [CHANGELOG 的 v0.1.6 条目](../CHANGELOG.md)；已发布v0.1.5及更早说明保持原样。
+- 新版 Release Notes 与 CHANGELOG：记录可视化模型过滤、Key级冷却/规则通知、旧Webhook模板兼容和1006条件/降级限制，按本次真实平台结果绑定。1006允许格式1/2小时归档共存；无扩展冷却保留1004/1005。本轮变化见 [CHANGELOG 的 v0.1.6 条目](../../CHANGELOG.md)；已发布v0.1.5及更早说明保持原样。
 
 当前统一状态为：Windows amd64 原生 + SQLite 和 Linux amd64 Docker / Compose + SQLite 正式支持，C02 的首次开发产物应用验收已完成；v0.1.6 候选必须使用本轮新 ZIP/镜像完成验收。WSL2 / WSL Containers 预期兼容，不再单列发布必验项。C02 准确输入、产物摘要与范围见[支持矩阵](support.md)。MySQL/PostgreSQL 仍为正式支持范围外；本版保留既有迁移与格式2归档，并支持与1006共存，不扩大正式支持范围。
 

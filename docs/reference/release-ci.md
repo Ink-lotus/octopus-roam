@@ -26,7 +26,7 @@ Linux job 执行完整 `scripts/ci-test.sh`；其中五项 Windows PowerShell �
 
 版本合同仅接受 `v0.1.6` 和 `v0.1.6-rc.N`，N 为无前导零正整数。输入 commit 必须是 main 历史中的完整 40 位小写 SHA；该 commit 的 main.go 版本注释、web/package.json 版本（不带 v）和 Release Notes 首行必须精确匹配。已发布的 0.1.0～0.1.5、其他版本线、local 后缀、非法 RC、错误 commit、未审查说明及已有 tag / Release / 版本镜像均拒绝。普通开发 CI 的 dev / v0.0.0-ci 不进入正式材料合同。
 
-当前合同服务于 v0.1.6 发布准备，候选流程显式使用 `publish=false`。已有标签、Release 和版本镜像的拒绝检查继续生效；v0.1.5 及更早公开产物保持原样。材料生产与验收见[材料入口](release-materials.md)，行为和兼容边界见 [v0.1.6 说明](releases/v0.1.6.md)。正式发布须对准确操作另行授权。
+当前合同服务于 v0.1.6 发布准备，候选流程显式使用 `publish=false`。已有标签、Release 和版本镜像的拒绝检查继续生效；v0.1.5 及更早公开产物保持原样。材料生产与验收见[材料入口](release-materials.md)，行为和兼容边界见 [v0.1.6 说明](../releases/v0.1.6.md)。正式发布须对准确操作另行授权。
 
 本版源码检查在隔离的受跟踪源码目录执行完整 `scripts/ci-test.sh`，追加 `node --test scripts/tests/test_model_filter.cjs` 及 `CGO_ENABLED=1 go test -race ./internal/webhook/...`；固定工具和既有检查继续生效。`92bea667c648a507abc776b48928e8a5260120c2` 仅为开发输入，版本和说明进入提交后须绑定新的最终完整 SHA。
 
@@ -44,7 +44,7 @@ Linux job 执行完整 `scripts/ci-test.sh`；其中五项 Windows PowerShell �
 
 Linux 验收可使用 instabox 等主机，由当前代理通过 SSH 直接运行命令。支持对象是上表的运行环境与应用组合，不绑定云商，也不要求云机安装 Paseo 或 Codex。记录实际发行版、内核、架构、Docker / Compose 版本和挂载方式；云机当前预装工具与 CI 不一致时，先按授权准备固定工具版本，不能修改版本断言来迁就环境。
 
-连接 instabox 前必须先通过脚本检查并按需唤醒目标主机，等待 `state=running` 且 `runtime.ready=true` 后再建立 SSH。本机 `plan/tools/Invoke-InstaboxSsh.ps1` 已内置这一顺序，日常连接使用该入口；具体命令、目标区分、冷却和凭据读取说明见 [AGENTS.md](../AGENTS.md)。脚本当前仅本机保存，跨机器缺少脚本或配置时先补齐条件，不能跳过唤醒直接重试 SSH。
+连接 instabox 前必须先通过脚本检查并按需唤醒目标主机，等待 `state=running` 且 `runtime.ready=true` 后再建立 SSH。本机 `tools/local/Invoke-InstaboxSsh.ps1` 已内置这一顺序，日常连接使用该入口；具体命令、目标区分、冷却和凭据读取说明见 [AGENTS.md](../../AGENTS.md)。脚本当前仅本机保存，跨机器缺少脚本或配置时先补齐条件，不能跳过唤醒直接重试 SSH。
 
 两个正式支持目标均须以本次准确 commit 产生的实际产物执行应用级验收，并保留版本 / SHA、ZIP 哈希或镜像摘要、命令、退出码和结果：
 
@@ -66,7 +66,7 @@ Linux 原生程序、其他架构、macOS、Android、MySQL/PostgreSQL、其他�
 
 prepare / resolve 输出 `release_notes_path` 和 `release_notes_sha256`，workflow 将它们传给后续 job 的同名大写环境变量并再次校验。materials.json、material-production.json、build.json、artifact.json 和派生 build-info.json 均记录说明路径及 SHA-256。对应源码包含 `application/docs/releases/v0.1.6.md`，delivery/RELEASE-NOTES.md 必须与同一 blob 逐字节相同，包含原换行和末尾空行。
 
-新说明须与版本入口一起进入获审查 commit；未提交文案不属于 HEAD。`publish=false` 候选同样使用此路径，可使用本轮选定的 v0.1.6 或合法 v0.1.6-rc.N；首行、main 注释、前端版本及注入值必须与当批准确版本一致。RC 转正式版本或改变文案/源码后，重新审查和绑定 commit、材料与产物，重做受影响验收；改文件名或重算清单哈希不能使旧输入合格。`plan/release-notes-v0.1.0.md` 仅保留历史本地字节，不再参与新发布链路。
+新说明须与版本入口一起进入获审查 commit；未提交文案不属于 HEAD。`publish=false` 候选同样使用此路径，可使用本轮选定的 v0.1.6 或合法 v0.1.6-rc.N；首行、main 注释、前端版本及注入值必须与当批准确版本一致。RC 转正式版本或改变文案/源码后，重新审查和绑定 commit、材料与产物，重做受影响验收；改文件名或重算清单哈希不能使旧输入合格。旧 `plan/release-notes-v0.1.0.md` 不再参与新发布链路；已发布历史说明保持原字节，旧路径的负例测试继续保留。
 
 ## 对应材料输入
 

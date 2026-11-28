@@ -66,7 +66,7 @@ Set-Location -LiteralPath 'D:\tool\AI\octopus-roam-runtime'
 
 工作目录必须是运行目录。只从仓库里执行另一个目录的 `octopus-roam.exe`，或仅传入绝对配置路径，都不会改变相对数据库路径的解析位置。后台启动同样应设置 `-WorkingDirectory`，使用隐藏窗口，并将标准输出和错误分别重定向到 `logs` 下的文件。
 
-浏览器访问 `http://127.0.0.1:8080`。首次登录方式见 [README](../README_zh.md#-默认账户)。浏览器下载的备份通常进入系统下载目录，需要主动保存到 `backups`；该文件夹不会由程序自动填充。
+浏览器访问 `http://127.0.0.1:8080`。首次登录方式见 [README](../../README_zh.md#-默认账户)。浏览器下载的备份通常进入系统下载目录，需要主动保存到 `backups`；该文件夹不会由程序自动填充。
 
 ## Windows 双击管理菜单
 

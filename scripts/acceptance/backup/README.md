@@ -33,7 +33,7 @@ B02 不猜测移动、合并或恢复已有错位统计。B03 增加 `--stage in
 
 `run-integrity-linux.sh <新 B03 隔离目录>` 在独立、固定镜像、回环端口和 tmpfs 容器内运行三库 B03，以及 B01 / B02 回归和真实 v0.1.2 结构升级。输入列表与 B02 相同，runner 改为该脚本；专用目录名为 `/data/home/roam-backup-b03-YYYYMMDD-NN`。脚本拒绝收养已有容器或覆盖报告，仅清理由本次运行成功创建的容器。没有任一前置材料时不得把该项默认为通过。
 
-最终冲突合同、HTTP 状态、兼容影响及 `db-audit` 使用方式见[备份完整性说明](../../../docs/backup-integrity.md)。这些源码/真实数据库回归不替代正式 ZIP、镜像、安装与部署验收，也不扩大正式支持范围。
+最终冲突合同、HTTP 状态、兼容影响及 `db-audit` 使用方式见[备份完整性说明](../../../docs/reference/backup-integrity.md)。这些源码/真实数据库回归不替代正式 ZIP、镜像、安装与部署验收，也不扩大正式支持范围。
 
 B04 的 `--stage matrix --scenario C01` 至 `C08` 各使用独立新库，逐组核对数据库、关联、缓存、首次渠道保存、九类实体真正新增、统计落库和重连。`--stage cross-export` 将真实源库再导出的加密备份写入新 `--cross-backup` 文件；`--stage cross-import` 在空目标库恢复该文件，逐字段比较持久化内容后再保存、新增和重连。`run-joint-linux.sh` 在三库运行全部组合，并保留 B01～B03 的失败、并发、迁移与午夜回归。
 

@@ -41,13 +41,13 @@ Octopus Roam 是从 [bestruirui/octopus](https://github.com/bestruirui/octopus) 
 
 ## 支持范围
 
-正式支持 Windows amd64 原生程序 + SQLite，以及 Linux amd64 宿主上的 Docker Engine / amd64 镜像 + SQLite，包含 Compose。首次 Linux 应用验收已在 C02 开发提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成；v0.1.6 候选与正式发布 run 仍须分别验收自己的产物，准确输入见[支持与证据](docs/support.md)。WSL2 / WSL Containers 为预期兼容环境，不再单列发布必验项。
+正式支持 Windows amd64 原生程序 + SQLite，以及 Linux amd64 宿主上的 Docker Engine / amd64 镜像 + SQLite，包含 Compose。首次 Linux 应用验收已在 C02 开发提交 `9a7ed524bf763bc776ef291a0998aeb715700ad4` 完成；v0.1.6 候选与正式发布 run 仍须分别验收自己的产物，准确输入见[支持与证据](docs/reference/support.md)。WSL2 / WSL Containers 为预期兼容环境，不再单列发布必验项。
 
-已发布版本保留当时的支持声明和验收记录，见 [v0.1.2 发布说明](docs/releases/v0.1.2.md)。Linux 原生程序、macOS、Android 和其他架构镜像继续作为实验性构建；MySQL/PostgreSQL 功能与测试保留，仍在正式支持范围外。11 个程序 ZIP、四架构镜像及对应源码继续完整交付。完整矩阵与验收状态见[当前支持范围](docs/support.md)。
+已发布版本保留当时的支持声明和验收记录，见 [v0.1.2 发布说明](docs/releases/v0.1.2.md)。Linux 原生程序、macOS、Android 和其他架构镜像继续作为实验性构建；MySQL/PostgreSQL 功能与测试保留，仍在正式支持范围外。11 个程序 ZIP、四架构镜像及对应源码继续完整交付。完整矩阵与验收状态见[当前支持范围](docs/reference/support.md)。
 
 ## 🚀 快速开始
 
-下列说明面向 **v0.1.6** 交付布局。安装前先确认该版本已在本仓库 Releases 公开，并核验其摘要；候选产物只用于隔离验收。从 v0.1.0 升级时按[当前升级说明](docs/upgrade-r1.md)操作，Windows 旧布局首次迁移需要同时手动更新 exe 和 cmd。
+下列说明面向 **v0.1.6** 交付布局。安装前先确认该版本已在本仓库 Releases 公开，并核验其摘要；候选产物只用于隔离验收。从 v0.1.0 升级时按[当前升级说明](docs/reference/upgrade-r1.md)操作，Windows 旧布局首次迁移需要同时手动更新 exe 和 cmd。
 
 ### 🐳 Linux amd64 / Docker Engine
 
@@ -62,7 +62,7 @@ docker run --detach --name octopus-roam \
   ghcr.io/ink-lotus/octopus-roam:v0.1.6-amd64
 ```
 
-数据保存在宿主目录。示例让应用使用当前 Linux 用户的 UID/GID，并仅在宿主回环地址 `http://127.0.0.1:8080` 提供访问；远程主机可通过 SSH 端口转发访问。首次登录后修改默认密码。已有部署按[升级与恢复步骤](docs/upgrade-r1.md)操作，保留原数据和权限设置。
+数据保存在宿主目录。示例让应用使用当前 Linux 用户的 UID/GID，并仅在宿主回环地址 `http://127.0.0.1:8080` 提供访问；远程主机可通过 SSH 端口转发访问。首次登录后修改默认密码。已有部署按[升级与恢复步骤](docs/reference/upgrade-r1.md)操作，保留原数据和权限设置。
 
 ### Docker Compose
 
@@ -76,7 +76,7 @@ docker compose config --quiet
 docker compose up -d
 ```
 
-正式版本更新 `latest`，RC 不更新该标签。部署使用已发布的准确标签或已核对的 digest；替换已有容器时按[升级与备份说明](docs/upgrade-r1.md)操作。WSL2 / WSL Containers 仍可作为预期兼容环境使用，宿主挂载、权限和网络差异不再单独作为发布必验项。
+正式版本更新 `latest`，RC 不更新该标签。部署使用已发布的准确标签或已核对的 digest；替换已有容器时按[升级与备份说明](docs/reference/upgrade-r1.md)操作。WSL2 / WSL Containers 仍可作为预期兼容环境使用，宿主挂载、权限和网络差异不再单独作为发布必验项。
 
 
 ### 📦 从 Release 下载
@@ -90,7 +90,7 @@ docker compose up -d
 3. 关闭服务。
 4. 关闭服务并关闭开机自启。
 
-首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。登录自启在当前 Windows 用户登录后生效。关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。v0.1.6 使用单 cmd 入口和 exe 原生控制，登录自启通过计划任务实现。已发布的 v0.1.0 仍须保留 `windows` 支持文件；首次迁移到原生布局须同时手动更新 exe 和 cmd，见[迁移说明](docs/local-deployment.md#从旧脚本布局迁移)。
+首次启动自动创建配置和数据目录，默认管理地址为 `http://127.0.0.1:8080`；已有配置会继续使用。登录自启在当前 Windows 用户登录后生效。关闭菜单窗口后服务仍在后台运行；停止服务请选择 `3` 或 `4`。v0.1.6 使用单 cmd 入口和 exe 原生控制，登录自启通过计划任务实现。已发布的 v0.1.0 仍须保留 `windows` 支持文件；首次迁移到原生布局须同时手动更新 exe 和 cmd，见[迁移说明](docs/reference/local-deployment.md#从旧脚本布局迁移)。
 
 **Linux / macOS 等原生实验性构建：**在解压目录运行；原生进程升级与恢复尚未完成正式验收：
 
@@ -117,9 +117,9 @@ go run . start
 
 > 💡 **提示**：前端构建产物会被嵌入到 Go 二进制文件中，所以必须先构建前端再启动后端。
 
-离线准备本地构建可使用 `pwsh -NoProfile -File scripts/build-local.ps1`，默认版本为 `v0.1.6-local.<时间戳>`。脚本只写入新的 `build/release-local/` 目录，使用已有缓存；缺少第三方许可证报告时会明确标记。正式材料另按[发布合同](docs/release-ci.md)生成。
+离线准备本地构建可使用 `pwsh -NoProfile -File scripts/build-local.ps1`，默认版本为 `v0.1.6-local.<时间戳>`。脚本只写入新的 `build/release-local/` 目录，使用已有缓存；缺少第三方许可证报告时会明确标记。正式材料另按[发布合同](docs/reference/release-ci.md)生成。
 
-本地部署验收建议使用仓库外的独立运行目录，放置程序、配置、数据库及日志；见[本地部署说明](docs/local-deployment.md)。
+本地部署验收建议使用仓库外的独立运行目录，放置程序、配置、数据库及日志；见[本地部署说明](docs/reference/local-deployment.md)。
 
 **开发模式**
 
@@ -307,13 +307,13 @@ http://localhost:5173
 
 全局与渠道模型过滤共用可视化弹窗，支持保留/排除、匹配方式及AND/OR。手写表达式无法还原时可清空进入可视化草稿，取消保留原值；表达式通过显式按钮编辑。外部表达式预览最小一行，随内容增高，最大144px并内部滚动；弹窗保留条件行。实际模型列表预览和样例测试未包含在本版。
 
-渠道高级设置的“清理 Responses 历史”只删除最终 Responses 请求顶层的 `previous_response_id` 和 `input` 第一层 `item_reference`，保留其他客户端历史、ID 和密文；“仅获取模型”让该渠道全部自定义 Header 只用于模型获取与刷新。两个开关默认关闭并随渠道保存，详见[历史清理合同](docs/responses-history-cleanup.md)和 [v0.1.6 说明](docs/releases/v0.1.6.md)。
+渠道高级设置的“清理 Responses 历史”只删除最终 Responses 请求顶层的 `previous_response_id` 和 `input` 第一层 `item_reference`，保留其他客户端历史、ID 和密文；“仅获取模型”让该渠道全部自定义 Header 只用于模型获取与刷新。两个开关默认关闭并随渠道保存，详见[历史清理合同](docs/reference/responses-history-cleanup.md)和 [v0.1.6 说明](docs/releases/v0.1.6.md)。
 
-备份须设置至少12个字符的独立口令，下载为加密JSON；口令无法找回，应单独保管。导出使用已认证的 `POST /api/v1/setting/export`，在JSON请求体传入口令；旧GET返回405。v0.1.6在规则使用Key作用域或开启 `notify_webhook` 时导出内容 **1006**，可以同时包含格式1/2小时归档。无扩展冷却时保留 **1004**；含MySQL/PostgreSQL格式2归档使用 **1005**。加密容器仍为 **1**。新程序接受本产品1000～1006及已审计的无标识上游0/5，继续拒绝无标识6和未知身份。增量导入只接受兼容身份与引用，配置、凭据或唯一键冲突时整次拒绝并返回409；兼容重放保留约定的本地状态。完整恢复使用空实例，详见[完整性合同](docs/backup-integrity.md)。
+备份须设置至少12个字符的独立口令，下载为加密JSON；口令无法找回，应单独保管。导出使用已认证的 `POST /api/v1/setting/export`，在JSON请求体传入口令；旧GET返回405。v0.1.6在规则使用Key作用域或开启 `notify_webhook` 时导出内容 **1006**，可以同时包含格式1/2小时归档。无扩展冷却时保留 **1004**；含MySQL/PostgreSQL格式2归档使用 **1005**。加密容器仍为 **1**。新程序接受本产品1000～1006及已审计的无标识上游0/5，继续拒绝无标识6和未知身份。增量导入只接受兼容身份与引用，配置、凭据或唯一键冲突时整次拒绝并返回409；兼容重放保留约定的本地状态。完整恢复使用空实例，详见[完整性合同](docs/reference/backup-integrity.md)。
 
-v0.1.4 的迁移 18 自动归档仅覆盖 SQLite；v0.1.5 将同一处理扩展到 MySQL/PostgreSQL。三种数据库中 `hour >= 24` 的行原样归档并从活动表隔离，不归零、取模或求和。归档随加密备份导出并在空实例恢复；MySQL/PostgreSQL 仍是正式支持范围外，且要求匹配的 schema 和元数据权限。含异常小时的旧加密备份须显式执行离线 `backup-convert-hourly`，详见[小时统计恢复](docs/hourly-statistics-recovery.md)。
+v0.1.4 的迁移 18 自动归档仅覆盖 SQLite；v0.1.5 将同一处理扩展到 MySQL/PostgreSQL。三种数据库中 `hour >= 24` 的行原样归档并从活动表隔离，不归零、取模或求和。归档随加密备份导出并在空实例恢复；MySQL/PostgreSQL 仍是正式支持范围外，且要求匹配的 schema 和元数据权限。含异常小时的旧加密备份须显式执行离线 `backup-convert-hourly`，详见[小时统计恢复](docs/reference/hourly-statistics-recovery.md)。
 
-升级前保存旧程序、配置和完整数据库快照。1004 须由 v0.1.4 或后续兼容程序恢复；1005须由v0.1.5或后续兼容程序恢复；1006须由v0.1.6或后续兼容程序恢复，v0.1.5及更早拒绝1006，不能手改版本号降级。也不承诺旧程序直接读取迁移后的数据库。回滚恢复升级前快照，会丢失升级后的新增数据。首次 Windows 迁移、增量导入、默认值和故障排查见[升级说明](docs/upgrade-r1.md)。
+升级前保存旧程序、配置和完整数据库快照。1004 须由 v0.1.4 或后续兼容程序恢复；1005须由v0.1.5或后续兼容程序恢复；1006须由v0.1.6或后续兼容程序恢复，v0.1.5及更早拒绝1006，不能手改版本号降级。也不承诺旧程序直接读取迁移后的数据库。回滚恢复升级前快照，会丢失升级后的新增数据。首次 Windows 迁移、增量导入、默认值和故障排查见[升级说明](docs/reference/upgrade-r1.md)。
 
 设置页只检查 Octopus Roam 自己的发布源。稳定版只升级到更高稳定版；官方 RC 可升级到更高 RC 或对应稳定版。开发版和本地构建会显示状态，不会自行推断升级顺序。候选归档先下载到隔离目录，并校验同一版本的 `SHA256SUMS` 后才替换；程序、配置、数据库和备份目录保持分离。容器部署应替换镜像并重启容器，不能在容器内替换程序文件。
 
@@ -379,8 +379,8 @@ v0.1.4 的迁移 18 自动归档仅覆盖 SQLite；v0.1.5 将同一处理扩展�
 from openai import OpenAI
 import os
 
-client = OpenAI(   
-    base_url="http://127.0.0.1:8080/v1",   
+client = OpenAI(
+    base_url="http://127.0.0.1:8080/v1",
     api_key="sk-octopus-roam-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
 )
 completion = client.chat.completions.create(
@@ -414,7 +414,7 @@ print(completion.choices[0].message.content)
 
 ### Codex
 
-可选的 [Codex 模型目录](docs/codex-catalog.md) 按客户端版本提供 GitHub 发布快照，并应用网关权限过滤。服务端默认开启；在 Codex provider 中配置 `model_catalog_url` 即可使用，也可通过 `codex_catalog.enabled` 关闭。
+可选的 [Codex 模型目录](docs/reference/codex-catalog.md) 按客户端版本提供 GitHub 发布快照，并应用网关权限过滤。服务端默认开启；在 Codex provider 中配置 `model_catalog_url` 即可使用，也可通过 `codex_catalog.enabled` 关闭。
 
 编辑 `~/.codex/config.toml`
 
